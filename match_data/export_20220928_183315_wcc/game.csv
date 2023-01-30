@@ -1,0 +1,59 @@
+id,start_time,end_time,win_condition,winning_team,map_name,player_count,cabinet_id,cabinet_name,tournament_match_id,blue_team,gold_team
+426254,2022-09-11 00:41:02.018+00,2022-09-11 00:42:06.928+00,military,gold,map_day,10,59,hive,723,Teen Gay Girl Squad,Blue Quis
+426258,2022-09-11 00:42:57.79+00,2022-09-11 00:45:19.733+00,economic,blue,map_night,10,59,hive,723,Teen Gay Girl Squad,Blue Quis
+426264,2022-09-11 00:46:01.34+00,2022-09-11 00:47:20.628+00,military,gold,map_dusk,10,59,hive,723,Teen Gay Girl Squad,Blue Quis
+426353,2022-09-11 01:41:18.388+00,2022-09-11 01:42:41.112+00,military,gold,map_day,10,59,hive,728,It's Ben Good,Blue Quis
+426357,2022-09-11 01:44:10.659+00,2022-09-11 01:46:11.502+00,snail,gold,map_night,10,59,hive,728,It's Ben Good,Blue Quis
+426362,2022-09-11 01:48:12.981+00,2022-09-11 01:50:03.49+00,military,gold,map_dusk,10,59,hive,728,It's Ben Good,Blue Quis
+426616,2022-09-11 04:37:37.607+00,2022-09-11 04:43:34.714+00,military,gold,map_day,10,59,hive,745,Teen Gay Girl Squad,Too not enough
+426628,2022-09-11 04:44:38.549+00,2022-09-11 04:51:49.345+00,military,blue,map_night,10,59,hive,745,Teen Gay Girl Squad,Too not enough
+426649,2022-09-11 04:55:11.736+00,2022-09-11 04:59:12.926+00,economic,blue,map_dusk,10,59,hive,745,Teen Gay Girl Squad,Too not enough
+426658,2022-09-11 05:00:12.302+00,2022-09-11 05:06:47.156+00,military,blue,map_day,10,59,hive,745,Teen Gay Girl Squad,Too not enough
+426565,2022-09-11 04:08:03.557+00,2022-09-11 04:10:50.764+00,military,blue,map_day,10,59,hive,743,Blue Quis,Too not enough
+426572,2022-09-11 04:11:44.746+00,2022-09-11 04:18:18.099+00,snail,blue,map_dusk,10,59,hive,743,Blue Quis,Too not enough
+426582,2022-09-11 04:19:18.16+00,2022-09-11 04:19:55.78+00,military,gold,map_night,10,59,hive,743,Blue Quis,Too not enough
+426603,2022-09-11 04:31:03.567+00,2022-09-11 04:34:16.417+00,snail,blue,map_day,10,59,hive,743,Blue Quis,Too not enough
+426181,2022-09-10 23:55:36.822+00,2022-09-10 23:57:45.173+00,military,blue,map_day,10,59,hive,719,Low Sodium Lakers,It's Ben Good
+426187,2022-09-10 23:59:29.349+00,2022-09-11 00:00:57.575+00,economic,blue,map_night,10,59,hive,719,Low Sodium Lakers,It's Ben Good
+426194,2022-09-11 00:02:29.159+00,2022-09-11 00:03:35.769+00,military,blue,map_dusk,10,59,hive,719,Low Sodium Lakers,It's Ben Good
+426466,2022-09-11 03:00:39.478+00,2022-09-11 03:02:39.782+00,military,gold,map_day,10,59,hive,739,Low Sodium Lakers,It's Ben Good
+426470,2022-09-11 03:03:38.378+00,2022-09-11 03:05:45.147+00,military,blue,map_night,10,59,hive,739,Low Sodium Lakers,It's Ben Good
+426472,2022-09-11 03:06:38.004+00,2022-09-11 03:08:48.47+00,military,gold,map_dusk,10,59,hive,739,Low Sodium Lakers,It's Ben Good
+426540,2022-09-11 03:50:02.364+00,2022-09-11 03:50:54.992+00,military,blue,map_night,10,59,hive,742,Teen Gay Girl Squad,It's Ben Good
+426543,2022-09-11 03:51:34.039+00,2022-09-11 03:52:18.82+00,military,blue,map_day,10,59,hive,742,Teen Gay Girl Squad,It's Ben Good
+426546,2022-09-11 03:53:07.731+00,2022-09-11 03:54:13.826+00,military,blue,map_dusk,10,59,hive,742,Teen Gay Girl Squad,It's Ben Good
+426273,2022-09-11 00:51:43.655+00,2022-09-11 00:52:42.259+00,military,blue,map_day,10,59,hive,724,Too Not Enough,It's Ben Good
+426277,2022-09-11 00:54:18.63+00,2022-09-11 00:55:54.666+00,snail,blue,map_night,10,59,hive,724,Too Not Enough,It's Ben Good
+426284,2022-09-11 00:56:57.52+00,2022-09-11 00:58:09.157+00,military,blue,map_dusk,10,59,hive,724,Too Not Enough,It's Ben Good
+426203,2022-09-11 00:08:19.071+00,2022-09-11 00:09:39.789+00,military,gold,map_day,10,59,hive,720,Teen Gay Girl Squad,Too Not Enough
+426209,2022-09-11 00:10:28.107+00,2022-09-11 00:12:15.747+00,military,gold,map_night,10,59,hive,720,Teen Gay Girl Squad,Too Not Enough
+426212,2022-09-11 00:12:52.641+00,2022-09-11 00:15:54.609+00,economic,blue,map_dusk,10,59,hive,720,Teen Gay Girl Squad,Too Not Enough
+426288,2022-09-11 00:59:31.018+00,2022-09-11 01:01:57.658+00,military,blue,map_day,10,59,hive,725,Blue Quis,Too Not Enough
+426296,2022-09-11 01:02:43.955+00,2022-09-11 01:03:46.673+00,snail,blue,map_night,10,59,hive,725,Blue Quis,Too Not Enough
+426300,2022-09-11 01:04:29.619+00,2022-09-11 01:08:28.876+00,military,gold,map_dusk,10,59,hive,725,Blue Quis,Too Not Enough
+426553,2022-09-11 04:01:06.526+00,2022-09-11 04:03:16.848+00,economic,gold,map_night,10,59,hive,744,Low Sodium Lakers,Teen Gay Girl Squad
+426559,2022-09-11 04:04:12.03+00,2022-09-11 04:05:52.027+00,military,gold,map_dusk,10,59,hive,744,Low Sodium Lakers,Teen Gay Girl Squad
+426550,2022-09-11 03:57:36.397+00,2022-09-11 04:00:03.014+00,snail,gold,map_day,10,59,hive,744,Low Sodium Lakers,Teen Gay Girl Squad
+426308,2022-09-11 01:12:38.895+00,2022-09-11 01:15:06.554+00,military,gold,map_day,10,59,hive,726,Low Sodium Lakers,Teen Gay Girl Squad
+426316,2022-09-11 01:16:11.492+00,2022-09-11 01:17:41.168+00,economic,gold,map_night,10,59,hive,726,Low Sodium Lakers,Teen Gay Girl Squad
+426322,2022-09-11 01:18:43.857+00,2022-09-11 01:21:59.184+00,economic,gold,map_dusk,10,59,hive,726,Low Sodium Lakers,Teen Gay Girl Squad
+426235,2022-09-11 00:31:22.788+00,2022-09-11 00:32:43.652+00,military,gold,map_day,10,59,hive,721,It's Ben Good,Teen Gay Girl Squad
+426241,2022-09-11 00:33:33.885+00,2022-09-11 00:35:52.351+00,economic,blue,map_night,10,59,hive,721,It's Ben Good,Teen Gay Girl Squad
+426246,2022-09-11 00:37:04.219+00,2022-09-11 00:38:45.361+00,military,gold,map_dusk,10,59,hive,721,It's Ben Good,Teen Gay Girl Squad
+426487,2022-09-11 03:18:40.044+00,2022-09-11 03:23:39.061+00,military,blue,map_day,10,59,hive,740,Too not enough,Teen Gay Girl Squad
+426495,2022-09-11 03:24:34.967+00,2022-09-11 03:28:45.5+00,military,blue,map_night,10,59,hive,740,Too not enough,Teen Gay Girl Squad
+426503,2022-09-11 03:29:32.456+00,2022-09-11 03:32:31.927+00,military,blue,map_dusk,10,59,hive,740,Too not enough,Teen Gay Girl Squad
+426679,2022-09-11 05:18:39.4+00,2022-09-11 05:21:52.631+00,military,gold,map_day,10,59,hive,746,Blue Quis,Teen Gay Girl Squad
+426686,2022-09-11 05:22:40.178+00,2022-09-11 05:24:29.655+00,military,blue,map_night,10,59,hive,746,Blue Quis,Teen Gay Girl Squad
+426687,2022-09-11 05:25:13.134+00,2022-09-11 05:26:04.38+00,military,blue,map_dusk,10,59,hive,746,Blue Quis,Teen Gay Girl Squad
+426688,2022-09-11 05:26:31.197+00,2022-09-11 05:29:15.811+00,military,blue,map_dusk,10,59,hive,746,Blue Quis,Teen Gay Girl Squad
+426691,2022-09-11 05:30:26.514+00,2022-09-11 05:31:23.974+00,military,blue,map_night,10,59,hive,746,Blue Quis,Teen Gay Girl Squad
+426344,2022-09-11 01:33:09.354+00,2022-09-11 01:35:32.281+00,snail,blue,map_dusk,10,59,hive,727,Too Not Enough,Low Sodium Lakers
+426335,2022-09-11 01:26:45.046+00,2022-09-11 01:28:10.122+00,military,blue,map_day,10,59,hive,727,Too Not Enough,Low Sodium Lakers
+426338,2022-09-11 01:28:51.561+00,2022-09-11 01:32:04.23+00,military,blue,map_night,10,59,hive,727,Too Not Enough,Low Sodium Lakers
+426518,2022-09-11 03:38:20.867+00,2022-09-11 03:39:28.727+00,military,blue,map_day,10,59,hive,741,Blue Quis,Low Sodium Lakers
+426521,2022-09-11 03:40:17.024+00,2022-09-11 03:41:19.113+00,snail,blue,map_night,10,59,hive,741,Blue Quis,Low Sodium Lakers
+426525,2022-09-11 03:44:53.526+00,2022-09-11 03:46:22.097+00,military,blue,map_dusk,10,59,hive,741,Blue Quis,Low Sodium Lakers
+426229,2022-09-11 00:26:42.973+00,2022-09-11 00:28:04.675+00,military,blue,map_dusk,10,59,hive,722,Blue Quis,Low Sodium Lakers
+426223,2022-09-11 00:21:48.955+00,2022-09-11 00:23:33.671+00,military,blue,map_day,10,59,hive,722,Blue Quis,Low Sodium Lakers
+426226,2022-09-11 00:24:40.376+00,2022-09-11 00:25:57.592+00,snail,blue,map_night,10,59,hive,722,Blue Quis,Low Sodium Lakers

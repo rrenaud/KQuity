@@ -1,0 +1,41 @@
+id,start_time,end_time,win_condition,winning_team,map_name,player_count,cabinet_id,cabinet_name,tournament_match_id,blue_team,gold_team
+372907,2022-05-23 03:17:52.637+00,2022-05-23 03:21:02.166+00,snail,blue,map_day,10,3,sf,564,"Three's Company, Four's a Crowd",FUNtastic Five
+372912,2022-05-23 03:23:12.819+00,2022-05-23 03:26:24.722+00,military,blue,map_night,10,3,sf,564,"Three's Company, Four's a Crowd",FUNtastic Five
+372915,2022-05-23 03:27:14.933+00,2022-05-23 03:30:08.223+00,military,blue,map_dusk,10,3,sf,564,"Three's Company, Four's a Crowd",FUNtastic Five
+372828,2022-05-23 02:20:08.697+00,2022-05-23 02:21:06.504+00,economic,blue,map_day,10,3,sf,556,Jenn and Lev 2022,"Three's Company, Four's a Crowd"
+372831,2022-05-23 02:22:14.115+00,2022-05-23 02:24:31.194+00,economic,blue,map_night,10,3,sf,556,Jenn and Lev 2022,"Three's Company, Four's a Crowd"
+372838,2022-05-23 02:26:05.609+00,2022-05-23 02:29:40.395+00,military,blue,map_dusk,10,3,sf,556,Jenn and Lev 2022,"Three's Company, Four's a Crowd"
+372923,2022-05-23 03:34:21.912+00,2022-05-23 03:38:59.039+00,military,blue,map_day,10,3,sf,565,Let's Talk Comp,"Three's Company, Four's a Crowd"
+372928,2022-05-23 03:39:56.211+00,2022-05-23 03:44:27.195+00,snail,gold,map_night,10,3,sf,565,Let's Talk Comp,"Three's Company, Four's a Crowd"
+372933,2022-05-23 03:45:25.634+00,2022-05-23 03:47:45.198+00,military,gold,map_dusk,10,3,sf,565,Let's Talk Comp,"Three's Company, Four's a Crowd"
+372936,2022-05-23 03:48:29.985+00,2022-05-23 03:50:35.034+00,military,gold,map_day,10,3,sf,565,Let's Talk Comp,"Three's Company, Four's a Crowd"
+372951,2022-05-23 04:20:02.617+00,2022-05-23 04:21:37.012+00,snail,blue,map_day,10,3,sf,566,ReWUnion,"Three's Company, Four's a Crowd"
+372953,2022-05-23 04:22:49.047+00,2022-05-23 04:26:26.051+00,military,blue,map_night,10,3,sf,566,ReWUnion,"Three's Company, Four's a Crowd"
+372956,2022-05-23 04:27:02.136+00,2022-05-23 04:31:45.064+00,military,gold,map_dusk,10,3,sf,566,ReWUnion,"Three's Company, Four's a Crowd"
+372959,2022-05-23 04:32:48.326+00,2022-05-23 04:34:47.837+00,military,gold,map_day,10,3,sf,566,ReWUnion,"Three's Company, Four's a Crowd"
+372962,2022-05-23 04:35:28.471+00,2022-05-23 04:37:56.027+00,military,gold,map_night,10,3,sf,566,ReWUnion,"Three's Company, Four's a Crowd"
+372964,2022-05-23 04:44:23.371+00,2022-05-23 04:46:57.254+00,military,gold,map_day,10,3,sf,567,People live like this?!,"Three's Company, Four's a Crowd"
+372967,2022-05-23 04:48:03.516+00,2022-05-23 04:49:29.922+00,military,blue,map_night,10,3,sf,567,People live like this?!,"Three's Company, Four's a Crowd"
+372969,2022-05-23 04:50:10.643+00,2022-05-23 04:53:13.511+00,military,blue,map_dusk,10,3,sf,567,People live like this?!,"Three's Company, Four's a Crowd"
+372972,2022-05-23 04:54:03.863+00,2022-05-23 04:55:54.581+00,military,gold,map_day,10,3,sf,567,People live like this?!,"Three's Company, Four's a Crowd"
+372973,2022-05-23 04:57:29.133+00,2022-05-23 05:03:10.727+00,economic,blue,map_dusk,10,3,sf,567,People live like this?!,"Three's Company, Four's a Crowd"
+372939,2022-05-23 03:53:52.506+00,2022-05-23 03:55:10.516+00,military,gold,map_day,10,3,sf,563,ReWUnion,People live like this?!
+372942,2022-05-23 04:00:51.443+00,2022-05-23 04:10:14.643+00,military,gold,map_day,10,3,sf,563,ReWUnion,People live like this?!
+372940,2022-05-23 03:56:05.643+00,2022-05-23 03:57:37.747+00,snail,blue,map_night,10,3,sf,563,ReWUnion,People live like this?!
+372941,2022-05-23 03:58:24.509+00,2022-05-23 04:00:08.863+00,military,blue,map_dusk,10,3,sf,563,ReWUnion,People live like this?!
+372948,2022-05-23 04:11:13.538+00,2022-05-23 04:16:18.242+00,military,gold,map_night,10,3,sf,563,ReWUnion,People live like this?!
+372872,2022-05-23 02:50:21.316+00,2022-05-23 02:54:32.029+00,military,gold,map_day,10,3,sf,557,FUNtastic Five,ReWUnion
+372877,2022-05-23 02:55:14.891+00,2022-05-23 02:55:57.757+00,military,gold,map_night,10,3,sf,557,FUNtastic Five,ReWUnion
+372880,2022-05-23 02:56:34.538+00,2022-05-23 03:01:43.264+00,military,gold,map_dusk,10,3,sf,557,FUNtastic Five,ReWUnion
+372894,2022-05-23 03:07:04.71+00,2022-05-23 03:07:25.386+00,military,gold,map_night,10,3,sf,559,Jenn and Lev 2022,Let's Talk Comp
+372890,2022-05-23 03:04:17.557+00,2022-05-23 03:06:12.563+00,military,gold,map_day,10,3,sf,559,Jenn and Lev 2022,Let's Talk Comp
+372895,2022-05-23 03:08:08.476+00,2022-05-23 03:10:45.142+00,economic,blue,map_dusk,10,3,sf,559,Jenn and Lev 2022,Let's Talk Comp
+372898,2022-05-23 03:11:33.559+00,2022-05-23 03:12:39.91+00,military,gold,map_day,10,3,sf,559,Jenn and Lev 2022,Let's Talk Comp
+372818,2022-05-23 02:00:45.089+00,2022-05-23 02:05:09.73+00,military,blue,map_day,10,3,sf,555,ReWUnion,Let's Talk Comp
+372820,2022-05-23 02:05:58.216+00,2022-05-23 02:11:23.848+00,military,blue,map_night,10,3,sf,555,ReWUnion,Let's Talk Comp
+372822,2022-05-23 02:12:20.047+00,2022-05-23 02:15:00.612+00,military,blue,map_dusk,10,3,sf,555,ReWUnion,Let's Talk Comp
+372848,2022-05-23 02:34:56.397+00,2022-05-23 02:36:53.895+00,economic,gold,map_day,10,3,sf,558,People live like this?!,Jenn and Lev 2022
+372852,2022-05-23 02:37:40.672+00,2022-05-23 02:39:16.343+00,military,blue,map_night,10,3,sf,558,People live like this?!,Jenn and Lev 2022
+372855,2022-05-23 02:40:04.852+00,2022-05-23 02:42:22.292+00,economic,blue,map_dusk,10,3,sf,558,People live like this?!,Jenn and Lev 2022
+372861,2022-05-23 02:43:17.873+00,2022-05-23 02:44:19.579+00,military,gold,map_day,10,3,sf,558,People live like this?!,Jenn and Lev 2022
+372864,2022-05-23 02:45:33.167+00,2022-05-23 02:46:37.41+00,economic,blue,map_dusk,10,3,sf,558,People live like this?!,Jenn and Lev 2022
