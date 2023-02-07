@@ -113,17 +113,31 @@ class UseMaidenEventTest(unittest.TestCase):
 class VictoryEventTest(unittest.TestCase):
     def test_parse(self):
         event = parse_event_helper('34245901,2022-09-19 02:53:46.448+00,victory,"{Blue,military}",430601')
-        self.assertEqual(event.winning_team, preprocess.Team.Blue)
+        self.assertEqual(event.winning_team, preprocess.Team.BLUE)
         self.assertEqual(event.victory_condition, preprocess.VictoryCondition.military)
 
         event = parse_event_helper('34258141,2022-09-19 04:02:28.067+00,victory,"{Gold,snail}",430647')
-        self.assertEqual(event.winning_team, preprocess.Team.Gold)
+        self.assertEqual(event.winning_team, preprocess.Team.GOLD)
         self.assertEqual(event.victory_condition, preprocess.VictoryCondition.snail)
 
         event = parse_event_helper('34258141,2022-09-19 04:02:28.067+00,victory,"{Gold,economic}",430647')
-        self.assertEqual(event.winning_team, preprocess.Team.Gold)
+        self.assertEqual(event.winning_team, preprocess.Team.GOLD)
         self.assertEqual(event.victory_condition, preprocess.VictoryCondition.economic)
 
+
+class PositionIdToTeamTest(unittest.TestCase):
+    def test(self):
+        self.assertEqual(preprocess.position_id_to_team(1), preprocess.Team.GOLD)
+        self.assertEqual(preprocess.position_id_to_team(2), preprocess.Team.BLUE)
+        self.assertEqual(preprocess.position_id_to_team(3), preprocess.Team.GOLD)
+
+
+class PositionIdToDroneIndex(unittest.TestCase):
+    def test(self):
+        self.assertEqual(preprocess.position_id_to_drone_index(3), 0)
+        self.assertEqual(preprocess.position_id_to_drone_index(4), 0)
+        self.assertEqual(preprocess.position_id_to_drone_index(9), 3)
+        self.assertEqual(preprocess.position_id_to_drone_index(10), 3)
 
 if __name__ == '__main__':
     unittest.main()
