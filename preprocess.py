@@ -2,6 +2,7 @@ import csv
 from enum import Enum
 import datetime
 import dateutil.parser
+import numpy as np
 from typing import List, Optional, Dict
 
 
@@ -9,20 +10,20 @@ from typing import List, Optional, Dict
 
 
 class GateState(Enum):
-    NEUTRAL = 0
-    BLUE = 1
-    GOLD = 2
+    BLUE = 0
+    GOLD = 1
+    NEUTRAL = 2
+
+
+class Team(Enum):
+    BLUE = 0
+    GOLD = 1
 
 
 class VictoryCondition(Enum):
     military = 'military'
     economic = 'economic'
     snail = 'snail'
-
-
-class Team(Enum):
-    Blue = 'Blue'
-    Gold = 'Gold'
 
 
 class PlayerCategory(Enum):
@@ -62,17 +63,30 @@ class GameState:
         self.berries_available = 0
 
 
+class GameEvent:
+    def __init__(self):
+        self.timestamp = None
+        self.game_id = None
+
+    def modify_game_state(self, game_state: GameState):
+        pass
+
+
+GameEvents = List[GameEvent]
+
+
+def position_id_to_team(position_id: int) -> Team:
+    return Team(position_id % 2)
+
+
+def position_id_to_drone_index(position_id: int) -> int:
+    return (position_id - 3) // 2
+
 
 def split_payload(payload: str) -> List[str]:
     assert payload.startswith('{')
     assert payload.endswith('}')
     return payload[1:-1].split(',')
-
-
-class GameEvent:
-    def __init__(self):
-        self.timestamp = None
-        self.game_id = None
 
 
 class GameStartEvent(GameEvent):
@@ -156,7 +170,6 @@ class PlayerKillEvent(GameEvent):
 class UseMaidenEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
-
         self.maiden_x = int(payload_values[0])
         self.maiden_y = int(payload_values[1])
         self.maiden_type = MaidenType[payload_values[2]]
@@ -166,7 +179,7 @@ class UseMaidenEvent(GameEvent):
 class VictoryEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
-        self.winning_team = Team[payload_values[0]]
+        self.winning_team = Team.BLUE if payload_values[0] == 'Blue' else Team.GOLD
         self.victory_condition = VictoryCondition[payload_values[1]]
 
 
@@ -199,21 +212,50 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
     return event
 
 
-def group_events_by_game(events: List[GameEvent]) -> Dict[int, List[GameEvent]]:
+def group_events_by_game(events: GameEvents) -> Dict[int, GameEvents]:
     games = {}
     for event in events:
         if event.game_id not in games:
             games[event.game_id] = []
         games[event.game_id].append(event)
+    for game_id, game_events in games.items():
+        game_events.sort(key=lambda e: e.timestamp)
     return games
+
+
+def debug_print_events(events: GameEvents):
+    start_ts = None
+    for event in events:
+        if start_ts is None:
+            start_ts = event.timestamp
+        attrs = {a: getattr(event, a) for a in dir(event) if not a.startswith('_')}
+        del attrs['game_id']
+        attrs['timestamp'] = (event.timestamp - start_ts).total_seconds()
+        print(event.__class__.__name__.removesuffix('Event'), attrs)
+
+
+def get_map(events: List[GameEvent]) -> Map:
+    for event in events:
+        if hasattr(event, 'map_name'):
+            return event.map_name
+    raise ValueError('No map found in events')
+
+
+def vectorize_events(events: List[GameEvent]) -> np.ndarray:
+    game_state = GameState(get_map)
 
 
 def main():
     event_reader = csv.DictReader(open('match_data/export_20220928_183155_gdc6/gameevent.csv'))
+    events = []
     for row in event_reader:
-        parse_event(row)
+        maybe_event = parse_event(row)
+        if maybe_event is not None:
+            events.append(maybe_event)
 
-
+    grouped_events = group_events_by_game(events)
+    #debug_print_events(next(iter(grouped_events.values())))
+    vectorize_events(next(iter(grouped_events.values())))
 
 if __name__ == '__main__':
     main()
