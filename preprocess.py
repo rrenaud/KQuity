@@ -20,6 +20,10 @@ class Team(Enum):
     GOLD = 1
 
 
+def opposing_team(team: Team) -> Team:
+    return Team.GOLD if team == Team.BLUE else Team.BLUE
+
+
 class VictoryCondition(Enum):
     military = 'military'
     economic = 'economic'
@@ -48,6 +52,7 @@ class DroneState:
     def __init__(self):
         self.has_speed = False
         self.has_wings = False
+        self.has_berry = False
 
 
 class TeamState:
@@ -61,6 +66,10 @@ class GameState:
     def __init__(self, map_name):
         self.teams = [TeamState() for _ in range(2)]
         self.berries_available = 0
+        self.gate_states = [GateState.NEUTRAL for _ in range(5)]
+
+    def get_team(self, team: Team) -> TeamState:
+        return self.teams[team.value]
 
 
 class GameEvent:
@@ -109,14 +118,30 @@ class BerryDepositEvent(GameEvent):
         self.drone_y = int(payload_values[1])
         self.position_id = int(payload_values[2])
 
+    def modify_game_state(self, game_state: GameState):
+        team: Team = position_id_to_team(self.position_id)
+        drone_index = position_id_to_drone_index(self.position_id)
+        team_state: TeamState = game_state.get_team(team)
+        team_state.drones[drone_index].has_berry = False
+        team_state.berries_deposited += 1
+        game_state.berries_available -= 1
+
 
 class BerryKickInEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
-        self.drone_x = int(payload_values[0])
-        self.drone_y = int(payload_values[1])
+        self.hole_x = int(payload_values[0])
+        self.hole_y = int(payload_values[1])
         self.position_id = int(payload_values[2])
         self.counts_for_own_team = payload_values[3] == 'True'
+
+    def modify_game_state(self, game_state: GameState):
+        team: Team = position_id_to_team(self.position_id)
+        if not self.counts_for_own_team:
+            team = opposing_team(team)
+
+        game_state.get_team(team).berries_deposited += 1
+        game_state.berries_available -= 1
 
 
 class BlessMaidenEvent(GameEvent):
@@ -234,15 +259,18 @@ def debug_print_events(events: GameEvents):
         print(event.__class__.__name__.removesuffix('Event'), attrs)
 
 
-def get_map(events: List[GameEvent]) -> Map:
+def get_map(events: GameEvents) -> Map:
     for event in events:
         if hasattr(event, 'map_name'):
             return event.map_name
     raise ValueError('No map found in events')
 
 
-def vectorize_events(events: List[GameEvent]) -> np.ndarray:
-    game_state = GameState(get_map)
+def vectorize_game_states(events: GameEvents) -> np.ndarray:
+    game_state = GameState(get_map(events))
+    for event in events:
+        event.modify_game_state(game_state)
+
 
 
 def main():
