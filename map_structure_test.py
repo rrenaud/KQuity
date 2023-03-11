@@ -33,5 +33,6 @@ class MapStructureInfosTest(unittest.TestCase):
         self.assertEqual(map_structure_info.get_type_and_maiden_index(1920 - 1360, 260),
                          (preprocess.MaidenType.maiden_wings, 4))
 
+
 if __name__ == '__main__':
     unittest.main()

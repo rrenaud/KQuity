@@ -2,7 +2,8 @@ from enum import Enum
 
 SCREEN_WIDTH = 1920
 
-class GateState(Enum):
+
+class ContestableState(Enum):
     BLUE = 0
     GOLD = 1
     NEUTRAL = 2
