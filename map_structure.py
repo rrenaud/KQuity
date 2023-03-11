@@ -2,7 +2,7 @@ import collections
 from typing import Dict, Type, Any
 
 import copy
-from constants import SCREEN_WIDTH, MaidenType, Team, Map
+from constants import SCREEN_WIDTH, MaidenType, Map
 import json
 
 
@@ -31,7 +31,7 @@ class MapStructureInfo:
         def index_coord_list(l):
             return {tuple(value): i for i, value in enumerate(l)}
 
-        # We assume gold is on the left by default.
+        self.gold_on_left = True
         self._gold_berries = index_coord_list(raw_info['left_berries'])
         self._blue_berries = index_coord_list(raw_info['right_berries'])
 
@@ -47,6 +47,7 @@ class MapStructureInfo:
         flipped = copy.deepcopy(self)
         flipped._gold_berries, flipped._blue_berries = flipped._blue_berries, flipped._gold_berries
         flipped._maidens = {(SCREEN_WIDTH - k[0], k[1]): v for k, v in flipped._maidens.items()}
+        flipped.gold_on_left = not self.gold_on_left
         return flipped
 
 
@@ -54,7 +55,7 @@ class MapStructureInfos(object):
 
     def __init__(self):
         self.backing = {}
-        with open('map_structure_info5.json', 'rb') as f:
+        with open('map_structure_info.json', 'rb') as f:
             raw_info_dict = json.load(f)
             for map_name, raw_info in raw_info_dict.items():
                 original = MapStructureInfo(raw_info)
