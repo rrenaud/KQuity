@@ -33,20 +33,15 @@ def serialize_raw_info():
     #for filename in glob.glob('export_20230227_223126_all_data/gameevent.csv'):
     for filename in ['sampled_events.csv']:
         events += preprocess.read_events_from_csv(filename, skip_bad_events)
-    grouped_events = preprocess.group_events_by_game(events)
+    grouped_events = preprocess.group_events_by_game_and_normalize_time(events)
 
     map_structure_info_dict = collections.defaultdict(MapStructureRawInfo)
 
-    missing_map_name_count = 0
-    missing_version_count = 0
     for idx, (game_id, game_events) in enumerate(grouped_events.items()):
         map_start: preprocess.MapStartEvent = preprocess.get_map_start(game_events)
         map_name = map_start.map.value
-        if idx % 100 == 0:
-            print(idx, 'missing_map_name_count', missing_map_name_count, 'missing_version_count', missing_version_count)
 
         if map_start.version != '17.26':
-            # print('skipping', version)
             continue
 
         raw_info = map_structure_info_dict[map_name]
@@ -97,7 +92,7 @@ def condense_raw_info_into_json():
             'snail_track_width': snail_track_widths[map_name.value],
             'total_berries': total_berries[map_name.value],
         }
-    json.dump(serializable_summary, open('map_structure_info5.json', 'w'), indent=2)
+    json.dump(serializable_summary, open('map_structure_info.json', 'w'), indent=2)
 
 
 if __name__ == '__main__':
