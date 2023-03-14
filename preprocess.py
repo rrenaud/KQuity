@@ -2,10 +2,13 @@ import csv
 
 import collections
 import datetime
-import typing
+import glob
+import pickle
+from typing import List, Optional, Union, Type, Iterator, Tuple
 
 import dateutil.parser
-from typing import List, Optional, Dict, Union, Type
+import numpy as np
+
 
 import constants
 import map_structure
@@ -115,7 +118,8 @@ class GameEvent:
         pass
 
 
-GameEvents = List[GameEvent]
+GameEventsList = List[GameEvent]
+GameEventsIterator = Iterator[GameEvent]
 
 
 def position_id_to_team(position_id: int) -> Team:
@@ -124,6 +128,10 @@ def position_id_to_team(position_id: int) -> Team:
 
 def position_id_to_worker_index(position_id: int) -> int:
     return (position_id - 3) // 2
+
+
+def is_queen_position_id(position_id: int) -> bool:
+    return position_id <= 2
 
 
 def split_payload(payload: str) -> List[str]:
@@ -168,7 +176,11 @@ class BerryDepositEvent(GameEvent):
         worker_index = position_id_to_worker_index(self.position_id)
         team_state: TeamState = game_state.get_team(team)
         team_state.workers[worker_index].has_food = False
-        berry_index = game_state.map_info.get_berry_index(self.hole_x, self.hole_y)
+        try:
+            berry_index = game_state.map_info.get_berry_index(self.hole_x, self.hole_y)
+        except ValueError:
+            raise GameValidationError('Invalid berry deposit event: {} {}'.format(self.hole_x, self.hole_y))
+
         team_state.berries_deposited[berry_index] = True
         game_state.berries_available -= 1
 
@@ -186,7 +198,11 @@ class BerryKickInEvent(GameEvent):
         if not self.counts_for_own_team:
             team = opposing_team(team)
 
-        berry_index = game_state.map_info.get_berry_index(self.hole_x, self.hole_y)
+        try:
+            berry_index = game_state.map_info.get_berry_index(self.hole_x, self.hole_y)
+        except ValueError:
+            raise GameValidationError('Invalid berry deposit event: {} {}'.format(self.hole_x, self.hole_y))
+
         game_state.get_team(team).berries_deposited[berry_index] = True
         game_state.berries_available -= 1
 
@@ -199,9 +215,11 @@ class BlessMaidenEvent(GameEvent):
         self.gate_color = ContestableState.BLUE if payload_values[2] == 'Blue' else ContestableState.GOLD
 
     def modify_game_state(self, game_state: GameState):
-        team: Team = Team.BLUE if self.gate_color == ContestableState.BLUE else ContestableState.GOLD
-        _, maiden_index = game_state.map_info.get_type_and_maiden_index(self.maiden_x, self.maiden_y)
-        game_state.maiden_states[maiden_index] = self.gate_color
+        try:
+            _, maiden_index = game_state.map_info.get_type_and_maiden_index(self.maiden_x, self.maiden_y)
+            game_state.maiden_states[maiden_index] = self.gate_color
+        except ValueError:
+            raise GameValidationError('Invalid maiden event: {} {}'.format(self.maiden_x, self.maiden_y))
 
 
 class CarryFoodEvent(GameEvent):
@@ -255,6 +273,8 @@ class SnailEscapeEvent(GameEvent):
 
 
 class GlanceEvent(GameEvent):
+    __slots__ = ['glance_x', 'glance_y', 'position_ids']
+
     def __init__(self, payload_values: List[str]):
         super().__init__()
         if len(payload_values) == 2:
@@ -304,7 +324,6 @@ class UseMaidenEvent(GameEvent):
         self.position_id = int(payload_values[3])
 
     def modify_game_state(self, game_state: GameState):
-        _, maiden_index = game_state.map_info.get_type_and_maiden_index(self.maiden_x, self.maiden_y)
         worker_state = game_state.get_worker_by_position_id(self.position_id)
 
         validate_condition(worker_state.has_food, "Worker using maiden missing food")
@@ -375,21 +394,29 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
     return event
 
 
-def group_events_by_game_and_normalize_time(events: GameEvents) -> Dict[int, GameEvents]:
-    games = {}
+def normalize_times(events: GameEventsList) -> GameEventsList:
+    events.sort(key=lambda e: e.timestamp)
+    start_ts: datetime.datetime = events[0].timestamp
+    for game_event in events:
+        game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
+    return events
+
+
+def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Iterator[Tuple[int, GameEventsList]]:
+    last_game_id = None
+    single_game_events = []
     for event in events:
-        if event.game_id not in games:
-            games[event.game_id] = []
-        games[event.game_id].append(event)
-    for game_id, game_events in games.items():
-        game_events.sort(key=lambda e: e.timestamp)
-        start_ts: datetime.datetime = game_events[0].timestamp
-        for game_event in game_events:
-            game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
-    return games
+        cur_game_id = event.game_id
+        if last_game_id != cur_game_id and single_game_events:
+            yield last_game_id, normalize_times(single_game_events)
+            single_game_events = []
+        single_game_events.append(event)
+        last_game_id = cur_game_id
+    if single_game_events:
+        yield last_game_id, normalize_times(single_game_events)
 
 
-def debug_print_events(events: GameEvents):
+def debug_print_events(events: GameEventsList):
     start_ts = None
     for event in events:
         if start_ts is None:
@@ -400,14 +427,14 @@ def debug_print_events(events: GameEvents):
         print(event.__class__.__name__.removesuffix('Event'), attrs)
 
 
-def get_map_start(events: GameEvents) -> MapStartEvent:
+def get_map_start(events: GameEventsList) -> MapStartEvent:
     for event in events:
         if isinstance(event, MapStartEvent):
             return event
-    raise ValueError('No map start found in events')
+    raise GameValidationError('No map start found in events')
 
 
-def is_valid_game(events: GameEvents,
+def is_valid_game(events: GameEventsList,
                   map_structure_infos: map_structure.MapStructureInfos) -> Optional[GameValidationError]:
     try:
         map_start: MapStartEvent = get_map_start(events)
@@ -417,28 +444,30 @@ def is_valid_game(events: GameEvents,
         game_state = GameState(map_info)
         for event in events:
             event.modify_game_state(game_state)
+
+        if not isinstance(events[-1], VictoryEvent):
+            raise GameValidationError('Game did not end in victory')
     except GameValidationError as e:
         return e
     return None
 
 
-def read_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEvents:
-    event_reader = csv.DictReader(open(csv_path))
-    events = []
-    for row in event_reader:
-        try:
-            if skip_raw_events_fn and skip_raw_events_fn(row):
+def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
+    for filename in glob.glob(csv_path):
+        event_reader = csv.DictReader(open(filename))
+        for row in event_reader:
+            try:
+                if skip_raw_events_fn and skip_raw_events_fn(row):
+                    continue
+                maybe_event = parse_event(row)
+            except Exception as e:
+                print(f'Failed to parse event: {row}, {e}')
                 continue
-            maybe_event = parse_event(row)
-        except Exception as e:
-            print(f'Failed to parse event: {row}, {e}')
-            continue
-        if maybe_event is not None:
-            events.append(maybe_event)
-    return events
+            if maybe_event is not None:
+                yield maybe_event
 
 
-def has_bots(events: GameEvents) -> bool:
+def has_bots(events: GameEventsList) -> bool:
     for event in events:
         if hasattr(event, 'is_bot') and event.is_bot:
             return True
@@ -446,29 +475,25 @@ def has_bots(events: GameEvents) -> bool:
 
 
 def validate_game_data(csv_path):
-    events = read_events_from_csv(csv_path)
-    grouped_events = group_events_by_game_and_normalize_time(events)
+    events = iterate_events_from_csv(csv_path, lambda d: d['timestamp'] <= '2022-09')
 
     map_structure_infos = map_structure.MapStructureInfos()
     validation_errors = collections.Counter()
     validated_game_ids = set()
-    for game_id, game_events in grouped_events.items():
+    for game_id, game_events in iterate_events_by_game_and_normalize_time(events):
         maybe_error = is_valid_game(game_events, map_structure_infos)
-        # return
         if maybe_error:
             validation_errors[maybe_error.args[0]] += 1
         else:
-            if game_events[-1].victory_condition == VictoryCondition.snail:
-                validated_game_ids.add(game_id)
-                validation_errors['valid'] += 1
-        # print('new game')
+            validated_game_ids.add(game_id)
+            validation_errors['valid'] += 1
 
-    print(validation_errors.most_common())
+    print('validation_errors', validation_errors.most_common())
 
     with open(csv_path, 'r') as f:
         event_reader = csv.DictReader(f)
         fieldnames = event_reader.fieldnames
-        with open('snail_' + csv_path, 'w') as output_file:
+        with open('validated_' + csv_path, 'w') as output_file:
             event_writer = csv.DictWriter(output_file, fieldnames=fieldnames)
             event_writer.writeheader()
             for row in event_reader:
@@ -476,6 +501,58 @@ def validate_game_data(csv_path):
                     event_writer.writerow(row)
 
 
+def iterate_game_events_with_state(events: GameEventsList, map_structure_infos: map_structure.MapStructureInfos) -> \
+        Iterator[Tuple[int, GameEvent, GameState]]:
+    grouped_events = iterate_events_by_game_and_normalize_time(events)
+    for game_id, game_events in grouped_events:
+        map_start: MapStartEvent = get_map_start(game_events)
+        map_info: map_structure.MapStructureInfo = map_structure_infos.get_map_info(
+            map_start.map, map_start.gold_on_left)
+
+        game_state = GameState(map_info)
+        for game_event in game_events:
+            yield game_id, game_event, game_state
+            game_event.modify_game_state(game_state)
+
+
+def validate_big_batch():
+    validate_game_data('all_gameevent.csv')
+
+
+def compute_kill_matrix():
+    csv_path = 'validated_all_gameevent_partitioned/gameevents_*.csv'
+    events = iterate_events_from_csv(csv_path)
+    queen, speed, vanilla = range(3)
+
+    kill_matrix_by_map = {m: np.zeros((3, 3), dtype=np.int32) for m in Map}
+
+    for game_id, event, game_state in iterate_game_events_with_state(events, map_structure.MapStructureInfos()):
+        if type(event) == PlayerKillEvent:
+            event: PlayerKillEvent = event
+
+            def categorize_position_id(position_id):
+                if is_queen_position_id(position_id):
+                    return queen
+                if game_state.get_worker_by_position_id(position_id).has_speed:
+                    return speed
+                return vanilla
+
+            killer_type = categorize_position_id(event.killer_position_id)
+            killed_type = categorize_position_id(event.killed_position_id)
+            if killed_type == queen or game_state.get_worker_by_position_id(event.killed_position_id).has_wings:
+                kill_matrix_by_map[game_state.map_info.map_id][killer_type, killed_type] += 1
+
+    pickle.dump(kill_matrix_by_map, open('kill_matrix_by_map.pkl', 'wb'))
+
+
 if __name__ == '__main__':
-    validate_game_data('snail_validated_sampled_events.csv')
+    # validate_big_batch()
+    # validate_game_data('sampled_events.csv')
+
+    compute_kill_matrix()
+    kill_matrix = pickle.load(open('kill_matrix_by_map.pkl', 'rb'))
+    print(kill_matrix)
+
+
+
 

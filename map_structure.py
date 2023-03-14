@@ -20,9 +20,12 @@ class MapStructureInfo:
         raise ValueError('Berry not found: ({}, {})'.format(berry_x, berry_y))
 
     def get_type_and_maiden_index(self, maiden_x, maiden_y) -> (MaidenType, int):
+        if not (maiden_x, maiden_y) in self._maidens:
+            raise ValueError('Maiden not found: ({}, {})'.format(maiden_x, maiden_y))
         return self._maidens[(maiden_x, maiden_y)]
 
-    def __init__(self, raw_info: Dict[str, Any]):
+    def __init__(self, map_id: Map, raw_info: Dict[str, Any]):
+        self.map_id = map_id
         # Not meant to be called directly, use MapStructureInfos.get_map_info()
         self._gold_berries: Dict[Coord, int] = {}
         self._blue_berries: Dict[Coord, int] = {}
@@ -58,7 +61,7 @@ class MapStructureInfos(object):
         with open('map_structure_info.json', 'rb') as f:
             raw_info_dict = json.load(f)
             for map_name, raw_info in raw_info_dict.items():
-                original = MapStructureInfo(raw_info)
+                original = MapStructureInfo(Map[map_name], raw_info)
                 self.backing[(Map[map_name], True)] = original
                 self.backing[(Map[map_name], False)] = original.flip_sides()
 
