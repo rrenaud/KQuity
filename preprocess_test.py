@@ -1,9 +1,9 @@
 import copy
-import csv
-import datetime
 import io
-from typing import Optional
 import unittest
+
+import numpy.testing
+
 
 from preprocess import *
 from map_structure import MapStructureInfos, MapStructureInfo
@@ -75,7 +75,7 @@ class BerryDepositEventTest(GameEventTest):
 
         self.assertFalse(gs.get_team(Team.GOLD).workers[3].has_food)
         self.assertEqual(gs.berries_available, orig_gs.berries_available - 1)
-        self.assertTrue(gs.get_team(Team.GOLD).berries_deposited[11])
+        self.assertTrue(gs.get_team(Team.GOLD).food_deposited[11])
 
 
 class BerryKickInEventTest(GameEventTest):
@@ -95,7 +95,7 @@ class BerryKickInEventTest(GameEventTest):
         event.modify_game_state(gs)
 
         self.assertEqual(gs.berries_available, orig_gs.berries_available - 1)
-        self.assertTrue(gs.get_team(Team.GOLD).berries_deposited[11])
+        self.assertTrue(gs.get_team(Team.GOLD).food_deposited[11])
 
         gs = GameState(map_info)
         event = parse_event_helper('35079762,2022-09-26 02:47:08.521+00,berryKickIn,"{1692,110,2,False}",434770')
@@ -103,7 +103,7 @@ class BerryKickInEventTest(GameEventTest):
         event.modify_game_state(gs)
 
         self.assertEqual(gs.berries_available, orig_gs.berries_available - 1)
-        self.assertTrue(gs.get_team(Team.GOLD).berries_deposited[11])
+        self.assertTrue(gs.get_team(Team.GOLD).food_deposited[11])
 
 
 class BlessMaidenEventTest(GameEventTest):
@@ -259,12 +259,46 @@ class PositionIdToTeamTest(unittest.TestCase):
         self.assertEqual(position_id_to_team(3), Team.GOLD)
 
 
-class PositionIdToworkerIndex(unittest.TestCase):
+class PositionIdToWorkerIndex(unittest.TestCase):
     def test(self):
         self.assertEqual(position_id_to_worker_index(3), 0)
         self.assertEqual(position_id_to_worker_index(4), 0)
         self.assertEqual(position_id_to_worker_index(9), 3)
         self.assertEqual(position_id_to_worker_index(10), 3)
+
+
+def make_full_worker():
+    full_worker = WorkerState()
+    full_worker.has_food = True
+    full_worker.has_wings = True
+    full_worker.has_speed = True
+    full_worker.is_bot = True
+    return full_worker
+
+
+class VectorizeWorkerTest(unittest.TestCase):
+    def test(self):
+        blank_worker = WorkerState()
+        full_worker = make_full_worker()
+        self.assertTrue(np.allclose(vectorize_worker(blank_worker), [0, 0, 0, 0]))
+        self.assertTrue(np.allclose(vectorize_worker(full_worker), [1, 1, 1, 1]))
+
+
+class VectorizeTeamTest(unittest.TestCase):
+    def test(self):
+        blank_team = TeamState()
+        eggs_and_0_berries_deposited_and_4_bots = np.concatenate([[2.0], [0.0] * (12 + 16)])
+        np.testing.assert_array_equal(vectorize_team(blank_team),
+                                      eggs_and_0_berries_deposited_and_4_bots)
+
+        full_team = TeamState()
+        full_team.food_deposited = [True] * 12
+        full_team.workers = [make_full_worker()] * 4
+        eggs_and_12_berries_deposited_and_4_full_workers = np.concatenate([[2.0], [1.0] * (12 + 16)])
+
+        np.testing.assert_array_equal(vectorize_team(full_team),
+                                      eggs_and_12_berries_deposited_and_4_full_workers)
+
 
 
 if __name__ == '__main__':
