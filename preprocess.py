@@ -3,7 +3,9 @@ import csv
 import collections
 import datetime
 import glob
+import random
 import pickle
+import os
 from typing import List, Optional, Union, Type, Iterator, Tuple
 
 import dateutil.parser
@@ -32,7 +34,7 @@ class WorkerState:
 class TeamState:
     def __init__(self):
         self.eggs = 2
-        self.berries_deposited = [False for _ in range(12)]
+        self.food_deposited = [False for _ in range(12)]
         self.workers = [WorkerState() for _ in range(4)]
 
 
@@ -60,7 +62,7 @@ class InferredSnailState:
     def inferred_snail_position(self, current_ts: float) -> float:
         return self.snail_x + (current_ts - self.last_touch_timestamp) * self.snail_velocity
 
-    def _compute_snail_velocity(self, rider_position_id) -> float:
+    def compute_snail_velocity(self, rider_position_id) -> float:
         rider = self.game_state.get_worker_by_position_id(rider_position_id)
         velocity = self.SPEED_SNAIL_PIXELS_PER_SECOND if rider.has_speed else self.VANILLA_SNAIL_PIXELS_PER_SECOND
         velocity *= InferredSnailState.snail_movement_multiplier(self.game_state.map_info.gold_on_left,
@@ -81,7 +83,7 @@ class InferredSnailState:
         self.snail_x = snail_event.snail_x
 
     def start_snail(self, start_snail_event: StartSnailEvent):
-        self.snail_velocity = self._compute_snail_velocity(start_snail_event.rider_position_id)
+        self.snail_velocity = self.compute_snail_velocity(start_snail_event.rider_position_id)
         self._update_position_and_timestamp(start_snail_event)
 
     def stop_snail(self, stop_snail_event: StopSnailEvent):
@@ -181,7 +183,7 @@ class BerryDepositEvent(GameEvent):
         except ValueError:
             raise GameValidationError('Invalid berry deposit event: {} {}'.format(self.hole_x, self.hole_y))
 
-        team_state.berries_deposited[berry_index] = True
+        team_state.food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
 
@@ -203,7 +205,7 @@ class BerryKickInEvent(GameEvent):
         except ValueError:
             raise GameValidationError('Invalid berry deposit event: {} {}'.format(self.hole_x, self.hole_y))
 
-        game_state.get_team(team).berries_deposited[berry_index] = True
+        game_state.get_team(team).food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
 
@@ -345,7 +347,7 @@ class VictoryEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         if self.victory_condition == VictoryCondition.economic:
-            validate_condition(sum(game_state.get_team(self.winning_team).berries_deposited) == 12,
+            validate_condition(sum(game_state.get_team(self.winning_team).food_deposited) == 12,
                                "Econ victory team does not have 12 berries deposited")
         elif self.victory_condition == VictoryCondition.military:
             validate_condition(game_state.get_team(opposing_team(self.winning_team)).eggs == -1,
@@ -365,7 +367,9 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
     skippable_events = {'gameend', 'playernames',
                         'reserveMaiden', 'unreserveMaiden',
                         'cabinetOnline', 'cabinetOffline',
-                        'bracket', 'tstart', 'tournamentValidation', 'checkIfTournamentRunning'}
+                        'bracket', 'tstart', 'tournamentValidation', 'checkIfTournamentRunning',
+                        'glance'
+                        }
     dispatcher = {'berryDeposit': BerryDepositEvent,
                   'berryKickIn': BerryKickInEvent,
                   'carryFood': CarryFoodEvent,
@@ -501,8 +505,8 @@ def validate_game_data(csv_path):
                     event_writer.writerow(row)
 
 
-def iterate_game_events_with_state(events: GameEventsList, map_structure_infos: map_structure.MapStructureInfos) -> \
-        Iterator[Tuple[int, GameEvent, GameState]]:
+def iterate_game_events_with_state(events: GameEventsIterator, map_structure_infos: map_structure.MapStructureInfos) -> \
+        Iterator[Tuple[int, GameEvent, GameState, GameEventsList]]:
     grouped_events = iterate_events_by_game_and_normalize_time(events)
     for game_id, game_events in grouped_events:
         map_start: MapStartEvent = get_map_start(game_events)
@@ -511,7 +515,7 @@ def iterate_game_events_with_state(events: GameEventsList, map_structure_infos: 
 
         game_state = GameState(map_info)
         for game_event in game_events:
-            yield game_id, game_event, game_state
+            yield game_id, game_event, game_state, game_events
             game_event.modify_game_state(game_state)
 
 
@@ -526,7 +530,7 @@ def compute_kill_matrix():
 
     kill_matrix_by_map = {m: np.zeros((3, 3), dtype=np.int32) for m in Map}
 
-    for game_id, event, game_state in iterate_game_events_with_state(events, map_structure.MapStructureInfos()):
+    for game_id, event, game_state, _ in iterate_game_events_with_state(events, map_structure.MapStructureInfos()):
         if type(event) == PlayerKillEvent:
             event: PlayerKillEvent = event
 
@@ -545,14 +549,75 @@ def compute_kill_matrix():
     pickle.dump(kill_matrix_by_map, open('kill_matrix_by_map.pkl', 'wb'))
 
 
+def vectorize_worker(worker: WorkerState) -> np.ndarray:
+    return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], float)
+
+
+def vectorize_team(team_state: TeamState) -> np.ndarray:
+    parts = [[float(team_state.eggs)], np.array(team_state.food_deposited, float)]
+    for worker in team_state.workers:
+        parts.append(vectorize_worker(worker))
+    return np.concatenate(parts)
+
+
+def vectorize_maidens(maidens: List[ContestableState]) -> np.ndarray:
+    def encode_maiden_state(maiden_color: ContestableState):
+        if maiden_color == ContestableState.NEUTRAL:
+            return 0.0
+        if maiden_color == ContestableState.BLUE:
+            return 1.0
+        if maiden_color == ContestableState.GOLD:
+            return -1.0
+
+    return np.array([encode_maiden_state(maiden) for maiden in maidens], float)
+
+
+def vectorize_map_one_hot(map_id: Map) -> np.ndarray:
+    return np.array([float(map_id == m) for m in Map], float)
+
+
+def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
+    parts = [
+        vectorize_team(game_state.teams[0]),
+        vectorize_team(game_state.teams[1]),
+        vectorize_maidens(game_state.maiden_states),
+        vectorize_map_one_hot(game_state.map_info.map_id),
+        [game_state.berries_available / 70.0,
+         game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5,
+         game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND,
+         game_state.map_info.gold_on_left,
+        ]
+    ]
+
+    return np.concatenate(parts)
+
+
+def vectorize_game_states():
+    csv_path = 'validated_all_gameevent_partitioned/gameevents_0[1-9][0-9].csv'
+    basename = os.path.basename(csv_path)
+    events = iterate_events_from_csv(csv_path)
+    map_structure_infos = map_structure.MapStructureInfos()
+    vectorized_states = []
+    labels = []
+
+    game_started = False
+
+    for game_id, event, game_state, all_game_events in iterate_game_events_with_state(events, map_structure_infos):
+        if type(event) == MapStartEvent:
+            game_started = False
+        elif type(event) == GameStartEvent:
+            game_started = True
+
+        if game_started:
+            if random.random() > .9:
+                vectorized_states.append(vectorize_game_state(game_state, event))
+                labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
+
+    np.save(f'{basename}_game_states.npy', np.vstack(vectorized_states))
+    np.save(f'{basename}_labels.npy', np.array(labels))
+
+
 if __name__ == '__main__':
     # validate_big_batch()
     # validate_game_data('sampled_events.csv')
-
-    compute_kill_matrix()
-    kill_matrix = pickle.load(open('kill_matrix_by_map.pkl', 'rb'))
-    print(kill_matrix)
-
-
-
-
+    vectorize_game_states()
