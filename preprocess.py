@@ -554,7 +554,13 @@ def vectorize_worker(worker: WorkerState) -> np.ndarray:
 
 
 def vectorize_team(team_state: TeamState) -> np.ndarray:
-    parts = [[float(team_state.eggs)], np.array(team_state.food_deposited, float)]
+    eggs = float(team_state.eggs)
+    num_food_deposits = float(sum(team_state.food_deposited))
+    num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
+    num_speed_warriors = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
+
+    parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
+             np.array(team_state.food_deposited, float)]
     for worker in team_state.workers:
         parts.append(vectorize_worker(worker))
     return np.concatenate(parts)
@@ -577,9 +583,12 @@ def vectorize_map_one_hot(map_id: Map) -> np.ndarray:
 
 
 def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
+    blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
+    gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
     parts = [
-        vectorize_team(game_state.teams[0]),
-        vectorize_team(game_state.teams[1]),
+        blue_team_vec,
+        gold_team_vec,
+       # blue_team_vec - gold_team_vec,
         vectorize_maidens(game_state.maiden_states),
         vectorize_map_one_hot(game_state.map_info.map_id),
         [game_state.berries_available / 70.0,
@@ -592,8 +601,7 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.nda
     return np.concatenate(parts)
 
 
-def vectorize_game_states():
-    csv_path = 'validated_all_gameevent_partitioned/gameevents_0[1-9][0-9].csv'
+def vectorize_game_states(csv_path, drop_state_probability):
     basename = os.path.basename(csv_path)
     events = iterate_events_from_csv(csv_path)
     map_structure_infos = map_structure.MapStructureInfos()
@@ -602,22 +610,28 @@ def vectorize_game_states():
 
     game_started = False
 
+    random.seed(42)
+    count = 0
     for game_id, event, game_state, all_game_events in iterate_game_events_with_state(events, map_structure_infos):
+        count += 1
+        if count % 10000 == 0: print('vec_game_states', count)
         if type(event) == MapStartEvent:
             game_started = False
         elif type(event) == GameStartEvent:
             game_started = True
 
         if game_started:
-            if random.random() > .9:
+            if random.random() > drop_state_probability:
                 vectorized_states.append(vectorize_game_state(game_state, event))
                 labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
 
-    np.save(f'{basename}_game_states.npy', np.vstack(vectorized_states))
-    np.save(f'{basename}_labels.npy', np.array(labels))
+    np.save(f'{basename}_no_team_diff_game_states.npy', np.vstack(vectorized_states))
+    np.save(f'{basename}_no_team_diff_labels.npy', np.array(labels))
 
 
 if __name__ == '__main__':
     # validate_big_batch()
     # validate_game_data('sampled_events.csv')
-    vectorize_game_states()
+    #vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9)
+    #vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0)
+    compute_kill_matrix()
