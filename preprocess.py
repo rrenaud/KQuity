@@ -146,6 +146,14 @@ class GameStartEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
         self.map = Map[payload_values[0]]
+        self.gold_on_left = payload_values[1] == 'True'
+        self.game_version = payload_values[4]
+
+
+class GameEndEvent(GameEvent):
+    def __init__(self, payload_values: List[str]):
+        super().__init__()
+        self.game_duration = float(payload_values[2])
 
 
 class MapStartEvent(GameEvent):
@@ -400,7 +408,8 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
 
 def normalize_times(events: GameEventsList) -> GameEventsList:
     events.sort(key=lambda e: e.timestamp)
-    start_ts: datetime.datetime = events[0].timestamp
+
+    start_ts: datetime.datetime = get_game_start(events).timestamp
     for game_event in events:
         game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
     return events
@@ -421,29 +430,40 @@ def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Ite
 
 
 def debug_print_events(events: GameEventsList):
-    start_ts = None
     for event in events:
-        if start_ts is None:
-            start_ts = event.timestamp
-        attrs = {a: getattr(event, a) for a in dir(event) if not a.startswith('_')}
-        del attrs['game_id']
-        attrs['timestamp'] = (event.timestamp - start_ts).total_seconds()
+        def ignore_attr(attr_name):
+            return attr_name.startswith('_') or attr_name == 'modify_game_state'
+        attrs = {a: getattr(event, a) for a in dir(event) if not ignore_attr(a)}
         print(event.__class__.__name__.removesuffix('Event'), attrs)
 
 
-def get_map_start(events: GameEventsList) -> MapStartEvent:
+def find_first_event_of_type(events: GameEventsList, event_type: Type[GameEvent]) -> Optional[GameEvent]:
     for event in events:
-        if isinstance(event, MapStartEvent):
+        if isinstance(event, event_type):
             return event
-    raise GameValidationError('No map start found in events')
+    return None
+
+
+def get_game_start(events: GameEventsList) -> GameStartEvent:
+    game_start = find_first_event_of_type(events, GameStartEvent)
+    if not game_start:
+        raise GameValidationError(f'No game start found in events for game {events[0].game_id}')
+    return game_start
+
+
+def get_map_start(events: GameEventsList) -> MapStartEvent:
+    map_start = find_first_event_of_type(events, MapStartEvent)
+    if not map_start:
+        raise GameValidationError(f'No map start found in events for game {events[0].game_id}')
+    return map_start
 
 
 def is_valid_game(events: GameEventsList,
                   map_structure_infos: map_structure.MapStructureInfos) -> Optional[GameValidationError]:
     try:
-        map_start: MapStartEvent = get_map_start(events)
+        game_start: GameStartEvent = get_map_start(events)
         map_info: map_structure.MapStructureInfo = map_structure_infos.get_map_info(
-            map_start.map, map_start.gold_on_left)
+            game_start.map, game_start.gold_on_left)
 
         game_state = GameState(map_info)
         for event in events:
@@ -458,17 +478,20 @@ def is_valid_game(events: GameEventsList,
 
 def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
     for filename in glob.glob(csv_path):
-        event_reader = csv.DictReader(open(filename))
-        for row in event_reader:
-            try:
-                if skip_raw_events_fn and skip_raw_events_fn(row):
-                    continue
-                maybe_event = parse_event(row)
-            except Exception as e:
-                print(f'Failed to parse event: {row}, {e}')
+        yield from iterate_events_from_csv_reader(csv.DictReader(open(filename)), skip_raw_events_fn)
+
+
+def iterate_events_from_csv_reader(csv_event_reader, skip_raw_events_fn=None) -> GameEventsIterator:
+    for row in csv_event_reader:
+        try:
+            if skip_raw_events_fn and skip_raw_events_fn(row):
                 continue
-            if maybe_event is not None:
-                yield maybe_event
+            maybe_event = parse_event(row)
+        except Exception as e:
+            print(f'Failed to parse event: {row}, {e}')
+            continue
+        if maybe_event is not None:
+            yield maybe_event
 
 
 def has_bots(events: GameEventsList) -> bool:
@@ -557,7 +580,7 @@ def vectorize_team(team_state: TeamState) -> np.ndarray:
     eggs = float(team_state.eggs)
     num_food_deposits = float(sum(team_state.food_deposited))
     num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
-    num_speed_warriors = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
+    num_speed_warriors = float(sum(w.has_wings and w.has_speed for w in team_state.workers))
 
     parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
              np.array(team_state.food_deposited, float)]
@@ -582,20 +605,25 @@ def vectorize_map_one_hot(map_id: Map) -> np.ndarray:
     return np.array([float(map_id == m) for m in Map], float)
 
 
+def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
+    gold_on_right_symmetry_mult = 1.0 if game_state.map_info.gold_on_left else -1.0
+    snail_pos = game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5
+    snail_speed = game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND
+
+    return np.array([snail_pos, snail_speed], float) * gold_on_right_symmetry_mult
+
+
 def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
     blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
     gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
+
     parts = [
         blue_team_vec,
         gold_team_vec,
-       # blue_team_vec - gold_team_vec,
         vectorize_maidens(game_state.maiden_states),
         vectorize_map_one_hot(game_state.map_info.map_id),
-        [game_state.berries_available / 70.0,
-         game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5,
-         game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND,
-         game_state.map_info.gold_on_left,
-        ]
+        vectorize_snail_state(game_state, next_event),
+        [game_state.berries_available / 70.0],
     ]
 
     return np.concatenate(parts)
@@ -625,13 +653,14 @@ def vectorize_game_states(csv_path, drop_state_probability):
                 vectorized_states.append(vectorize_game_state(game_state, event))
                 labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
 
-    np.save(f'{basename}_no_team_diff_game_states.npy', np.vstack(vectorized_states))
-    np.save(f'{basename}_no_team_diff_labels.npy', np.array(labels))
+    expt_name = 'gold_symmetry_no_id'
+    np.save(f'{basename}_{expt_name}_states.npy', np.vstack(vectorized_states))
+    np.save(f'{basename}_{expt_name}_labels.npy', np.array(labels))
 
 
 if __name__ == '__main__':
     # validate_big_batch()
     # validate_game_data('sampled_events.csv')
-    #vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9)
-    #vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0)
-    compute_kill_matrix()
+    vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9)
+    vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0)
+    # compute_kill_matrix()
