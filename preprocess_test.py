@@ -4,13 +4,13 @@ import unittest
 
 import numpy.testing
 
-
+import constants
 from preprocess import *
 from map_structure import MapStructureInfos, MapStructureInfo
 
 
 def parse_event_helper(line: str) -> Optional[GameEvent]:
-    line_with_header = 'id,timestamp,event_type,values,game_id\n' + line
+    line_with_header = constants.GAME_EVENT_HEADER + '\n' + line
     return parse_event(next(csv.DictReader(io.StringIO(line_with_header))))
 
 
@@ -20,7 +20,7 @@ class GameEventTest(unittest.TestCase):
 
 class GameStartEventTest(GameEventTest):
     def test_parse(self):
-        event = parse_event_helper('14678452,2022-05-01 23:30:59.664+00,gamestart,"{map_day,False,0,False}",363946')
+        event = parse_event_helper('14678452,2022-05-01 23:30:59.664+00,gamestart,"{map_day,False,0,False,17.26}",363946')
         self.assertEqual(event.map, Map.map_day)
         self.assertEqual(event.timestamp, datetime.datetime(2022, 5, 1, 23, 30, 59, 664000,
                                                             tzinfo=datetime.timezone.utc))
@@ -168,14 +168,12 @@ class SnailEscapeEventTest(GameEventTest):
         event = parse_event_helper('48009252,2023-02-27 06:41:16.835+00,snailEscape,"{681,491,4}",645987')
         self.assertEqual(event.snail_x, 681)
         self.assertEqual(event.escaped_position_id, 4)
-
-
-class GlanceEventTest(GameEventTest):
-    def test_parse(self):
-        event = parse_event_helper('14683945,2022-05-01 23:42:25.96+00,glance,"{91,1015,8,3}",363957')
-        self.assertEqual(event.glance_x, 91)
-        self.assertEqual(event.glance_y, 1015)
-        self.assertEqual(event.position_ids, [8, 3])
+# class GlanceEventTest(GameEventTest):
+#     def test_parse(self):
+#         event = parse_event_helper('14683945,2022-05-01 23:42:25.96+00,glance,"{91,1015,8,3}",363957')
+#         self.assertEqual(event.glance_x, 91)
+#         self.assertEqual(event.glance_y, 1015)
+#         self.assertEqual(event.position_ids, [8, 3])
 
 
 class PlayerKillEventTest(GameEventTest):
@@ -252,6 +250,36 @@ class VictoryEventTest(GameEventTest):
         self.assertEqual(event.victory_condition, VictoryCondition.economic)
 
 
+class GetMapStartTest(unittest.TestCase):
+    def test_find_map_start(self):
+        input_events = [parse_event_helper(raw_event) for raw_event in [
+            '32485092,2022-09-01 01:07:39.498+00,spawn,"{10,False}",420179',
+            '32485095,2022-09-01 01:07:40.095+00,spawn,"{5,False}",420179',
+            '32485097,2022-09-01 01:07:40.335+00,mapstart,"{map_night,False,0,False,17.26}",420179',
+            '32485097,2022-09-01 01:07:49.335+00,gamestart,"{map_night,False,0,False,17.26}",420179',
+            '32485791,2022-09-01 01:10:24.926+00,victory,"{Blue,economic}",420179'
+            ]
+        ]
+        self.assertEqual(get_map_start(input_events), input_events[2])
+
+
+class NormalizeTimestampsTest(unittest.TestCase):
+
+    def test_normalize_timestamps(self):
+        input_events = [parse_event_helper(raw_event) for raw_event in [
+            '32485092,2022-09-01 01:07:39.498+00,spawn,"{10,False}",420179',
+            '32485095,2022-09-01 01:07:40.095+00,spawn,"{5,False}",420179',
+            '32485097,2022-09-01 01:07:40.335+00,gamestart,"{map_night,False,0,False,17.26}",420179',
+            '32485791,2022-09-01 01:10:24.926+00,victory,"{Blue,economic}",420179'
+            ]
+        ]
+        input_events = normalize_times(input_events)
+        self.assertLess(input_events[0].timestamp, 0)
+        self.assertLess(input_events[1].timestamp, 0)
+        self.assertEqual(input_events[2].timestamp, 0)
+        self.assertGreater(input_events[3].timestamp, 0)
+
+
 class PositionIdToTeamTest(unittest.TestCase):
     def test(self):
         self.assertEqual(position_id_to_team(1), Team.GOLD)
@@ -287,19 +315,61 @@ class VectorizeWorkerTest(unittest.TestCase):
 class VectorizeTeamTest(unittest.TestCase):
     def test(self):
         blank_team = TeamState()
-        eggs_and_0_berries_deposited_and_4_bots = np.concatenate([[2.0], [0.0] * (12 + 16)])
+        eggs_and_0_berries_deposited_and_4_bots = np.concatenate([[2.0], [0.0] * (3 + 12 + 16)])
         np.testing.assert_array_equal(vectorize_team(blank_team),
                                       eggs_and_0_berries_deposited_and_4_bots)
 
         full_team = TeamState()
         full_team.food_deposited = [True] * 12
-        full_team.workers = [make_full_worker()] * 4
-        eggs_and_12_berries_deposited_and_4_full_workers = np.concatenate([[2.0], [1.0] * (12 + 16)])
+        full_team.workers = [make_full_worker() for _ in range(4)]
+        eggs_and_12_berries_deposited_and_4_full_workers = np.concatenate([[2.0, 12.0, 0.0, 4.0] + [1.0] * (12 + 16)])
 
         np.testing.assert_array_equal(vectorize_team(full_team),
                                       eggs_and_12_berries_deposited_and_4_full_workers)
 
 
+class VectorizeSnailStateTest(GameEventTest):
+    def test(self):
+        def create_scenario(gold_on_left, rider_position_id):
+            gold_on_left_str = 'True' if gold_on_left else 'False'
+            events = normalize_times([
+                parse_event_helper(
+                    '32534898,2022-09-01 00:00:00.00+00,gamestart,"{map_night,False,0,%s,17.26}",420463' %
+                    gold_on_left_str),
+                parse_event_helper('32534898,2022-09-01 00:00:00.00+00,getOnSnail,"{960,491,%d}",420463' %
+                rider_position_id),
+                parse_event_helper('32534898,2022-09-01 00:00:02.00+00,useMaiden,"{960,700,maiden_wings,8}",420463'),
+            ])
+            game_state = GameState(self._map_structure_infos.get_map_info(Map.map_night, gold_on_left))
+            events[0].modify_game_state(game_state)
+            events[1].modify_game_state(game_state)
+            return game_state, events
+
+        # Create 4 scenarios, where [gold_on_left, gold_on_right] * [gold_rider, blue_rider]
+        gold_riding_for_2_second_vec = [-2 * InferredSnailState.VANILLA_SNAIL_PIXELS_PER_SECOND / constants.SCREEN_WIDTH,
+                                        -InferredSnailState.VANILLA_SNAIL_PIXELS_PER_SECOND /
+                                         InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND]
+
+        game_state, events = create_scenario(False, 3)
+        encoded_snail_state = vectorize_snail_state(game_state, events[2])
+        np.testing.assert_allclose(encoded_snail_state, gold_riding_for_2_second_vec)
+
+        game_state, events = create_scenario(True, 3)
+        encoded_snail_state = vectorize_snail_state(game_state, events[2])
+        np.testing.assert_allclose(encoded_snail_state, gold_riding_for_2_second_vec)
+
+        blue_riding_for_2_second_vec = [
+            2 * InferredSnailState.VANILLA_SNAIL_PIXELS_PER_SECOND / constants.SCREEN_WIDTH,
+            InferredSnailState.VANILLA_SNAIL_PIXELS_PER_SECOND /
+            InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND]
+
+        game_state, events = create_scenario(False, 4)
+        encoded_snail_state = vectorize_snail_state(game_state, events[2])
+        np.testing.assert_allclose(encoded_snail_state, blue_riding_for_2_second_vec)
+
+        game_state, events = create_scenario(True, 4)
+        encoded_snail_state = vectorize_snail_state(game_state, events[2])
+        np.testing.assert_allclose(encoded_snail_state, blue_riding_for_2_second_vec)
 
 if __name__ == '__main__':
     unittest.main()

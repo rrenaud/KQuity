@@ -3,6 +3,9 @@ from enum import Enum
 SCREEN_WIDTH = 1920
 
 
+GAME_EVENT_HEADER = 'id,timestamp,event_type,values,game_id'
+
+
 class ContestableState(Enum):
     BLUE = 0
     GOLD = 1
