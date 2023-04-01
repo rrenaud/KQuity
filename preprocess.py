@@ -1,20 +1,22 @@
-import csv
-
 import collections
+import copy
+import csv
 import datetime
 import glob
-import random
-import pickle
 import os
-from typing import List, Optional, Union, Type, Iterator, Tuple
+import pathlib
+import pickle
+import random
+from typing import List, Optional, Union, Type, Iterator, Tuple, Iterable, TypeAlias
 
 import dateutil.parser
 import numpy as np
-
+import numpy.typing as npt
 
 import constants
 import map_structure
 from constants import Team, ContestableState, VictoryCondition, PlayerCategory, MaidenType, Map
+
 
 # https://kqhivemind.com/wiki/Stats_Socket_Events
 
@@ -29,6 +31,9 @@ class WorkerState:
         self.has_wings = False
         self.has_food = False
         self.is_bot = False
+
+    def power(self) -> float:
+        return self.has_wings + self.has_speed * .5 + self.has_food * .25
 
 
 class TeamState:
@@ -407,12 +412,13 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
 
 
 def normalize_times(events: GameEventsList) -> GameEventsList:
-    events.sort(key=lambda e: e.timestamp)
+    normalized_events = copy.deepcopy(events)
+    normalized_events.sort(key=lambda e: e.timestamp)
 
-    start_ts: datetime.datetime = get_game_start(events).timestamp
-    for game_event in events:
+    start_ts: datetime.datetime = get_game_start(normalized_events).timestamp
+    for game_event in normalized_events:
         game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
-    return events
+    return normalized_events
 
 
 def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Iterator[Tuple[int, GameEventsList]]:
@@ -434,6 +440,7 @@ def debug_print_events(events: GameEventsList):
         def ignore_attr(attr_name):
             return attr_name.startswith('_') or attr_name == 'modify_game_state'
         attrs = {a: getattr(event, a) for a in dir(event) if not ignore_attr(a)}
+
         print(event.__class__.__name__.removesuffix('Event'), attrs)
 
 
@@ -528,8 +535,11 @@ def validate_game_data(csv_path):
                     event_writer.writerow(row)
 
 
-def iterate_game_events_with_state(events: GameEventsIterator, map_structure_infos: map_structure.MapStructureInfos) -> \
-        Iterator[Tuple[int, GameEvent, GameState, GameEventsList]]:
+StatesWithFullGameIterable = Iterable[Tuple[int, GameEvent, GameState, List[GameEvent]]]
+
+
+def iterate_game_events_with_state(events: GameEventsIterator,
+                                   map_structure_infos: map_structure.MapStructureInfos) -> StatesWithFullGameIterable:
     grouped_events = iterate_events_by_game_and_normalize_time(events)
     for game_id, game_events in grouped_events:
         map_start: MapStartEvent = get_map_start(game_events)
@@ -572,24 +582,28 @@ def compute_kill_matrix():
     pickle.dump(kill_matrix_by_map, open('kill_matrix_by_map.pkl', 'wb'))
 
 
-def vectorize_worker(worker: WorkerState) -> np.ndarray:
+GameStateVector: Type = npt.NDArray[np.float64]
+
+
+def vectorize_worker(worker: WorkerState) -> GameStateVector:
     return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], float)
 
 
-def vectorize_team(team_state: TeamState) -> np.ndarray:
+def vectorize_team(team_state: TeamState) -> GameStateVector:
     eggs = float(team_state.eggs)
     num_food_deposits = float(sum(team_state.food_deposited))
     num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
     num_speed_warriors = float(sum(w.has_wings and w.has_speed for w in team_state.workers))
 
     parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
-             np.array(team_state.food_deposited, float)]
-    for worker in team_state.workers:
+             # np.array(team_state.food_deposited, float)  # expt with no direct food dep features.
+             ]
+    for worker in sorted(team_state.workers, key=WorkerState.power):
         parts.append(vectorize_worker(worker))
     return np.concatenate(parts)
 
 
-def vectorize_maidens(maidens: List[ContestableState]) -> np.ndarray:
+def vectorize_maidens(maidens: List[ContestableState]) -> GameStateVector:
     def encode_maiden_state(maiden_color: ContestableState):
         if maiden_color == ContestableState.NEUTRAL:
             return 0.0
@@ -601,11 +615,11 @@ def vectorize_maidens(maidens: List[ContestableState]) -> np.ndarray:
     return np.array([encode_maiden_state(maiden) for maiden in maidens], float)
 
 
-def vectorize_map_one_hot(map_id: Map) -> np.ndarray:
+def vectorize_map_one_hot(map_id: Map) -> GameStateVector:
     return np.array([float(map_id == m) for m in Map], float)
 
 
-def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
+def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> GameStateVector:
     gold_on_right_symmetry_mult = 1.0 if game_state.map_info.gold_on_left else -1.0
     snail_pos = game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5
     snail_speed = game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND
@@ -613,7 +627,7 @@ def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> np.nd
     return np.array([snail_pos, snail_speed], float) * gold_on_right_symmetry_mult
 
 
-def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.ndarray:
+def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameStateVector:
     blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
     gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
 
@@ -629,38 +643,50 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> np.nda
     return np.concatenate(parts)
 
 
-def vectorize_game_states(csv_path, drop_state_probability):
-    basename = os.path.basename(csv_path)
-    events = iterate_events_from_csv(csv_path)
-    map_structure_infos = map_structure.MapStructureInfos()
+GameStatesMatrix: Type = np.ndarray[np.float64]  # (num_states, num_features)
+OutcomesLabelVector: Type = np.ndarray[bool]  # (num_states,)
+
+
+def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIterable,
+                              drop_state_probability: float = 0.0,
+                              noisy: bool = False) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
     vectorized_states = []
     labels = []
-
-    game_started = False
-
     random.seed(42)
     count = 0
-    for game_id, event, game_state, all_game_events in iterate_game_events_with_state(events, map_structure_infos):
+
+    last_game_id = None
+    for game_id, event, game_state, all_game_events in game_states_with_full_game:
+        if noisy and count % 10000 == 9999:
+            print('create_game_state_matrix', count, len(vectorized_states))
         count += 1
-        if count % 10000 == 0: print('vec_game_states', count)
-        if type(event) == MapStartEvent:
-            game_started = False
-        elif type(event) == GameStartEvent:
-            game_started = True
+        if event.timestamp > 5.0 and random.random() > drop_state_probability:
+            vectorized_states.append(vectorize_game_state(game_state, event))
+            labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
 
-        if game_started:
-            if random.random() > drop_state_probability:
-                vectorized_states.append(vectorize_game_state(game_state, event))
-                labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
+    return np.vstack(vectorized_states), np.array(labels)
 
-    expt_name = 'gold_symmetry_no_id'
-    np.save(f'{basename}_{expt_name}_states.npy', np.vstack(vectorized_states))
-    np.save(f'{basename}_{expt_name}_labels.npy', np.array(labels))
+
+def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name):
+    basename = os.path.basename(csv_path)
+    map_structure_infos = map_structure.MapStructureInfos()
+    game_states_iterable = iterate_game_events_with_state(iterate_events_from_csv(csv_path), map_structure_infos)
+
+    game_state_matrix, labels = create_game_states_matrix(game_states_iterable, drop_state_probability, noisy=True)
+
+    expt_subdir = f'model_experiments/{expt_name}'
+    pathlib.Path(expt_subdir).mkdir(exist_ok=True, parents=True)
+    np.save(f'{expt_subdir}/{basename}_states.npy', game_state_matrix)
+    np.save(f'{expt_subdir}/{basename}_labels.npy', labels)
 
 
 if __name__ == '__main__':
     # validate_big_batch()
     # validate_game_data('sampled_events.csv')
-    vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9)
-    vectorize_game_states('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0)
     # compute_kill_matrix()
+    expt_name = 'sort_workers_by_power_drop_90'
+    #materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_000.csv', .9, expt_name)
+    materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9, expt_name)
+    materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0, expt_name)
+    print('expt name:', expt_name)
+
