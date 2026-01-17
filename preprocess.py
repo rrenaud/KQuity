@@ -3,6 +3,7 @@ import copy
 import csv
 import datetime
 import glob
+import gzip
 import os
 import pathlib
 import pickle
@@ -381,7 +382,8 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
                         'reserveMaiden', 'unreserveMaiden',
                         'cabinetOnline', 'cabinetOffline',
                         'bracket', 'tstart', 'tournamentValidation', 'checkIfTournamentRunning',
-                        'glance'
+                        'glance',
+                        'enteredGameScreen', 'signInPlayer', 'signOutPlayer',
                         }
     dispatcher = {'berryDeposit': BerryDepositEvent,
                   'berryKickIn': BerryKickInEvent,
@@ -485,7 +487,12 @@ def is_valid_game(events: GameEventsList,
 
 def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
     for filename in glob.glob(csv_path):
-        yield from iterate_events_from_csv_reader(csv.DictReader(open(filename)), skip_raw_events_fn)
+        if filename.endswith('.gz'):
+            f = gzip.open(filename, 'rt')
+        else:
+            f = open(filename)
+        yield from iterate_events_from_csv_reader(csv.DictReader(f), skip_raw_events_fn)
+        f.close()
 
 
 def iterate_events_from_csv_reader(csv_event_reader, skip_raw_events_fn=None) -> GameEventsIterator:
