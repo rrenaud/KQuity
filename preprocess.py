@@ -1,5 +1,5 @@
 import collections
-import copy
+import concurrent.futures
 import csv
 import datetime
 import glob
@@ -10,7 +10,6 @@ import pickle
 import random
 from typing import List, Optional, Union, Type, Iterator, Tuple, Iterable, TypeAlias
 
-import dateutil.parser
 import numpy as np
 import numpy.typing as npt
 
@@ -408,19 +407,17 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
 
     payload_values = split_payload(raw_event_row['values'])
     event = dispatcher[event_type](payload_values)
-    event.timestamp = dateutil.parser.isoparse(raw_event_row['timestamp'])
+    event.timestamp = datetime.datetime.fromisoformat(raw_event_row['timestamp'] + ':00')
     event.game_id = int(raw_event_row['game_id'])
     return event
 
 
 def normalize_times(events: GameEventsList) -> GameEventsList:
-    normalized_events = copy.deepcopy(events)
-    normalized_events.sort(key=lambda e: e.timestamp)
-
-    start_ts: datetime.datetime = get_game_start(normalized_events).timestamp
-    for game_event in normalized_events:
+    events.sort(key=lambda e: e.timestamp)
+    start_ts: datetime.datetime = get_game_start(events).timestamp
+    for game_event in events:
         game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
-    return normalized_events
+    return events
 
 
 def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Iterator[Tuple[int, GameEventsList]]:
@@ -592,6 +589,15 @@ def compute_kill_matrix():
 GameStateVector: Type = npt.NDArray[np.float64]
 
 
+_MAIDEN_STATE_MAP = {
+    ContestableState.NEUTRAL: 0.0,
+    ContestableState.BLUE: 1.0,
+    ContestableState.GOLD: -1.0,
+}
+
+_MAP_LIST = list(Map)
+
+
 def vectorize_worker(worker: WorkerState) -> GameStateVector:
     return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], float)
 
@@ -650,6 +656,47 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameSt
     return np.concatenate(parts)
 
 
+def _extend_worker_features(out: list, worker: WorkerState):
+    out.extend([float(worker.is_bot), float(worker.has_food),
+                float(worker.has_speed), float(worker.has_wings)])
+
+
+def _extend_team_features(out: list, team_state: TeamState):
+    out.append(float(team_state.eggs))
+    out.append(float(sum(team_state.food_deposited)))
+    out.append(float(sum(w.has_wings and not w.has_speed for w in team_state.workers)))
+    out.append(float(sum(w.has_wings and w.has_speed for w in team_state.workers)))
+    for worker in sorted(team_state.workers, key=WorkerState.power):
+        _extend_worker_features(out, worker)
+
+
+def vectorize_game_state_fast(game_state: GameState, next_event: GameEvent) -> GameStateVector:
+    out = []
+    _extend_team_features(out, game_state.get_team(Team.BLUE))
+    _extend_team_features(out, game_state.get_team(Team.GOLD))
+
+    # Maidens
+    for maiden in game_state.maiden_states:
+        out.append(_MAIDEN_STATE_MAP[maiden])
+
+    # Map one-hot
+    map_id = game_state.map_info.map_id
+    for m in _MAP_LIST:
+        out.append(1.0 if map_id == m else 0.0)
+
+    # Snail state
+    gold_on_right_symmetry_mult = 1.0 if game_state.map_info.gold_on_left else -1.0
+    snail_pos = game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5
+    snail_speed = game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND
+    out.append(snail_pos * gold_on_right_symmetry_mult)
+    out.append(snail_speed * gold_on_right_symmetry_mult)
+
+    # Berries
+    out.append(game_state.berries_available / 70.0)
+
+    return np.array(out, dtype=np.float64)
+
+
 GameStatesMatrix: Type = np.ndarray[np.float64]  # (num_states, num_features)
 OutcomesLabelVector: Type = np.ndarray[bool]  # (num_states,)
 
@@ -668,23 +715,57 @@ def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIter
             print('create_game_state_matrix', count, len(vectorized_states))
         count += 1
         if event.timestamp > 5.0 and random.random() > drop_state_probability:
-            vectorized_states.append(vectorize_game_state(game_state, event))
+            vectorized_states.append(vectorize_game_state_fast(game_state, event))
             labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
 
     return np.vstack(vectorized_states), np.array(labels)
 
 
-def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name):
-    basename = os.path.basename(csv_path)
+def process_single_file(args: Tuple[str, float]) -> Tuple[str, GameStatesMatrix, OutcomesLabelVector]:
+    """Process a single CSV file and return the filename, states matrix, and labels."""
+    csv_file, drop_state_probability = args
     map_structure_infos = map_structure.MapStructureInfos()
-    game_states_iterable = iterate_game_events_with_state(iterate_events_from_csv(csv_path), map_structure_infos)
+    game_states_iterable = iterate_game_events_with_state(
+        iterate_events_from_csv(csv_file), map_structure_infos)
+    game_state_matrix, labels = create_game_states_matrix(
+        game_states_iterable, drop_state_probability, noisy=False)
+    return csv_file, game_state_matrix, labels
 
-    game_state_matrix, labels = create_game_states_matrix(game_states_iterable, drop_state_probability, noisy=True)
+
+def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name, max_workers=None):
+    """Materialize game state matrix from CSV files, processing in parallel."""
+    files = sorted(glob.glob(csv_path))
+    if not files:
+        raise ValueError(f"No files found matching {csv_path}")
 
     expt_subdir = f'model_experiments/{expt_name}'
     pathlib.Path(expt_subdir).mkdir(exist_ok=True, parents=True)
-    np.save(f'{expt_subdir}/{basename}_states.npy', game_state_matrix)
-    np.save(f'{expt_subdir}/{basename}_labels.npy', labels)
+
+    all_states = []
+    all_labels = []
+
+    args_list = [(f, drop_state_probability) for f in files]
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_single_file, args): args[0] for args in args_list}
+        for future in concurrent.futures.as_completed(futures):
+            filename = futures[future]
+            try:
+                _, states, labels = future.result()
+                all_states.append(states)
+                all_labels.append(labels)
+                print(f"Processed {filename}: {len(labels)} samples")
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+
+    if all_states:
+        combined_states = np.vstack(all_states)
+        combined_labels = np.concatenate(all_labels)
+
+        basename = os.path.basename(csv_path).replace('*', 'all').replace('[', '').replace(']', '')
+        np.save(f'{expt_subdir}/{basename}_states.npy', combined_states)
+        np.save(f'{expt_subdir}/{basename}_labels.npy', combined_labels)
+        print(f"Saved combined matrix: {combined_states.shape[0]} samples, {combined_states.shape[1]} features")
 
 
 if __name__ == '__main__':
@@ -692,8 +773,11 @@ if __name__ == '__main__':
     # validate_game_data('sampled_events.csv')
     # compute_kill_matrix()
     expt_name = 'sort_workers_by_power_drop_90'
-    #materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_000.csv', .9, expt_name)
-    materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9, expt_name)
-    materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0, expt_name)
+    # Training set: files 000-829 (~90%), with 90% state drop
+    materialize_game_state_matrix('new_data_partitioned/gameevents_[0-7][0-9][0-9].csv.gz', .9, expt_name)
+    materialize_game_state_matrix('new_data_partitioned/gameevents_8[0-2][0-9].csv.gz', .9, expt_name)
+    # Validation set: files 830-924 (~10%), no state drop
+    materialize_game_state_matrix('new_data_partitioned/gameevents_8[3-9][0-9].csv.gz', 0, expt_name)
+    materialize_game_state_matrix('new_data_partitioned/gameevents_9[0-2]*.csv.gz', 0, expt_name)
     print('expt name:', expt_name)
 
