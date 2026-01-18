@@ -32,8 +32,19 @@ class WorkerState:
         self.has_food = False
         self.is_bot = False
 
+        # Minimal running statistics (pruned set based on ablation study)
+        self.military_kills = 0   # Kills of enemy soldiers
+        self.military_deaths = 0  # Deaths while being a soldier
+
     def power(self) -> float:
         return self.has_wings + self.has_speed * .5 + self.has_food * .25
+
+
+class QueenState:
+    def __init__(self):
+        # Minimal running statistics (pruned set based on ablation study)
+        self.deaths = 0
+        self.military_kills = 0   # Kills of enemy soldiers
 
 
 class TeamState:
@@ -41,6 +52,7 @@ class TeamState:
         self.eggs = 2
         self.food_deposited = [False for _ in range(12)]
         self.workers = [WorkerState() for _ in range(4)]
+        self.queen = QueenState()
 
 
 StartSnailEvent: Type = Union['GetOnSnailEvent', 'SnailEatEvent']
@@ -111,6 +123,12 @@ class GameState:
         team: Team = position_id_to_team(position_id)
         worker_index = position_id_to_worker_index(position_id)
         return self.get_team(team).workers[worker_index]
+
+    def get_player_by_position_id(self, position_id: int):
+        """Get a player (queen or worker) by their position_id."""
+        if is_queen_position_id(position_id):
+            return self.get_team(position_id_to_team(position_id)).queen
+        return self.get_worker_by_position_id(position_id)
 
     def num_bots(self) -> int:
         return sum([worker.is_bot for team in self.teams for worker in team.workers])
@@ -311,12 +329,22 @@ class PlayerKillEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         team: Team = position_id_to_team(self.killed_position_id)
+
+        # Update killer statistics (only track military kills)
+        if self.killed_player_category == PlayerCategory.Soldier:
+            killer = game_state.get_player_by_position_id(self.killer_position_id)
+            killer.military_kills += 1
+
+        # Update victim statistics and state
         if self.killed_player_category == PlayerCategory.Queen:
             game_state.get_team(team).eggs -= 1
+            game_state.get_team(team).queen.deaths += 1
         else:
             killed_worker = game_state.get_worker_by_position_id(self.killed_position_id)
             validate_condition(killed_worker.has_wings == (self.killed_player_category == PlayerCategory.Soldier),
                                'Worker has wings but is not a soldier')
+            if killed_worker.has_wings:
+                killed_worker.military_deaths += 1
             killed_worker.has_speed = killed_worker.has_food = killed_worker.has_wings = False
 
 
@@ -599,7 +627,16 @@ _MAP_LIST = list(Map)
 
 
 def vectorize_worker(worker: WorkerState) -> GameStateVector:
-    return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], float)
+    return np.array([
+        worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings,
+        # Minimal running statistics (pruned based on ablation study)
+        float(worker.military_kills), float(worker.military_deaths),
+    ], float)
+
+
+def vectorize_queen(queen: QueenState) -> GameStateVector:
+    # Minimal running statistics (pruned based on ablation study)
+    return np.array([float(queen.deaths), float(queen.military_kills)], float)
 
 
 def vectorize_team(team_state: TeamState) -> GameStateVector:
@@ -610,6 +647,7 @@ def vectorize_team(team_state: TeamState) -> GameStateVector:
 
     parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
              # np.array(team_state.food_deposited, float)  # expt with no direct food dep features.
+             vectorize_queen(team_state.queen),
              ]
     for worker in sorted(team_state.workers, key=WorkerState.power):
         parts.append(vectorize_worker(worker))
@@ -659,6 +697,13 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameSt
 def _extend_worker_features(out: list, worker: WorkerState):
     out.extend([float(worker.is_bot), float(worker.has_food),
                 float(worker.has_speed), float(worker.has_wings)])
+    # Minimal running statistics (pruned based on ablation study)
+    out.extend([float(worker.military_kills), float(worker.military_deaths)])
+
+
+def _extend_queen_features(out: list, queen: QueenState):
+    # Minimal running statistics (pruned based on ablation study)
+    out.extend([float(queen.deaths), float(queen.military_kills)])
 
 
 def _extend_team_features(out: list, team_state: TeamState):
@@ -666,6 +711,7 @@ def _extend_team_features(out: list, team_state: TeamState):
     out.append(float(sum(team_state.food_deposited)))
     out.append(float(sum(w.has_wings and not w.has_speed for w in team_state.workers)))
     out.append(float(sum(w.has_wings and w.has_speed for w in team_state.workers)))
+    _extend_queen_features(out, team_state.queen)
     for worker in sorted(team_state.workers, key=WorkerState.power):
         _extend_worker_features(out, worker)
 
