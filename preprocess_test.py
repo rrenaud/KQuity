@@ -314,18 +314,20 @@ class VectorizeWorkerTest(unittest.TestCase):
 
 class VectorizeTeamTest(unittest.TestCase):
     def test(self):
+        # vectorize_team returns: [eggs, num_food_deposits, num_vanilla, num_speed_warriors] + 4 workers * 4 features
+        # Total: 4 + 16 = 20 elements
         blank_team = TeamState()
-        eggs_and_0_berries_deposited_and_4_bots = np.concatenate([[2.0], [0.0] * (3 + 12 + 16)])
-        np.testing.assert_array_equal(vectorize_team(blank_team),
-                                      eggs_and_0_berries_deposited_and_4_bots)
+        # eggs=2, num_food_deposits=0, num_vanilla=0, num_speed_warriors=0, then 4 blank workers
+        expected_blank = np.array([2.0] + [0.0] * 19)
+        np.testing.assert_array_equal(vectorize_team(blank_team), expected_blank)
 
         full_team = TeamState()
         full_team.food_deposited = [True] * 12
         full_team.workers = [make_full_worker() for _ in range(4)]
-        eggs_and_12_berries_deposited_and_4_full_workers = np.concatenate([[2.0, 12.0, 0.0, 4.0] + [1.0] * (12 + 16)])
-
-        np.testing.assert_array_equal(vectorize_team(full_team),
-                                      eggs_and_12_berries_deposited_and_4_full_workers)
+        # eggs=2, num_food_deposits=12, num_vanilla=0 (all have speed), num_speed_warriors=4
+        # Each worker: [is_bot=1, has_food=1, has_speed=1, has_wings=1]
+        expected_full = np.array([2.0, 12.0, 0.0, 4.0] + [1.0] * 16)
+        np.testing.assert_array_equal(vectorize_team(full_team), expected_full)
 
 
 class VectorizeSnailStateTest(GameEventTest):
