@@ -675,14 +675,14 @@ def vectorize_worker(worker: WorkerState) -> GameStateVector:
         float(worker.military_deaths), float(worker.drone_deaths),
         float(worker.berries),
         worker.snail_progress / 500.0,  # Normalize by ~track width
-    ], float)
+    ], np.float32)
 
 
 def vectorize_queen(queen: QueenState) -> GameStateVector:
     return np.array([
         float(queen.kills), float(queen.deaths),
         float(queen.queen_kills), float(queen.military_kills), float(queen.drone_kills),
-    ], float)
+    ], np.float32)
 
 
 def vectorize_team(team_state: TeamState) -> GameStateVector:
@@ -709,11 +709,11 @@ def vectorize_maidens(maidens: List[ContestableState]) -> GameStateVector:
         if maiden_color == ContestableState.GOLD:
             return -1.0
 
-    return np.array([encode_maiden_state(maiden) for maiden in maidens], float)
+    return np.array([encode_maiden_state(maiden) for maiden in maidens], np.float32)
 
 
 def vectorize_map_one_hot(map_id: Map) -> GameStateVector:
-    return np.array([float(map_id == m) for m in Map], float)
+    return np.array([float(map_id == m) for m in Map], np.float32)
 
 
 def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> GameStateVector:
@@ -721,7 +721,7 @@ def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> GameS
     snail_pos = game_state.snail_state.inferred_snail_position(next_event.timestamp) / constants.SCREEN_WIDTH - 0.5
     snail_speed = game_state.snail_state.snail_velocity / InferredSnailState.SPEED_SNAIL_PIXELS_PER_SECOND
 
-    return np.array([snail_pos, snail_speed], float) * gold_on_right_symmetry_mult
+    return np.array([snail_pos, snail_speed], np.float32) * gold_on_right_symmetry_mult
 
 
 def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameStateVector:
