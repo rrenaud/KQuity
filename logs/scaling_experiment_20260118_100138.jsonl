@@ -1,0 +1,2 @@
+{"shards": 100, "train_samples": 906174, "log_loss": 0.567464843300841, "accuracy": 0.6933299286325393}
+{"shards": 200, "train_samples": 1812012, "log_loss": 0.5662626270535738, "accuracy": 0.6934564116760554}

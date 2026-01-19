@@ -1,0 +1,19 @@
+============================================================
+TRAINING DATA SCALING EXPERIMENT
+Random seed: 42
+Log file: logs/scaling_experiment_20260118_100118.log
+Results file: logs/scaling_experiment_20260118_100118.jsonl
+Started: 2026-01-18T10:01:18.879898
+============================================================
+
+Materializing test data (shards 830+, 90% drop)...
+  Found 95 test shards
+  Processed 50/95 files...
+  Completed 95 files, 838,057 samples
+  Test samples: 838,057
+
+============================================================
+ITERATION: 100 training shards (730-829)
+============================================================
+
+Materializing training data (100 shards, 90% drop)...
