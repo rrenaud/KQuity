@@ -667,22 +667,8 @@ _MAP_LIST = list(Map)
 
 
 def vectorize_worker(worker: WorkerState) -> GameStateVector:
-    return np.array([
-        worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings,
-        # Running statistics
-        float(worker.kills), float(worker.deaths),
-        float(worker.queen_kills), float(worker.military_kills), float(worker.drone_kills),
-        float(worker.military_deaths), float(worker.drone_deaths),
-        float(worker.berries),
-        worker.snail_progress / 500.0,  # Normalize by ~track width
-    ], np.float32)
-
-
-def vectorize_queen(queen: QueenState) -> GameStateVector:
-    return np.array([
-        float(queen.kills), float(queen.deaths),
-        float(queen.queen_kills), float(queen.military_kills), float(queen.drone_kills),
-    ], np.float32)
+    # Baseline: 4 features per worker
+    return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], np.float32)
 
 
 def vectorize_team(team_state: TeamState) -> GameStateVector:
@@ -693,7 +679,6 @@ def vectorize_team(team_state: TeamState) -> GameStateVector:
 
     parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
              # np.array(team_state.food_deposited, float)  # expt with no direct food dep features.
-             vectorize_queen(team_state.queen),
              ]
     for worker in sorted(team_state.workers, key=WorkerState.power):
         parts.append(vectorize_worker(worker))
@@ -741,23 +726,9 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameSt
 
 
 def _extend_worker_features(out: list, worker: WorkerState):
+    # Baseline: 4 features per worker
     out.extend([float(worker.is_bot), float(worker.has_food),
                 float(worker.has_speed), float(worker.has_wings)])
-    # Running statistics (worker.queen_kills removed per ablation study)
-    out.extend([
-        float(worker.kills), float(worker.deaths),
-        float(worker.military_kills), float(worker.drone_kills),
-        float(worker.military_deaths), float(worker.drone_deaths),
-        float(worker.berries),
-        worker.snail_progress / 500.0,  # Normalize by ~track width
-    ])
-
-
-def _extend_queen_features(out: list, queen: QueenState):
-    # Note: queen_queen_kills and queen_drone_kills removed per ablation study
-    out.extend([
-        float(queen.kills), float(queen.deaths), float(queen.military_kills),
-    ])
 
 
 def _extend_team_features(out: list, team_state: TeamState):
@@ -765,7 +736,6 @@ def _extend_team_features(out: list, team_state: TeamState):
     out.append(float(sum(team_state.food_deposited)))
     out.append(float(sum(w.has_wings and not w.has_speed for w in team_state.workers)))
     out.append(float(sum(w.has_wings and w.has_speed for w in team_state.workers)))
-    _extend_queen_features(out, team_state.queen)
     for worker in sorted(team_state.workers, key=WorkerState.power):
         _extend_worker_features(out, worker)
 
@@ -794,7 +764,7 @@ def vectorize_game_state_fast(game_state: GameState, next_event: GameEvent) -> G
     # Berries
     out.append(game_state.berries_available / 70.0)
 
-    return np.array(out, dtype=np.float64)
+    return np.array(out, dtype=np.float32)
 
 
 GameStatesMatrix: Type = np.ndarray[np.float64]  # (num_states, num_features)

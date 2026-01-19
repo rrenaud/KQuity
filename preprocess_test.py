@@ -308,34 +308,30 @@ class VectorizeWorkerTest(unittest.TestCase):
     def test(self):
         blank_worker = WorkerState()
         full_worker = make_full_worker()
-        # Worker features: [is_bot, has_food, has_speed, has_wings,
-        #                   kills, deaths, queen_kills, military_kills, drone_kills,
-        #                   military_deaths, drone_deaths, berries, snail_progress]
-        # Total: 13 features
-        self.assertTrue(np.allclose(vectorize_worker(blank_worker), [0] * 13))
-        self.assertTrue(np.allclose(vectorize_worker(full_worker), [1, 1, 1, 1] + [0] * 9))
+        # Baseline worker features: [is_bot, has_food, has_speed, has_wings]
+        # Total: 4 features
+        self.assertTrue(np.allclose(vectorize_worker(blank_worker), [0] * 4))
+        self.assertTrue(np.allclose(vectorize_worker(full_worker), [1, 1, 1, 1]))
 
 
 class VectorizeTeamTest(unittest.TestCase):
     def test(self):
-        # vectorize_team returns:
+        # Baseline vectorize_team returns:
         # [eggs, num_food_deposits, num_vanilla, num_speed_warriors] (4)
-        # + queen features (5): [kills, deaths, queen_kills, military_kills, drone_kills]
-        # + 4 workers * 13 features = 52
-        # Total: 4 + 5 + 52 = 61 elements
+        # + 4 workers * 4 features = 16
+        # Total: 4 + 16 = 20 elements
         blank_team = TeamState()
-        # eggs=2, then 60 zeros (3 + queen 5 + 4 workers * 13)
-        expected_blank = np.array([2.0] + [0.0] * 60)
+        # eggs=2, then 19 zeros (3 team aggregate + 4 workers * 4)
+        expected_blank = np.array([2.0] + [0.0] * 19)
         np.testing.assert_array_equal(vectorize_team(blank_team), expected_blank)
 
         full_team = TeamState()
         full_team.food_deposited = [True] * 12
         full_team.workers = [make_full_worker() for _ in range(4)]
         # eggs=2, num_food_deposits=12, num_vanilla=0 (all have speed), num_speed_warriors=4
-        # Queen: [0, 0, 0, 0, 0]
-        # Each worker: [is_bot=1, has_food=1, has_speed=1, has_wings=1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        worker_vec = [1.0, 1.0, 1.0, 1.0] + [0.0] * 9
-        expected_full = np.array([2.0, 12.0, 0.0, 4.0] + [0.0] * 5 + worker_vec * 4)
+        # Each worker: [is_bot=1, has_food=1, has_speed=1, has_wings=1]
+        worker_vec = [1.0, 1.0, 1.0, 1.0]
+        expected_full = np.array([2.0, 12.0, 0.0, 4.0] + worker_vec * 4)
         np.testing.assert_array_equal(vectorize_team(full_team), expected_full)
 
 
