@@ -7,7 +7,7 @@ This report summarizes experiments investigating how to optimally combine tourna
 ## Dataset Summary
 
 - **Tournament training games**: ~35,000 games → 616,476 state samples
-- **Non-tournament training games**: ~115,000 games → 7,909,105 state samples
+- **Non-tournament training games**: ~1,000,000 games → 7,909,105 state samples
 - **Test set**: 2,000 most recent tournament games (held out by time)
 - **State sampling**: 90% drop rate during training materialization
 
