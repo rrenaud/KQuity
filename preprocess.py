@@ -656,20 +656,40 @@ OutcomesLabelVector: Type = np.ndarray[bool]  # (num_states,)
 
 def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIterable,
                               drop_state_probability: float = 0.0,
-                              noisy: bool = False) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
+                              noisy: bool = False,
+                              allowed_game_ids: Optional[set] = None) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
+    """Create feature matrix and labels from game states.
+
+    Args:
+        game_states_with_full_game: Iterator of (game_id, event, game_state, all_game_events)
+        drop_state_probability: Probability of dropping each state (for data reduction)
+        noisy: If True, print progress updates
+        allowed_game_ids: If provided, only include games with IDs in this set
+
+    Returns:
+        Tuple of (feature_matrix, labels)
+    """
     vectorized_states = []
     labels = []
     random.seed(42)
     count = 0
+    games_seen = set()
 
-    last_game_id = None
     for game_id, event, game_state, all_game_events in game_states_with_full_game:
+        # Skip games not in allowed set
+        if allowed_game_ids is not None and game_id not in allowed_game_ids:
+            continue
+
+        games_seen.add(game_id)
         if noisy and count % 10000 == 9999:
-            print('create_game_state_matrix', count, len(vectorized_states))
+            print('create_game_state_matrix', count, len(vectorized_states), f'games: {len(games_seen)}')
         count += 1
         if event.timestamp > 5.0 and random.random() > drop_state_probability:
             vectorized_states.append(vectorize_game_state(game_state, event))
             labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
+
+    if noisy:
+        print(f'create_game_states_matrix done: {len(games_seen)} games, {len(vectorized_states)} states')
 
     return np.vstack(vectorized_states), np.array(labels)
 
