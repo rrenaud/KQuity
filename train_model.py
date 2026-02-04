@@ -13,6 +13,7 @@ import gzip
 import os
 import pathlib
 import time
+from typing import Optional, Set, Tuple
 import numpy as np
 import lightgbm as lgb
 import sklearn.metrics
@@ -26,6 +27,55 @@ from preprocess import (
     GameValidationError,
 )
 import map_structure
+
+
+def load_tournament_game_ids(game_csv_path: str) -> Set[int]:
+    """Load the set of game IDs that are tournament games.
+
+    Args:
+        game_csv_path: Path to game.csv file
+
+    Returns:
+        Set of game IDs with non-empty tournament_match_id
+    """
+    tournament_ids = set()
+    with open(game_csv_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row['tournament_match_id']:  # non-empty
+                tournament_ids.add(int(row['id']))
+    return tournament_ids
+
+
+def get_tournament_train_test_split(
+    game_csv_path: str,
+    test_count: int = 2000
+) -> Tuple[Set[int], Set[int]]:
+    """Split tournament games into train/test sets by time.
+
+    Args:
+        game_csv_path: Path to game.csv file
+        test_count: Number of most recent tournament games for test set
+
+    Returns:
+        Tuple of (train_game_ids, test_game_ids)
+    """
+    # Load tournament games with their start times
+    tournament_games = []  # [(game_id, start_time), ...]
+    with open(game_csv_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row['tournament_match_id']:  # non-empty
+                tournament_games.append((int(row['id']), row['start_time']))
+
+    # Sort by start_time descending (most recent first)
+    tournament_games.sort(key=lambda x: x[1], reverse=True)
+
+    # Take most recent test_count as test set
+    test_game_ids = set(g[0] for g in tournament_games[:test_count])
+    train_game_ids = set(g[0] for g in tournament_games[test_count:])
+
+    return train_game_ids, test_game_ids
 
 
 def validate_and_partition_data(
@@ -260,13 +310,20 @@ def materialize_partition_range(
     output_dir: str,
     start_partition: int,
     end_partition: int,
-    drop_prob: float
+    drop_prob: float,
+    allowed_game_ids: Optional[Set[int]] = None
 ):
-    """Materialize game states from a range of partitions."""
-    pathlib.Path(output_dir).mkdir(exist_ok=True, parents=True)
+    """Materialize game states from a range of partitions.
 
-    # Build glob pattern for partition range
-    csv_pattern = f'{input_dir}/gameevents_*.csv.gz'
+    Args:
+        input_dir: Directory containing partitioned CSV files
+        output_dir: Directory for output (unused but kept for API compatibility)
+        start_partition: First partition index to process
+        end_partition: Last partition index (exclusive)
+        drop_prob: Probability of dropping each state
+        allowed_game_ids: If provided, only include games with IDs in this set
+    """
+    pathlib.Path(output_dir).mkdir(exist_ok=True, parents=True)
 
     map_structure_infos = map_structure.MapStructureInfos()
     all_states = []
@@ -283,9 +340,12 @@ def materialize_partition_range(
         game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
         try:
-            states, labels = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
-            all_states.append(states)
-            all_labels.append(labels)
+            states, labels = create_game_states_matrix(
+                game_states_iter, drop_prob, noisy=False, allowed_game_ids=allowed_game_ids
+            )
+            if states is not None and len(states) > 0:
+                all_states.append(states)
+                all_labels.append(labels)
         except Exception as e:
             print(f"    Error processing {csv_path}: {e}")
 
@@ -348,6 +408,129 @@ def evaluate_model(model, test_X, test_y, name: str):
         'accuracy': accuracy,
         'inversions': inversions
     }
+
+
+def run_tournament_only_experiment(
+    game_csv_path: str = 'export_20260115_210621/game.csv',
+    partitioned_dir: str = 'new_data_partitioned',
+    test_count: int = 2000,
+    drop_prob: float = 0.9,
+):
+    """Run Experiment 1: Train and evaluate on tournament games only.
+
+    This establishes a baseline for expert-level play by:
+    1. Filtering to tournament games only (non-empty tournament_match_id)
+    2. Using the 2000 most recent tournament games as test set
+    3. Training on remaining ~35k tournament games
+
+    Args:
+        game_csv_path: Path to game.csv with tournament_match_id column
+        partitioned_dir: Directory with partitioned event files
+        test_count: Number of most recent tournament games for test set
+        drop_prob: Probability of dropping states during training materialization
+    """
+    expt_dir = 'model_experiments/tournament_only'
+    pathlib.Path(expt_dir).mkdir(exist_ok=True, parents=True)
+
+    print("=" * 60)
+    print("EXPERIMENT 1: Tournament-Only Training Baseline")
+    print("=" * 60)
+
+    # Step 1: Load tournament train/test split
+    print("\nStep 1: Loading tournament game IDs and creating train/test split...")
+    train_ids, test_ids = get_tournament_train_test_split(game_csv_path, test_count)
+    print(f"  Training games: {len(train_ids):,}")
+    print(f"  Test games: {len(test_ids):,}")
+
+    # Verify no overlap
+    overlap = train_ids & test_ids
+    if overlap:
+        raise ValueError(f"Train/test overlap detected: {len(overlap)} games")
+    print("  Verified: no overlap between train and test sets")
+
+    # Count partitions
+    num_partitions = len([f for f in os.listdir(partitioned_dir) if f.endswith('.csv.gz')])
+    print(f"  Partitioned data files: {num_partitions}")
+
+    # Step 2: Materialize training data (tournament games only)
+    print("\n" + "=" * 60)
+    print("Step 2: Materializing tournament training data")
+    print("=" * 60)
+
+    train_states_file = f'{expt_dir}/train_states.npy'
+    if not os.path.exists(train_states_file):
+        print(f"Materializing training data ({100*drop_prob:.0f}% drop rate)...")
+        train_X, train_y = materialize_partition_range(
+            partitioned_dir, expt_dir, 0, num_partitions, drop_prob=drop_prob,
+            allowed_game_ids=train_ids
+        )
+        np.save(f'{expt_dir}/train_states.npy', train_X)
+        np.save(f'{expt_dir}/train_labels.npy', train_y)
+        print(f"  Training samples: {len(train_y):,}")
+    else:
+        print("Loading existing training data...")
+        train_X = np.load(f'{expt_dir}/train_states.npy')
+        train_y = np.load(f'{expt_dir}/train_labels.npy')
+        print(f"  Training samples: {len(train_y):,}")
+
+    # Step 3: Materialize test data (tournament games only, no drop)
+    print("\n" + "=" * 60)
+    print("Step 3: Materializing tournament test data")
+    print("=" * 60)
+
+    test_states_file = f'{expt_dir}/test_states.npy'
+    if not os.path.exists(test_states_file):
+        print("Materializing test data (0% drop rate)...")
+        test_X, test_y = materialize_partition_range(
+            partitioned_dir, expt_dir, 0, num_partitions, drop_prob=0.0,
+            allowed_game_ids=test_ids
+        )
+        np.save(f'{expt_dir}/test_states.npy', test_X)
+        np.save(f'{expt_dir}/test_labels.npy', test_y)
+        print(f"  Test samples: {len(test_y):,}")
+    else:
+        print("Loading existing test data...")
+        test_X = np.load(f'{expt_dir}/test_states.npy')
+        test_y = np.load(f'{expt_dir}/test_labels.npy')
+        print(f"  Test samples: {len(test_y):,}")
+
+    # Step 4: Train model
+    print("\n" + "=" * 60)
+    print("Step 4: Training model on tournament data")
+    print("=" * 60)
+
+    print(f"Training data shape: {train_X.shape}")
+    print(f"Test data shape: {test_X.shape}")
+
+    start = time.time()
+    model = train_lgb_model(train_X, train_y, num_leaves=200, num_trees=200)
+    print(f"Model trained in {time.time() - start:.1f}s")
+
+    model_path = f'{expt_dir}/model.mdl'
+    model.save_model(model_path)
+    print(f"Model saved to {model_path}")
+
+    # Step 5: Evaluate
+    print("\n" + "=" * 60)
+    print("Step 5: Evaluating on tournament test set")
+    print("=" * 60)
+
+    metrics = evaluate_model(model, test_X, test_y, "Tournament-Only Model")
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("EXPERIMENT 1 SUMMARY: Tournament-Only Baseline")
+    print("=" * 60)
+    print(f"Training set: {len(train_ids):,} games, {len(train_y):,} states")
+    print(f"Test set: {len(test_ids):,} games, {len(test_y):,} states")
+    print()
+    print(f"{'Metric':<20} {'Value':<15}")
+    print("-" * 35)
+    print(f"{'Log Loss':<20} {metrics['log_loss']:<15.4f}")
+    print(f"{'Accuracy':<20} {metrics['accuracy']:<15.4f} ({100*metrics['accuracy']:.1f}%)")
+    print(f"{'Egg Inversions':<20} {metrics['inversions']:<15.4f} ({100*metrics['inversions']:.2f}%)")
+
+    return metrics
 
 
 def main():
@@ -473,4 +656,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == 'tournament':
+        run_tournament_only_experiment()
+    else:
+        main()
