@@ -35,6 +35,9 @@ SKIP_EVENTS = frozenset({
     'enteredGameScreen', 'signInPlayer', 'signOutPlayer',
 })
 
+# Events that don't need values parsing
+_NO_VALS_EVENTS = frozenset({'gamestart', 'victory', 'mapstart'})
+
 # CSV column indices (id, timestamp, event_type, values, game_id)
 COL_TS = 1
 COL_TYPE = 2
@@ -128,6 +131,13 @@ def _snail_mult(gold_on_left, team_int):
 
 # --- Direct buffer vectorization ---
 
+# Pre-built map one-hot vectors
+_MAP_ONE_HOT = [[1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0]]
+
+
 def _vectorize_team(tw, eggs, fc):
     """Vectorize one team into a 20-element list. Returns list of floats."""
     # Compute powers and sort indices
@@ -158,13 +168,6 @@ def _vectorize_team(tw, eggs, fc):
             float(b[0]), float(b[1]), float(b[2]), float(b[3]),
             float(c[0]), float(c[1]), float(c[2]), float(c[3]),
             float(d[0]), float(d[1]), float(d[2]), float(d[3])]
-
-
-# Pre-built map one-hot vectors
-_MAP_ONE_HOT = [[1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0]]
 
 
 def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
@@ -245,12 +248,18 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
 
     gold_sym = 1.0 if gold_on_left else -1.0
 
+    # Pre-compute drop_prob check
+    no_drop = (drop_prob == 0.0)
+
     # Event replay loop
     for dt, event_type, values_str in raw_events:
         rel_ts = (dt - gamestart_dt).total_seconds()
 
+        # Pre-split values once per event
+        vals = values_str[1:-1].split(',') if event_type not in _NO_VALS_EVENTS else None
+
         # Vectorize BEFORE applying this event
-        if rel_ts > 5.0 and rng.random() > drop_prob:
+        if rel_ts > 5.0 and (no_drop or rng.random() > drop_prob):
             _vectorize_state(output_buf, write_idx,
                              w, eggs, food_count, maiden_states,
                              map_idx, snail_x, snail_vel, snail_last_ts,
@@ -260,7 +269,6 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
 
         # Apply state mutation
         if event_type == 'spawn':
-            vals = values_str[1:-1].split(',')
             pid = int(vals[0])
             is_bot = vals[1] == 'True'
             team = pid % 2
@@ -268,13 +276,12 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             w[team][widx][0] = is_bot
 
         elif event_type == 'carryFood':
-            pid = int(values_str[1:-1])
+            pid = int(vals[0])
             team = pid % 2
             widx = (pid - 3) // 2
             w[team][widx][1] = True
 
         elif event_type == 'berryDeposit':
-            vals = values_str[1:-1].split(',')
             hole_x, hole_y = int(vals[0]), int(vals[1])
             pid = int(vals[2])
             team = pid % 2
@@ -287,7 +294,6 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             berries_avail -= 1
 
         elif event_type == 'berryKickIn':
-            vals = values_str[1:-1].split(',')
             hole_x, hole_y = int(vals[0]), int(vals[1])
             pid = int(vals[2])
             own_team = vals[3] == 'True'
@@ -301,14 +307,12 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             berries_avail -= 1
 
         elif event_type == 'blessMaiden':
-            vals = values_str[1:-1].split(',')
             mx, my = int(vals[0]), int(vals[1])
             color = 1 if vals[2] == 'Blue' else -1
             _, midx = maiden_lookup[(mx, my)]
             maiden_states[midx] = color
 
         elif event_type == 'useMaiden':
-            vals = values_str[1:-1].split(',')
             mtype = vals[2]
             pid = int(vals[3])
             team = pid % 2
@@ -320,7 +324,6 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             w[team][widx][1] = False
 
         elif event_type == 'playerKill':
-            vals = values_str[1:-1].split(',')
             killed_pid = int(vals[3])
             killed_cat = vals[4]
             team = killed_pid % 2
@@ -333,7 +336,6 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
                 w[team][widx][3] = False
 
         elif event_type == 'getOnSnail':
-            vals = values_str[1:-1].split(',')
             sx = int(vals[0])
             rider_pid = int(vals[2])
             snail_x = float(sx)
@@ -345,7 +347,6 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             snail_vel = base_speed * _snail_mult(gold_on_left, rider_team)
 
         elif event_type == 'snailEat':
-            vals = values_str[1:-1].split(',')
             sx = int(vals[0])
             rider_pid = int(vals[2])
             snail_x = float(sx)
@@ -357,13 +358,11 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             snail_vel = base_speed * _snail_mult(gold_on_left, rider_team)
 
         elif event_type == 'getOffSnail':
-            vals = values_str[1:-1].split(',')
             snail_x = float(int(vals[0]))
             snail_last_ts = rel_ts
             snail_vel = 0.0
 
         elif event_type == 'snailEscape':
-            vals = values_str[1:-1].split(',')
             snail_x = float(int(vals[0]))
             snail_last_ts = rel_ts
             snail_vel = 0.0
@@ -406,8 +405,8 @@ def fast_materialize(csv_path, drop_state_probability=0.0):
 
     # Phase 2: Pre-allocate output buffers (total_events is the absolute max rows)
     total_events = sum(len(evts) for evts in games.values())
-    output_buf = np.zeros((total_events, NUM_FEATURES), dtype=np.float64)
-    label_buf = np.zeros(total_events, dtype=np.int64)
+    output_buf = np.empty((total_events, NUM_FEATURES), dtype=np.float32)
+    label_buf = np.empty(total_events, dtype=np.int8)
     write_idx = 0
 
     # Phase 3: Process each game

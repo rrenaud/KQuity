@@ -601,7 +601,7 @@ def main():
                 new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9, use_fast_path=False
             )
             assert np.array_equal(fast_y, slow_y), "Training labels mismatch"
-            assert np.allclose(fast_X, slow_X, atol=1e-10), f"Training states mismatch: {np.max(np.abs(fast_X - slow_X))}"
+            assert np.allclose(fast_X, slow_X, atol=1e-5), f"Training states mismatch: {np.max(np.abs(fast_X - slow_X))}"
             print("  Verification passed: fast and slow paths match!")
             train_X, train_y = fast_X, fast_y
         else:
@@ -629,7 +629,7 @@ def main():
                 new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95, use_fast_path=False
             )
             assert np.array_equal(fast_y, slow_y), "Test labels mismatch"
-            assert np.allclose(fast_X, slow_X, atol=1e-10), f"Test states mismatch: {np.max(np.abs(fast_X - slow_X))}"
+            assert np.allclose(fast_X, slow_X, atol=1e-5), f"Test states mismatch: {np.max(np.abs(fast_X - slow_X))}"
             print("  Verification passed: fast and slow paths match!")
             test_X, test_y = fast_X, fast_y
         else:
