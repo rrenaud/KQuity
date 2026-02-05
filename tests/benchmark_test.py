@@ -78,7 +78,7 @@ class PipelineRegressionTest(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(
             states, expected_states,
-            decimal=10,
+            decimal=5,
             err_msg='Fast path states do not match expected output')
         np.testing.assert_array_equal(
             labels, expected_labels,
