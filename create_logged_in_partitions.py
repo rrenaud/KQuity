@@ -5,12 +5,22 @@ sorted by login count DESC then start_time DESC. This enables fast experiments
 on high-quality data without scanning all 925 source partitions.
 """
 
+import collections
 import csv
 import gzip
 import os
 import time
 
-from train_model import compute_hivemind_login_counts
+
+def compute_login_counts(usergame_csv_path):
+    """Count non-empty user_id entries per game_id in usergame.csv."""
+    counter = collections.Counter()
+    with open(usergame_csv_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row['user_id']:
+                counter[int(row['game_id'])] += 1
+    return dict(counter)
 
 SOURCE_DIR = 'new_data_partitioned'
 OUTPUT_DIR = 'logged_in_games'
@@ -26,7 +36,7 @@ def build_partition_assignments():
     Games with login_count >= 1, sorted by (login_count DESC, start_time DESC).
     """
     print("Computing login counts...")
-    login_counts = compute_hivemind_login_counts(USERGAME_CSV)
+    login_counts = compute_login_counts(USERGAME_CSV)
     print(f"  Games with logins: {len(login_counts):,}")
 
     print("Reading game start times...")
