@@ -75,8 +75,6 @@ def stream_and_repartition(game_to_partition):
     """Stream source partitions and write events to output partitions."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Track which output partitions have all their games written
-    # so we can close files eagerly
     open_writers = {}  # partition_num -> (gzip_file, csv_writer)
     header = None
     games_written = set()
