@@ -6,6 +6,7 @@ import numpy as np
 
 from preprocess import iterate_events_from_csv, iterate_game_events_with_state, create_game_states_matrix
 from map_structure import MapStructureInfos
+from fast_materialize import fast_materialize
 
 
 class PipelineRegressionTest(unittest.TestCase):
@@ -51,6 +52,37 @@ class PipelineRegressionTest(unittest.TestCase):
         np.testing.assert_array_equal(
             labels, expected_labels,
             err_msg='Labels do not match expected output')
+
+
+    def test_fast_path_matches_expected(self):
+        """Verify fast path produces identical output to expected benchmark."""
+        test_dir = os.path.dirname(__file__)
+        benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
+        expected_path = os.path.join(test_dir, 'benchmark_expected.npz')
+
+        expected = np.load(expected_path)
+        expected_states = expected['states']
+        expected_labels = expected['labels']
+
+        start_time = time.time()
+        states, labels = fast_materialize(benchmark_path)
+        elapsed = time.time() - start_time
+
+        print(f'\nFast path time: {elapsed:.2f} seconds')
+        print(f'States shape: {states.shape}, Labels shape: {labels.shape}')
+
+        self.assertEqual(states.shape, expected_states.shape,
+                        f'States shape mismatch: {states.shape} vs {expected_states.shape}')
+        self.assertEqual(labels.shape, expected_labels.shape,
+                        f'Labels shape mismatch: {labels.shape} vs {expected_labels.shape}')
+
+        np.testing.assert_array_almost_equal(
+            states, expected_states,
+            decimal=10,
+            err_msg='Fast path states do not match expected output')
+        np.testing.assert_array_equal(
+            labels, expected_labels,
+            err_msg='Fast path labels do not match expected output')
 
 
 if __name__ == '__main__':
