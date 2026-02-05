@@ -26,6 +26,7 @@ from preprocess import (
     GameValidationError,
 )
 import map_structure
+from fast_materialize import fast_materialize
 
 
 def validate_and_partition_data(
@@ -260,34 +261,41 @@ def materialize_partition_range(
     output_dir: str,
     start_partition: int,
     end_partition: int,
-    drop_prob: float
+    drop_prob: float,
+    use_fast_path: bool = True
 ):
     """Materialize game states from a range of partitions."""
     pathlib.Path(output_dir).mkdir(exist_ok=True, parents=True)
 
-    # Build glob pattern for partition range
-    csv_pattern = f'{input_dir}/gameevents_*.csv.gz'
-
-    map_structure_infos = map_structure.MapStructureInfos()
     all_states = []
     all_labels = []
 
-    import glob
     for partition in range(start_partition, end_partition):
         csv_path = f'{input_dir}/gameevents_{partition:03d}.csv.gz'
         if not os.path.exists(csv_path):
             continue
 
         print(f"  Processing {csv_path}...")
-        events = iterate_events_from_csv(csv_path)
-        game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
-        try:
-            states, labels = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
-            all_states.append(states)
-            all_labels.append(labels)
-        except Exception as e:
-            print(f"    Error processing {csv_path}: {e}")
+        if use_fast_path:
+            try:
+                states, labels = fast_materialize(csv_path, drop_prob)
+                if len(labels) > 0:
+                    all_states.append(states)
+                    all_labels.append(labels)
+            except Exception as e:
+                print(f"    Error processing {csv_path}: {e}")
+        else:
+            map_structure_infos = map_structure.MapStructureInfos()
+            events = iterate_events_from_csv(csv_path)
+            game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
+
+            try:
+                states, labels = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
+                all_states.append(states)
+                all_labels.append(labels)
+            except Exception as e:
+                print(f"    Error processing {csv_path}: {e}")
 
     if all_states:
         combined_states = np.vstack(all_states)
@@ -351,6 +359,12 @@ def evaluate_model(model, test_X, test_y, name: str):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--slow-and-verify', action='store_true',
+                        help='Run both slow and fast paths, assert identical output')
+    args = parser.parse_args()
+
     new_export_csv = 'export_20260115_210621/gameevent.csv'
     new_partitioned_dir = 'new_data_partitioned'
     new_expt_name = 'new_data_model'
@@ -392,9 +406,21 @@ def main():
     train_states_file = f'{expt_dir}/train_states.npy'
     if not os.path.exists(train_states_file):
         print("\nMaterializing training data (90% drop rate)...")
-        train_X, train_y = materialize_partition_range(
-            new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9
-        )
+        if args.slow_and_verify:
+            fast_X, fast_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9, use_fast_path=True
+            )
+            slow_X, slow_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9, use_fast_path=False
+            )
+            assert np.array_equal(fast_y, slow_y), "Training labels mismatch"
+            assert np.allclose(fast_X, slow_X, atol=1e-10), f"Training states mismatch: {np.max(np.abs(fast_X - slow_X))}"
+            print("  Verification passed: fast and slow paths match!")
+            train_X, train_y = fast_X, fast_y
+        else:
+            train_X, train_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9
+            )
         np.save(f'{expt_dir}/train_states.npy', train_X)
         np.save(f'{expt_dir}/train_labels.npy', train_y)
         print(f"  Training samples: {len(train_y):,}")
@@ -407,10 +433,22 @@ def main():
     # Materialize test data
     test_states_file = f'{expt_dir}/test_states.npy'
     if not os.path.exists(test_states_file):
-        print("\nMaterializing test data (0% drop rate)...")
-        test_X, test_y = materialize_partition_range(
-            new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95
-        )
+        print("\nMaterializing test data (95% drop rate)...")
+        if args.slow_and_verify:
+            fast_X, fast_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95, use_fast_path=True
+            )
+            slow_X, slow_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95, use_fast_path=False
+            )
+            assert np.array_equal(fast_y, slow_y), "Test labels mismatch"
+            assert np.allclose(fast_X, slow_X, atol=1e-10), f"Test states mismatch: {np.max(np.abs(fast_X - slow_X))}"
+            print("  Verification passed: fast and slow paths match!")
+            test_X, test_y = fast_X, fast_y
+        else:
+            test_X, test_y = materialize_partition_range(
+                new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95
+            )
         np.save(f'{expt_dir}/test_states.npy', test_X)
         np.save(f'{expt_dir}/test_labels.npy', test_y)
         print(f"  Test samples: {len(test_y):,}")
