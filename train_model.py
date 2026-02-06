@@ -325,37 +325,9 @@ def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100):
 
 
 def evaluate_model(model, test_X, test_y, name: str):
-    """Evaluate a model and return metrics."""
-    predictions = model.predict(test_X)
-
-    log_loss = sklearn.metrics.log_loss(test_y, predictions)
-    accuracy = sklearn.metrics.accuracy_score(test_y, predictions > 0.5)
-
-    # Egg inversion test
-    mask = test_X[:, 0] != 2
-    eligible_X = test_X[mask]
-    sample_size = min(2000, len(eligible_X))
-    if sample_size > 0:
-        indices = np.random.choice(len(eligible_X), sample_size, replace=False)
-        sample_X = eligible_X[indices]
-        orig_preds = model.predict(sample_X)
-        modified_X = sample_X.copy()
-        modified_X[:, 0] += 1
-        mod_preds = model.predict(modified_X)
-        inversions = (mod_preds < orig_preds).mean()
-    else:
-        inversions = 0.0
-
-    print(f"\n{name} Results:")
-    print(f"  Log Loss: {log_loss:.4f}")
-    print(f"  Accuracy: {accuracy:.4f} ({100*accuracy:.1f}%)")
-    print(f"  Egg Inversions: {inversions:.4f} ({100*inversions:.2f}%)")
-
-    return {
-        'log_loss': log_loss,
-        'accuracy': accuracy,
-        'inversions': inversions
-    }
+    """Evaluate a LightGBM model. Wraps shared evaluate."""
+    from evaluate import evaluate_model as _evaluate
+    return _evaluate(model.predict, test_X, test_y, name)
 
 
 def main():
