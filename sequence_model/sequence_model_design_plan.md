@@ -6,23 +6,25 @@ A GPT-2 style transformer trained on game event sequences with dual objectives:
 1. **Next-token prediction** — learn game dynamics by predicting the next event
 2. **Win probability** — predict P(blue wins) at every position via an auxiliary head
 
-This replaces/complements the LightGBM pipeline (events → manual 52-feature vector → GBDT) with a model that learns directly from raw event sequences.
+This replaces/complements the LightGBM pipeline (events -> manual 52-feature vector -> GBDT) with a model that learns directly from raw event sequences.
 
 ## Architecture
 
 **Model**: `KQModel` in `model.py`, vendored from [nanoGPT](https://github.com/karpathy/nanoGPT) with modifications.
 
-| Parameter | Value |
-|-----------|-------|
-| Vocab size | 62 |
-| Context length | 1024 tokens |
-| Embedding dim | 128 |
-| Layers | 4 |
+Default config (adjustable via CLI):
+
+| Parameter | Default |
+|-----------|---------|
+| Vocab size | 69 |
+| Context length | 2560 tokens |
+| Embedding dim | 256 |
+| Layers | 6 |
 | Heads | 4 |
-| Parameters | ~0.8M |
+| Parameters | ~4.7M |
 | Dropout | 0.1 |
 
-**Added over nanoGPT**: A linear win probability head (`n_embd → 1`) applied at every position. Training loss is:
+**Added over nanoGPT**: A linear win probability head (`n_embd -> 1`) applied at every position. Training loss is:
 
 ```
 loss = CE_next_token + lambda_wp * BCE_win_prob
@@ -32,9 +34,9 @@ Default `lambda_wp = 0.1`.
 
 ## Tokenization
 
-Each game event becomes 1-4 tokens from a 62-token vocabulary. This keeps the vocabulary small while preserving all game-relevant information.
+Each game event becomes 1-4 tokens, preceded by a time-gap token. The vocabulary is small (69 tokens) to let the transformer compose event semantics from parts.
 
-### Vocabulary (62 tokens)
+### Vocabulary (69 tokens)
 
 | Range | Count | Description |
 |-------|-------|-------------|
@@ -50,149 +52,183 @@ Each game event becomes 1-4 tokens from a 62-token vocabulary. This keeps the vo
 | 45-46 | 2 | Maiden type: `maiden_speed`, `maiden_wings` |
 | 47-48 | 2 | Kick direction: `own_team_goal`, `opp_team_goal` |
 | 49-51 | 3 | Kill type: `killed_queen`, `killed_soldier`, `killed_worker` |
-| 52-61 | 10 | Snail position deciles: `snail_p0` .. `snail_p9` |
+| 52-60 | 9 | Snail position: `snail_far_L` .. `snail_center` .. `snail_far_R` |
+| 61-68 | 8 | Time gaps: `time_gap_0` .. `time_gap_7` |
 
-### Event → Token Mapping
+### Time-Gap Tokens
+
+A time-gap token is inserted before every event, encoding the elapsed time since the previous event. Boundaries were empirically fit from ~598K inter-event gaps across 3 shards (median 0.46s, p99 3.8s):
+
+| Token | Range | Frequency |
+|-------|-------|-----------|
+| time_gap_0 | [0, 0.05s) | ~12% |
+| time_gap_1 | [0.05s, 0.15s) | ~12% |
+| time_gap_2 | [0.15s, 0.35s) | ~18% |
+| time_gap_3 | [0.35s, 0.65s) | ~19% |
+| time_gap_4 | [0.65s, 1.0s) | ~14% |
+| time_gap_5 | [1.0s, 1.5s) | ~12% |
+| time_gap_6 | [1.5s, 2.5s) | ~9% |
+| time_gap_7 | [2.5s+) | ~4% |
+
+### Snail Position Discretization
+
+Snail position uses 9 buckets: 4 left + center + 4 right, with per-map empirical quantile boundaries symmetric around 0.5. The center bucket [0.49, 0.51) captures the untouched-snail spike (~5-37% of events depending on map). Boundaries were computed from ~100K+ snail events per map across 10 shards.
+
+| Map | Far L | Mid L | Near L | Close L | Center | Close R | Near R | Mid R |
+|-----|-------|-------|--------|---------|--------|---------|--------|-------|
+| Day | .195 | .295 | .384 | .49 | .49-.51 | .51 | .616 | .705 | .805 |
+| Dusk | .200 | .312 | .411 | .49 | .49-.51 | .51 | .589 | .688 | .800 |
+| Night | .267 | .358 | .434 | .49 | .49-.51 | .51 | .566 | .642 | .733 |
+| Twilight | .308 | .402 | .457 | .49 | .49-.51 | .51 | .543 | .598 | .692 |
+
+### Event -> Token Mapping
 
 | Event | Tokens | Example |
 |-------|--------|---------|
 | Game start | `<BOS> map_X gold_left\|right` | `<BOS> map_day gold_left` |
-| spawn | `spawn player_N is_bot\|is_human` | `spawn player_7 is_human` |
-| carryFood | `carryFood player_N` | `carryFood player_4` |
-| berryDeposit | `berryDeposit player_N` | `berryDeposit player_3` |
-| berryKickIn | `berryKickIn player_N own\|opp` | `berryKickIn player_7 opp_team_goal` |
-| playerKill | `playerKill killer killed type` | `playerKill player_2 player_3 killed_worker` |
-| blessMaiden | `blessMaiden maiden_K team_X` | `blessMaiden maiden_2 team_gold` |
-| useMaiden | `useMaiden player_N type` | `useMaiden player_6 maiden_wings` |
-| getOnSnail | `getOnSnail player_N snail_pN` | `getOnSnail player_6 snail_p5` |
-| getOffSnail | `getOffSnail player_N snail_pN` | `getOffSnail player_5 snail_p3` |
-| snailEat | `snailEat rider eaten snail_pN` | `snailEat player_5 player_6 snail_p3` |
-| snailEscape | `snailEscape player_N snail_pN` | `snailEscape player_6 snail_p3` |
-| victory | `victory_team_condition` | `victory_blue_military` |
+| spawn | `time_gap spawn player_N is_bot\|human` | `time_gap_0 spawn player_7 is_human` |
+| carryFood | `time_gap carryFood player_N` | `time_gap_2 carryFood player_4` |
+| berryDeposit | `time_gap berryDeposit player_N` | `time_gap_1 berryDeposit player_3` |
+| berryKickIn | `time_gap berryKickIn player_N own\|opp` | `time_gap_3 berryKickIn player_7 opp_team_goal` |
+| playerKill | `time_gap playerKill killer killed type` | `time_gap_0 playerKill player_2 player_3 killed_worker` |
+| blessMaiden | `time_gap blessMaiden maiden_K team_X` | `time_gap_4 blessMaiden maiden_2 team_gold` |
+| useMaiden | `time_gap useMaiden player_N type` | `time_gap_5 useMaiden player_6 maiden_wings` |
+| getOnSnail | `time_gap getOnSnail player_N snail_pos` | `time_gap_2 getOnSnail player_6 snail_close_R` |
+| getOffSnail | `time_gap getOffSnail player_N snail_pos` | `time_gap_1 getOffSnail player_5 snail_near_L` |
+| snailEat | `time_gap snailEat rider eaten snail_pos` | `time_gap_0 snailEat player_5 player_6 snail_near_L` |
+| snailEscape | `time_gap snailEscape player_N snail_pos` | `time_gap_0 snailEscape player_6 snail_near_L` |
+| victory | `time_gap victory_team_condition` | `time_gap_3 victory_blue_military` |
 | End | `<EOS>` | `<EOS>` |
-
-### Snail Position Discretization
-
-The snail track is centered at x=960 (SCREEN_WIDTH/2). Track width varies by map (700-900px). The raw `snail_x` pixel coordinate is normalized to [0, 1] within the track range and bucketed into 10 deciles (`snail_p0` = leftmost, `snail_p9` = rightmost). The model knows `gold_left`/`gold_right` from the `<BOS>` header, so it can interpret which direction is which team's goal.
 
 ### What's Not Tokenized
 
 - **x,y coordinates** for kills, berries, maidens — maiden identity is captured via `maiden_0..4`; berry deposits just track which player deposited
-- **Timestamps** — ordering is implicit in sequence position
 - **Berry slot identity** — we track who deposits, not which of the 12 slots
 
-### Statistics
+### Token Statistics
 
-From 1000 games (partition 000):
-- Mean: 317 tokens/game
-- Median: 277
-- p95: 647, p99: 905, max: 1918
+With time-gap tokens, games are ~1.36x longer than without (one time-gap per event, events average ~2.8 tokens).
 
-Tournament games are longer (mean 755 tokens).
+From 100K games (107 shards):
+- ~650 tokens/game average
+- p99 ~2500 tokens (fits in block_size=2560)
 
 ## Data Pipeline
 
 ### `tokenize_games.py`
 
-Reads partitioned CSV files via `preprocess.iterate_events_from_csv()`, validates games, tokenizes, and writes:
+Three modes:
+
+```bash
+# Directory mode: tokenize all shards, split 90/10
+python -m sequence_model.tokenize_games \
+    --train-dir logged_in_games/ \
+    --val-csv late_tournament_games/late_tournament_game_events.csv.gz
+
+# Directory mode with game limit
+python -m sequence_model.tokenize_games \
+    --train-dir logged_in_games/ --max-games 100000 \
+    --val-csv late_tournament_games/late_tournament_game_events.csv.gz
+
+# Single-CSV mode
+python -m sequence_model.tokenize_games \
+    --train-csv logged_in_games/gameevents_000.csv.gz \
+    --val-csv late_tournament_games/late_tournament_game_events.csv.gz
+```
+
+Outputs:
 - `{split}.bin` — uint16 token IDs, all games concatenated
 - `{split}_labels.bin` — uint8 win labels (0/1), parallel array same length as tokens
 
-Every position in the label array holds the blue_wins outcome for whichever game that token belongs to. This allows the training loop to sample random chunks without game boundary alignment.
-
-```bash
-# Tokenize 1000 games for train, tournament games for val
-python -m sequence_model.tokenize_games \
-  --max-games 1000 \
-  --val-csv late_tournament_games/late_tournament_game_events.csv.gz
-
-# Full dataset
-python -m sequence_model.tokenize_games
-```
-
 ### Train/Val Split
 
-Default: partitions 0-739 train, 740-924 val (same as LightGBM pipeline). Can override with `--val-csv` to use tournament data for evaluation.
+In directory mode (`--train-dir`), games from all shards are collected, shuffled, and split 90/10. With `--val-csv`, the val set comes from a separate CSV instead.
 
 ## Training
 
 ### `train.py`
 
-Vendored from nanoGPT with modifications for dual loss and our data format.
+Vendored from nanoGPT with modifications for dual loss and game-aligned batching.
 
 ```bash
 python -m sequence_model.train \
-  --device cuda --dtype bfloat16 \
-  --batch-size 64 --block-size 256 \
-  --max-seconds 60
+    --device cuda --compile \
+    --batch-size 64 --block-size 2560 \
+    --n-embd 256 --n-layer 6 --n-head 4 \
+    --max-iters 2000 --warmup-iters 200 --lr-decay-iters 2000
 ```
 
 Key features:
-- AdamW optimizer with cosine LR schedule and warmup
+- **Game-aligned batching**: scans `.bin` for BOS tokens, samples whole games per batch element. Pads short games, truncates long ones.
+- AdamW optimizer with cosine LR schedule and warmup (all configurable via CLI)
 - Mixed precision (bfloat16/float16)
-- `--max-seconds` flag for time-limited runs
+- `torch.compile` support (~300ms/iter after compilation)
 - Tracks LM loss, WP loss, and WP accuracy separately
 - Checkpoint resume via `--init-from resume`
+- wandb logging via `--wandb`
 
 ### Training Config Defaults
 
 | Parameter | Value |
 |-----------|-------|
 | Learning rate | 3e-4 |
+| Min LR | 3e-5 |
 | Weight decay | 0.1 |
-| Warmup iters | 1000 |
-| Max iters | 50,000 |
+| Warmup iters | 200 |
+| LR decay iters | 2000 |
+| Max iters | 2000 |
 | Grad clip | 1.0 |
 | lambda_wp | 0.1 |
+| Block size | 2560 |
+| Batch size | 64 |
 
 ## Evaluation
 
+### `compare_models.py`
+
+Head-to-head comparison of seq model vs LightGBM on the same test games, with per-game-stage breakdown.
+
+```bash
+python -m sequence_model.compare_models \
+    --test-csv late_tournament_games/late_tournament_game_events.csv.gz \
+    --lgb-train-csv logged_in_games/gameevents_000.csv.gz \
+    --block-size 2560
+```
+
 ### `evaluate.py`
+
+Standalone evaluation on val set:
 
 ```bash
 python -m sequence_model.evaluate \
-  --checkpoint sequence_model/out/ckpt.pt \
-  --device cuda
+    --checkpoint sequence_model/out/ckpt.pt \
+    --device cuda
 ```
-
-Metrics:
-1. **Next-token perplexity** — how well the model predicts game dynamics
-2. **Win probability accuracy and log loss** — compared to LightGBM baseline (70.4% acc, 0.556 log loss)
-3. **Calibration** — reliability diagram (predicted prob vs actual win rate by decile)
-4. **Egg inversion test** — does a queen kill shift P(blue wins) in the correct direction?
-
-### Preliminary Results (60s training, 1000 games, eval on tournament data)
-
-| Metric | Sequence Model | LightGBM Baseline |
-|--------|---------------|-------------------|
-| Win prob accuracy (val) | 53.4% | 70.4% |
-| Win prob log loss (val) | 0.691 | 0.556 |
-| Next-token perplexity (val) | 4.68 | N/A |
-| Egg inversion | 71.9% | — |
-
-The model is undertrained (1000 games, 60 seconds). Full training on 740K games for 50K iterations is needed to close the gap.
 
 ## File Structure
 
 ```
 sequence_model/
 ├── __init__.py              # Package marker
-├── vocab.py                 # Token vocabulary (62 tokens) and event→token functions
+├── vocab.py                 # Token vocabulary (69 tokens) and event->token functions
 ├── config.py                # Model and training hyperparameter dataclasses
-├── tokenize_games.py        # CSV events → .bin token + label files
+├── tokenize_games.py        # CSV events -> .bin token + label files
 ├── model.py                 # KQModel: GPT-2 transformer + win probability head
-├── train.py                 # Training loop with dual loss
+├── train.py                 # Training loop with dual loss, game-aligned batching
 ├── evaluate.py              # Evaluation metrics and baseline comparison
+├── compare_models.py        # Head-to-head seq model vs LightGBM comparison
 ├── sequence_model_design_plan.md  # This file
+├── TRAINING_REPORT.md       # Training experiments and results
+├── SWEEP_REPORT.md          # Hyperparameter sweep analysis
 ├── data/                    # [gitignored] .bin token and label files
 └── out/                     # [gitignored] Model checkpoints
 ```
 
 ## Future Work
 
-- Train on full dataset (740K games) for 50K+ iterations
-- Add time-gap bucket tokens between events (game pace/urgency)
+- Train on full dataset (~180K games from all 199 shards)
 - Add discretized spatial tokens for kill locations (map control)
 - Add berry-slot tokens to berryDeposit (track proximity to economic victory)
-- Scale up model if accuracy plateaus (more layers/heads/embedding dim)
-- Compare sequence model win prob vs LightGBM at different game stages (early/mid/late)
+- Team-swap data augmentation (double effective dataset)
+- WP-head-specific regularization (dropout before wp_head)
+- Per-stage accuracy breakdown (early/mid/late game)

@@ -106,8 +106,8 @@ class Block(nn.Module):
 
 @dataclass
 class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 62      # KQ game event vocabulary (52 base + 10 snail position deciles)
+    block_size: int = 2560
+    vocab_size: int = 69      # KQ game event vocabulary (61 base + 8 time-gap buckets)
     n_layer: int = 4
     n_head: int = 4
     n_embd: int = 128

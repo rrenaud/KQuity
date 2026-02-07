@@ -88,19 +88,30 @@ KILLED_QUEEN = 49
 KILLED_SOLDIER = 50
 KILLED_WORKER = 51
 
-# Snail position deciles (10)
-SNAIL_POS_0 = 52  # leftmost decile of track
-SNAIL_POS_1 = 53
-SNAIL_POS_2 = 54
-SNAIL_POS_3 = 55
-SNAIL_POS_4 = 56
-SNAIL_POS_5 = 57
-SNAIL_POS_6 = 58
-SNAIL_POS_7 = 59
-SNAIL_POS_8 = 60
-SNAIL_POS_9 = 61  # rightmost decile of track
+# Snail position buckets (9) — per-map empirical quantiles with center band
+# Layout: 4 left + center + 4 right, symmetric boundaries around 0.5
+SNAIL_POS_0 = 52  # far left
+SNAIL_POS_1 = 53  # mid left
+SNAIL_POS_2 = 54  # near left
+SNAIL_POS_3 = 55  # close left
+SNAIL_POS_4 = 56  # center (untouched / barely-moved snail)
+SNAIL_POS_5 = 57  # close right
+SNAIL_POS_6 = 58  # near right
+SNAIL_POS_7 = 59  # mid right
+SNAIL_POS_8 = 60  # far right
 
-VOCAB_SIZE = 62
+# Time-gap bucket tokens (8) — empirically fit to event gap distribution
+# (median gap ~0.46s, p95 ~2.3s, p99 ~3.8s, 99.5% of gaps < 5s)
+TIME_GAP_0 = 61   # [0, 0.05s)      ~12% of gaps — near-simultaneous
+TIME_GAP_1 = 62   # [0.05s, 0.15s)  ~12% — very fast
+TIME_GAP_2 = 63   # [0.15s, 0.35s)  ~18% — fast
+TIME_GAP_3 = 64   # [0.35s, 0.65s)  ~19% — typical
+TIME_GAP_4 = 65   # [0.65s, 1.0s)   ~14% — moderate
+TIME_GAP_5 = 66   # [1.0s, 1.5s)    ~12% — slow
+TIME_GAP_6 = 67   # [1.5s, 2.5s)    ~ 9% — long pause
+TIME_GAP_7 = 68   # [2.5s+)         ~ 4% — very long pause
+
+VOCAB_SIZE = 69
 
 # --- Lookup tables ---
 
@@ -149,8 +160,11 @@ TOKEN_NAMES = [
     'maiden_speed', 'maiden_wings',
     'own_team_goal', 'opp_team_goal',
     'killed_queen', 'killed_soldier', 'killed_worker',
-    'snail_p0', 'snail_p1', 'snail_p2', 'snail_p3', 'snail_p4',
-    'snail_p5', 'snail_p6', 'snail_p7', 'snail_p8', 'snail_p9',
+    'snail_far_L', 'snail_mid_L', 'snail_near_L', 'snail_close_L',
+    'snail_center',
+    'snail_close_R', 'snail_near_R', 'snail_mid_R', 'snail_far_R',
+    'time_gap_0', 'time_gap_1', 'time_gap_2', 'time_gap_3',
+    'time_gap_4', 'time_gap_5', 'time_gap_6', 'time_gap_7',
 ]
 
 assert len(TOKEN_NAMES) == VOCAB_SIZE
@@ -166,6 +180,18 @@ def maiden_token(maiden_index: int) -> int:
     """Convert maiden index (0-4) to maiden token."""
     assert 0 <= maiden_index <= 4, f"Invalid maiden_index: {maiden_index}"
     return MAIDEN_0 + maiden_index
+
+
+# Time-gap bucket boundaries in seconds (empirically fit)
+_TIME_GAP_BOUNDARIES = [0.05, 0.15, 0.35, 0.65, 1.0, 1.5, 2.5]
+
+
+def time_gap_token(seconds: float) -> int:
+    """Convert elapsed seconds to a time-gap bucket token."""
+    for i, boundary in enumerate(_TIME_GAP_BOUNDARIES):
+        if seconds < boundary:
+            return TIME_GAP_0 + i
+    return TIME_GAP_7  # 40s+
 
 
 def token_name(token_id: int) -> str:
@@ -230,18 +256,36 @@ def tokenize_use_maiden(position_id, maiden_type):
     return [USE_MAIDEN, player_token(position_id), type_tok]
 
 
-def snail_position_token(snail_x, track_left, track_width):
-    """Convert raw snail_x pixel coordinate to a decile token.
+# Per-map empirical quantile boundaries for snail position bucketing.
+# Layout: 4 left + center [0.49, 0.51) + 4 right = 9 buckets.
+# Left/right boundaries are symmetric around 0.5 (averaged from left/right
+# quantiles). Each non-center bucket holds ~12% of events; center captures
+# the untouched-snail spike (~5-8% on active maps, ~37% on twilight).
+# Computed from ~100K+ snail events per map across 10 shards.
+_SNAIL_QUANTILE_BOUNDARIES = {
+    #              far_L   mid_L   near_L  close_L  ctr_lo  ctr_hi  close_R  near_R  mid_R
+    Map.map_day:      [0.195, 0.295, 0.384, 0.49, 0.51, 0.616, 0.705, 0.805],
+    Map.map_dusk:     [0.200, 0.312, 0.411, 0.49, 0.51, 0.589, 0.688, 0.800],
+    Map.map_night:    [0.267, 0.358, 0.434, 0.49, 0.51, 0.566, 0.642, 0.733],
+    Map.map_twilight: [0.308, 0.402, 0.457, 0.49, 0.51, 0.543, 0.598, 0.692],
+}
 
-    The track runs from track_left to track_left + track_width.
-    We normalize to [0, 1] (left-to-right on screen), clamp, and bucket
-    into 10 deciles. The model already knows gold_left/gold_right from
-    the BOS header, so it can interpret direction.
+_SCREEN_WIDTH = 1920  # from constants; duplicated here to avoid circular import
+
+
+def snail_position_token(snail_x, map_type):
+    """Convert raw snail_x pixel coordinate to a quantile bucket token.
+
+    Uses per-map empirical boundaries with a dedicated center bucket for
+    the untouched/barely-moved snail. Boundaries are symmetric around 0.5
+    for each map.
     """
-    fraction = (snail_x - track_left) / track_width
-    fraction = max(0.0, min(1.0, fraction))
-    bucket = min(9, int(fraction * 10))
-    return SNAIL_POS_0 + bucket
+    fraction = snail_x / _SCREEN_WIDTH
+    boundaries = _SNAIL_QUANTILE_BOUNDARIES[map_type]
+    for i, boundary in enumerate(boundaries):
+        if fraction < boundary:
+            return SNAIL_POS_0 + i
+    return SNAIL_POS_8
 
 
 def tokenize_get_on_snail(position_id, snail_pos_tok):
@@ -317,8 +361,7 @@ def tokenize_event(event):
 # --- What we drop from tokenization ---
 # TODO: Add discretized spatial grid tokens (e.g. 8x6 buckets) for kill
 #       locations — may help model learn map control patterns
-# TODO: Add time-gap bucket tokens (e.g. <fast>/<medium>/<slow>/<very_slow>)
-#       between events — may help model reason about game pace and urgency
+# Time-gap bucket tokens are now included (TIME_GAP_0..7) between events.
 # Snail position deciles are now included (SNAIL_POS_0..9) on all snail events.
 # TODO: Add berry-slot tokens (0-11) to berryDeposit events —
 #       lets model track how close a team is to economic victory

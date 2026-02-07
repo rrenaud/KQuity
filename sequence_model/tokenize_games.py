@@ -4,10 +4,22 @@ Reads partitioned CSV files via preprocess module, tokenizes each valid game,
 and outputs memory-mapped .bin files (tokens + win-probability labels).
 
 Usage:
+    # Partition-range mode (original):
     python -m sequence_model.tokenize_games
+
+    # Single-CSV mode with disjoint train/val/test splits:
+    python -m sequence_model.tokenize_games \
+        --train-csv logged_in_games/gameevents_000.csv.gz \
+        --val-csv late_tournament_games/late_tournament_game_events.csv.gz
+
+    # Directory mode: tokenize all shards, split 90/10:
+    python -m sequence_model.tokenize_games \
+        --train-dir logged_in_games/ \
+        --val-csv late_tournament_games/late_tournament_game_events.csv.gz
 """
 
 import argparse
+import glob
 import os
 import sys
 import time
@@ -36,11 +48,9 @@ from sequence_model.vocab import (
     tokenize_bless_maiden, tokenize_use_maiden,
     tokenize_get_on_snail, tokenize_get_off_snail,
     tokenize_snail_eat, tokenize_snail_escape, tokenize_victory,
-    snail_position_token,
+    snail_position_token, time_gap_token,
     decode_tokens,
 )
-from constants import SCREEN_WIDTH
-
 
 def _contestable_to_team(state: ContestableState) -> Team:
     """Convert ContestableState.BLUE/GOLD to Team.BLUE/GOLD."""
@@ -72,29 +82,30 @@ def tokenize_single_game(game_events, map_infos):
         return None
 
     tokens = tokenize_game_start(map_start.map, map_start.gold_on_left)
-
-    # Precompute snail track geometry for position discretization
-    track_width = map_info.snail_track_width
-    track_left = SCREEN_WIDTH / 2 - track_width / 2
+    current_map = map_start.map
 
     blue_wins = None
+    last_timestamp = 0.0  # events have normalized timestamps (seconds from game start)
 
     for event in game_events:
         if isinstance(event, (GameStartEvent, MapStartEvent)):
             continue  # Already handled in header
-        elif isinstance(event, SpawnEvent):
-            tokens.extend(tokenize_spawn(event.position_id, event.is_bot))
+
+        # Insert time-gap token before each event
+        event_tokens = None
+        if isinstance(event, SpawnEvent):
+            event_tokens = tokenize_spawn(event.position_id, event.is_bot)
         elif isinstance(event, CarryFoodEvent):
-            tokens.extend(tokenize_carry_food(event.position_id))
+            event_tokens = tokenize_carry_food(event.position_id)
         elif isinstance(event, BerryDepositEvent):
-            tokens.extend(tokenize_berry_deposit(event.position_id))
+            event_tokens = tokenize_berry_deposit(event.position_id)
         elif isinstance(event, BerryKickInEvent):
-            tokens.extend(tokenize_berry_kick_in(
-                event.position_id, event.counts_for_own_team))
+            event_tokens = tokenize_berry_kick_in(
+                event.position_id, event.counts_for_own_team)
         elif isinstance(event, PlayerKillEvent):
-            tokens.extend(tokenize_player_kill(
+            event_tokens = tokenize_player_kill(
                 event.killer_position_id, event.killed_position_id,
-                event.killed_player_category))
+                event.killed_player_category)
         elif isinstance(event, BlessMaidenEvent):
             try:
                 _, maiden_index = map_info.get_type_and_maiden_index(
@@ -102,28 +113,35 @@ def tokenize_single_game(game_events, map_infos):
             except ValueError:
                 continue  # Skip invalid maiden coords
             team = _contestable_to_team(event.gate_color)
-            tokens.extend(tokenize_bless_maiden(maiden_index, team))
+            event_tokens = tokenize_bless_maiden(maiden_index, team)
         elif isinstance(event, UseMaidenEvent):
-            tokens.extend(tokenize_use_maiden(
-                event.position_id, event.maiden_type))
+            event_tokens = tokenize_use_maiden(
+                event.position_id, event.maiden_type)
         elif isinstance(event, GetOnSnailEvent):
-            spt = snail_position_token(event.snail_x, track_left, track_width)
-            tokens.extend(tokenize_get_on_snail(event.rider_position_id, spt))
+            spt = snail_position_token(event.snail_x, current_map)
+            event_tokens = tokenize_get_on_snail(event.rider_position_id, spt)
         elif isinstance(event, GetOffSnailEvent):
-            spt = snail_position_token(event.snail_x, track_left, track_width)
-            tokens.extend(tokenize_get_off_snail(event.position_id, spt))
+            spt = snail_position_token(event.snail_x, current_map)
+            event_tokens = tokenize_get_off_snail(event.position_id, spt)
         elif isinstance(event, SnailEatEvent):
-            spt = snail_position_token(event.snail_x, track_left, track_width)
-            tokens.extend(tokenize_snail_eat(
-                event.rider_position_id, event.eaten_position_id, spt))
+            spt = snail_position_token(event.snail_x, current_map)
+            event_tokens = tokenize_snail_eat(
+                event.rider_position_id, event.eaten_position_id, spt)
         elif isinstance(event, SnailEscapeEvent):
-            spt = snail_position_token(event.snail_x, track_left, track_width)
-            tokens.extend(tokenize_snail_escape(event.escaped_position_id, spt))
+            spt = snail_position_token(event.snail_x, current_map)
+            event_tokens = tokenize_snail_escape(event.escaped_position_id, spt)
         elif isinstance(event, VictoryEvent):
-            tokens.extend(tokenize_victory(
-                event.winning_team, event.victory_condition))
+            event_tokens = tokenize_victory(
+                event.winning_team, event.victory_condition)
             blue_wins = 1 if event.winning_team == Team.BLUE else 0
         # Other event types are silently skipped
+
+        if event_tokens is not None:
+            # Insert time-gap token before the event tokens
+            elapsed = event.timestamp - last_timestamp
+            tokens.append(time_gap_token(max(0.0, elapsed)))
+            tokens.extend(event_tokens)
+            last_timestamp = event.timestamp
 
     if blue_wins is None:
         return None  # No victory event
@@ -294,9 +312,15 @@ def main():
                         help='Last partition for validation (exclusive)')
     parser.add_argument('--max-games', type=int, default=None,
                         help='Max games to tokenize per split')
+    parser.add_argument('--train-csv', type=str, default=None,
+                        help='Use a single CSV/gzip file for training; '
+                             'games are split 90/10 into train.bin + val.bin')
+    parser.add_argument('--train-dir', type=str, default=None,
+                        help='Tokenize all *.csv.gz files in directory; '
+                             'split 90/10 into train.bin + val.bin')
     parser.add_argument('--val-csv', type=str, default=None,
-                        help='Use a specific CSV/gzip file for validation '
-                             'instead of partitions (e.g. tournament data)')
+                        help='Use a specific CSV/gzip file as the test set '
+                             '(writes test.bin + test_labels.bin)')
     parser.add_argument('--sample', action='store_true',
                         help='Print sample tokenized games')
     parser.add_argument('--quick', action='store_true',
@@ -305,37 +329,103 @@ def main():
 
     map_infos = map_structure.MapStructureInfos()
 
-    if args.quick:
-        args.train_end = 4
-        args.val_start = 4
-        args.val_end = 5
-
-    # Tokenize training data
-    print('=== Tokenizing training data (partitions 0-{}{}) ==='.format(
-        args.train_end - 1,
-        f', max {args.max_games} games' if args.max_games else ''))
-    t0 = time.time()
-    train_games = tokenize_partition_range(
-        args.input_dir, 0, args.train_end, map_infos,
-        max_games=args.max_games)
-    print(f'Training tokenization took {time.time() - t0:.1f}s\n')
-
-    # Tokenize validation data
-    if args.val_csv:
-        print(f'=== Tokenizing validation data from {args.val_csv} ===')
+    if args.train_dir:
+        # Directory mode: tokenize all CSV/gzip files, split 90/10
+        csv_files = sorted(glob.glob(os.path.join(args.train_dir, '*.csv.gz')))
+        print(f'=== Tokenizing {len(csv_files)} files from {args.train_dir} ===')
         t0 = time.time()
-        val_games = tokenize_csv_file(args.val_csv, map_infos)
+        all_games = []
+        total_tokens = 0
+        for csv_path in csv_files:
+            games = tokenize_csv_file(csv_path, map_infos, verbose=False)
+            all_games.extend(games)
+            total_tokens += sum(len(g[0]) for g in games)
+            print(f'  {os.path.basename(csv_path)}: {len(games)} games'
+                  f' ({len(all_games)} total)')
+            if args.max_games and len(all_games) >= args.max_games:
+                all_games = all_games[:args.max_games]
+                total_tokens = sum(len(g[0]) for g in all_games)
+                break
+        _print_stats(all_games, total_tokens, verbose=True)
+        print(f'Tokenization took {time.time() - t0:.1f}s\n')
+
+        # Deterministic 90/10 split by game order
+        n = len(all_games)
+        split_idx = int(n * 0.9)
+        train_games = all_games[:split_idx]
+        val_games = all_games[split_idx:]
+        print(f'Split: {len(train_games)} train, {len(val_games)} val '
+              f'(from {n} total games)')
+
+        write_bin_files(train_games, args.output_dir, 'train')
+        write_bin_files(val_games, args.output_dir, 'val')
+
+        # If --val-csv given, treat it as a held-out test set
+        if args.val_csv:
+            print(f'\n=== Tokenizing test data from {args.val_csv} ===')
+            t0 = time.time()
+            test_games = tokenize_csv_file(args.val_csv, map_infos)
+            print(f'Test tokenization took {time.time() - t0:.1f}s\n')
+            write_bin_files(test_games, args.output_dir, 'test')
+
+    elif args.train_csv:
+        # Single-CSV mode: split one file into train/val, optionally write test
+        print(f'=== Tokenizing from {args.train_csv} ===')
+        t0 = time.time()
+        all_games = tokenize_csv_file(args.train_csv, map_infos,
+                                      max_games=args.max_games)
+        print(f'Tokenization took {time.time() - t0:.1f}s\n')
+
+        # Deterministic 90/10 split by game order
+        n = len(all_games)
+        split_idx = int(n * 0.9)
+        train_games = all_games[:split_idx]
+        val_games = all_games[split_idx:]
+        print(f'Split: {len(train_games)} train, {len(val_games)} val '
+              f'(from {n} total games)')
+
+        write_bin_files(train_games, args.output_dir, 'train')
+        write_bin_files(val_games, args.output_dir, 'val')
+
+        # If --val-csv given, treat it as a held-out test set
+        if args.val_csv:
+            print(f'\n=== Tokenizing test data from {args.val_csv} ===')
+            t0 = time.time()
+            test_games = tokenize_csv_file(args.val_csv, map_infos)
+            print(f'Test tokenization took {time.time() - t0:.1f}s\n')
+            write_bin_files(test_games, args.output_dir, 'test')
     else:
-        print('=== Tokenizing validation data (partitions {}-{}) ==='.format(
-            args.val_start, args.val_end - 1))
-        t0 = time.time()
-        val_games = tokenize_partition_range(
-            args.input_dir, args.val_start, args.val_end, map_infos)
-    print(f'Validation tokenization took {time.time() - t0:.1f}s\n')
+        # Partition-range mode (original behavior)
+        if args.quick:
+            args.train_end = 4
+            args.val_start = 4
+            args.val_end = 5
 
-    # Write binary files
-    write_bin_files(train_games, args.output_dir, 'train')
-    write_bin_files(val_games, args.output_dir, 'val')
+        # Tokenize training data
+        print('=== Tokenizing training data (partitions 0-{}{}) ==='.format(
+            args.train_end - 1,
+            f', max {args.max_games} games' if args.max_games else ''))
+        t0 = time.time()
+        train_games = tokenize_partition_range(
+            args.input_dir, 0, args.train_end, map_infos,
+            max_games=args.max_games)
+        print(f'Training tokenization took {time.time() - t0:.1f}s\n')
+
+        # Tokenize validation data
+        if args.val_csv:
+            print(f'=== Tokenizing validation data from {args.val_csv} ===')
+            t0 = time.time()
+            val_games = tokenize_csv_file(args.val_csv, map_infos)
+        else:
+            print('=== Tokenizing validation data (partitions {}-{}) ==='.format(
+                args.val_start, args.val_end - 1))
+            t0 = time.time()
+            val_games = tokenize_partition_range(
+                args.input_dir, args.val_start, args.val_end, map_infos)
+        print(f'Validation tokenization took {time.time() - t0:.1f}s\n')
+
+        write_bin_files(train_games, args.output_dir, 'train')
+        write_bin_files(val_games, args.output_dir, 'val')
 
     # Print samples
     if args.sample or args.quick:
