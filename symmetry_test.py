@@ -7,18 +7,24 @@ Verifies that:
 4. Label flip correctness
 """
 
+import copy
 import os
+import random
 import unittest
 
 import numpy as np
 
 from symmetry import swap_teams, swap_event_stream, SWAP_PERM, SWAP_SIGN
-from fast_materialize import (
-    fast_materialize, _process_game, _parse_ts, NUM_FEATURES,
-    SKIP_EVENTS, COL_TS, COL_TYPE, COL_VALUES, COL_GAME_ID,
+from preprocess import (
+    iterate_events_from_csv,
+    iterate_events_by_game_and_normalize_time,
+    vectorize_game_state,
+    GameState,
+    VictoryEvent,
+    get_map_start,
 )
-import csv
-import gzip
+from constants import Team
+import map_structure
 
 
 class TestSwapTeamsRoundtrip(unittest.TestCase):
@@ -38,7 +44,6 @@ class TestSwapTeamsRoundtrip(unittest.TestCase):
     def test_roundtrip_benchmark(self):
         """Roundtrip on actual benchmark data."""
         test_dir = os.path.join(os.path.dirname(__file__), 'tests')
-        benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
         expected_path = os.path.join(test_dir, 'benchmark_expected.npz')
 
         if not os.path.exists(expected_path):
@@ -158,98 +163,87 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
         self.assertEqual(y2_gold[0], 1)  # Gold win -> Blue win
 
 
+def _materialize_single_game(game_events, map_structure_infos):
+    """Materialize feature vectors for a single game's events (slow path).
+
+    Returns (states, labels) numpy arrays, or (None, None) if invalid.
+    """
+    map_start = get_map_start(game_events)
+    map_info = map_structure_infos.get_map_info(map_start.map, map_start.gold_on_left)
+    game_state = GameState(map_info)
+
+    vectorized_states = []
+    labels = []
+    victory_event = game_events[-1]
+    if not isinstance(victory_event, VictoryEvent):
+        return None, None
+
+    label = 1 if victory_event.winning_team == Team.BLUE else 0
+
+    for event in game_events:
+        if event.timestamp > 5.0:
+            vectorized_states.append(vectorize_game_state(game_state, event))
+            labels.append(label)
+        event.modify_game_state(game_state)
+
+    if not vectorized_states:
+        return None, None
+    return np.vstack(vectorized_states), np.array(labels)
+
+
 class TestCrossVerification(unittest.TestCase):
     """Cross-verify: feature swap should match event-stream swap + materialize.
 
     For each game:
-    1. Materialize normally -> swap feature vectors
-    2. Swap event stream -> materialize
+    1. Materialize normally via slow path -> swap feature vectors
+    2. Swap GameEvent objects -> materialize via slow path
     3. Assert results match
     """
 
-    def _load_games_from_benchmark(self, max_games=50):
-        """Load raw events grouped by game from benchmark files."""
-        test_dir = os.path.join(os.path.dirname(__file__), 'tests')
-        benchmark_pattern = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
-
-        import glob
-        games = {}
-        game_order = []
-
-        for filename in sorted(glob.glob(benchmark_pattern)):
-            with gzip.open(filename, 'rt') as f:
-                reader = csv.reader(f)
-                next(reader)  # skip header
-                for row in reader:
-                    event_type = row[COL_TYPE]
-                    if event_type in SKIP_EVENTS:
-                        continue
-                    game_id = int(row[COL_GAME_ID])
-                    if game_id not in games:
-                        games[game_id] = []
-                        game_order.append(game_id)
-                    games[game_id].append(
-                        (_parse_ts(row[COL_TS]), event_type, row[COL_VALUES])
-                    )
-                    if len(game_order) > max_games:
-                        break
-            if len(game_order) > max_games:
-                break
-
-        return games, game_order[:max_games]
-
     def test_feature_swap_matches_event_swap(self):
         """For benchmark games, verify feature swap == event swap + materialize."""
-        games, game_order = self._load_games_from_benchmark(max_games=50)
+        test_dir = os.path.join(os.path.dirname(__file__), 'tests')
+        benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
-        if not game_order:
-            self.skipTest('No benchmark games available')
+        if not os.path.exists(test_dir):
+            self.skipTest('Benchmark data not available')
 
-        import random
-        mismatches = 0
+        map_infos = map_structure.MapStructureInfos()
+        events = iterate_events_from_csv(benchmark_path)
+        grouped = iterate_events_by_game_and_normalize_time(events)
+
         total_games_tested = 0
+        max_games = 50
 
-        for game_id in game_order:
-            raw_events = games[game_id]
+        for game_id, game_events in grouped:
+            if total_games_tested >= max_games:
+                break
 
             # Approach 1: Materialize normally, then swap features
-            buf1 = np.empty((len(raw_events), NUM_FEATURES), dtype=np.float32)
-            lbl1 = np.empty(len(raw_events), dtype=np.int8)
-            rng1 = random.Random(0)
             try:
-                n1 = _process_game(list(raw_events), buf1, lbl1, 0, 0.0, rng1)
+                orig_X, orig_y = _materialize_single_game(game_events, map_infos)
             except Exception:
                 continue
-
-            if n1 == 0:
+            if orig_X is None:
                 continue
 
-            orig_X = buf1[:n1].copy()
-            orig_y = lbl1[:n1].copy()
             swapped_X, swapped_y = swap_teams(orig_X, orig_y)
 
             # Approach 2: Swap event stream, then materialize
-            swapped_events = swap_event_stream(list(raw_events))
-            buf2 = np.empty((len(swapped_events), NUM_FEATURES), dtype=np.float32)
-            lbl2 = np.empty(len(swapped_events), dtype=np.int8)
-            rng2 = random.Random(0)
+            swapped_events = swap_event_stream(game_events)
             try:
-                n2 = _process_game(swapped_events, buf2, lbl2, 0, 0.0, rng2)
+                event_X, event_y = _materialize_single_game(swapped_events, map_infos)
             except Exception:
                 continue
-
-            if n2 == 0:
+            if event_X is None:
                 continue
-
-            event_X = buf2[:n2]
-            event_y = lbl2[:n2]
 
             total_games_tested += 1
 
-            # Verify they produce the same number of rows
-            self.assertEqual(n1, n2,
+            # Verify same number of rows
+            self.assertEqual(len(orig_y), len(event_y),
                 f'Game {game_id}: row count mismatch: '
-                f'feature-swap={n1}, event-swap={n2}')
+                f'feature-swap={len(orig_y)}, event-swap={len(event_y)}')
 
             # Verify labels match
             np.testing.assert_array_equal(
@@ -257,21 +251,9 @@ class TestCrossVerification(unittest.TestCase):
                 err_msg=f'Game {game_id}: label mismatch')
 
             # Verify feature vectors match (within float32 precision)
-            try:
-                np.testing.assert_array_almost_equal(
-                    swapped_X, event_X, decimal=4,
-                    err_msg=f'Game {game_id}: feature mismatch')
-            except AssertionError:
-                mismatches += 1
-                # Print diagnostic for first mismatch
-                if mismatches <= 3:
-                    diff = np.abs(swapped_X - event_X)
-                    max_diff_idx = np.unravel_index(diff.argmax(), diff.shape)
-                    print(f'\nGame {game_id} mismatch at {max_diff_idx}: '
-                          f'feature-swap={swapped_X[max_diff_idx]}, '
-                          f'event-swap={event_X[max_diff_idx]}, '
-                          f'diff={diff[max_diff_idx]}')
-                raise
+            np.testing.assert_array_almost_equal(
+                swapped_X, event_X, decimal=4,
+                err_msg=f'Game {game_id}: feature mismatch')
 
         self.assertGreater(total_games_tested, 0,
                           'No games were successfully tested')
