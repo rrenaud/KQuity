@@ -72,6 +72,166 @@ class CausalSelfAttention(nn.Module):
         return y
 
 
+class CausalLinearAttention(nn.Module):
+    """Causal linear attention with ELU+1 feature map.
+
+    Same interface as CausalSelfAttention: (B, T, C) → (B, T, C).
+    Uses cumulative sum recurrence for O(T·D²) causal attention instead of O(T²·D).
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        assert config.n_embd % config.n_head == 0
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.resid_dropout = nn.Dropout(config.dropout)
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+
+    @staticmethod
+    def _elu_plus_1(x):
+        """Non-negative feature map: φ(x) = ELU(x) + 1."""
+        return F.elu(x) + 1.0
+
+    def forward(self, x):
+        B, T, C = x.size()
+        D = C // self.n_head
+
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        q = q.view(B, T, self.n_head, D).transpose(1, 2)  # (B, H, T, D)
+        k = k.view(B, T, self.n_head, D).transpose(1, 2)
+        v = v.view(B, T, self.n_head, D).transpose(1, 2)
+
+        # Apply feature map
+        q = self._elu_plus_1(q)  # (B, H, T, D)
+        k = self._elu_plus_1(k)
+
+        # Causal linear attention via cumulative sums
+        # S_t = Σ_{i≤t} φ(k_i)^T v_i  →  shape (B, H, T, D, D)
+        kv = torch.einsum('bhti,bhtj->bhtij', k, v)  # (B, H, T, D, D)
+        S = torch.cumsum(kv, dim=2)  # cumulative key-value outer products
+
+        # z_t = Σ_{i≤t} φ(k_i)  →  shape (B, H, T, D)
+        z = torch.cumsum(k, dim=2)
+
+        # output_t = φ(q_t) S_t / (φ(q_t) · z_t)
+        num = torch.einsum('bhti,bhtij->bhtj', q, S)  # (B, H, T, D)
+        den = torch.einsum('bhti,bhti->bht', q, z).unsqueeze(-1)  # (B, H, T, 1)
+        y = num / (den + 1e-6)
+
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = self.resid_dropout(self.c_proj(y))
+        return y
+
+
+class MambaLayerPure(nn.Module):
+    """Pure PyTorch selective SSM (Mamba) — no CUDA kernels needed.
+
+    Uses sequential scan (slow but correct). Architecture follows Mamba:
+    input proj → SiLU gate → causal conv1d → selective SSM → gated output → output proj.
+    """
+
+    def __init__(self, config, d_state=16, d_conv=4, expand=2):
+        super().__init__()
+        self.d_model = config.n_embd
+        self.d_state = d_state
+        self.d_conv = d_conv
+        self.d_inner = self.d_model * expand
+
+        # Input projection: d_model → 2 * d_inner (split into x and gate)
+        self.in_proj = nn.Linear(self.d_model, 2 * self.d_inner, bias=config.bias)
+
+        # Causal conv1d on x branch
+        self.conv1d = nn.Conv1d(
+            self.d_inner, self.d_inner, kernel_size=d_conv,
+            padding=d_conv - 1, groups=self.d_inner, bias=True,
+        )
+
+        # SSM parameters (input-dependent, hence "selective")
+        self.x_proj = nn.Linear(self.d_inner, d_state * 2 + 1, bias=False)  # B, C, dt
+        self.dt_proj = nn.Linear(1, self.d_inner, bias=True)  # dt scalar → per-channel
+
+        # Learnable SSM matrices
+        A = torch.arange(1, d_state + 1, dtype=torch.float32).unsqueeze(0).expand(self.d_inner, -1)
+        self.A_log = nn.Parameter(torch.log(A))  # (d_inner, d_state)
+        self.D = nn.Parameter(torch.ones(self.d_inner))
+
+        # Output projection
+        self.c_proj = nn.Linear(self.d_inner, self.d_model, bias=config.bias)
+        self.resid_dropout = nn.Dropout(config.dropout)
+
+    def forward(self, x):
+        B, T, _ = x.size()
+
+        # Input projection and split into x and gate
+        xz = self.in_proj(x)  # (B, T, 2 * d_inner)
+        x_branch, z = xz.chunk(2, dim=-1)  # each (B, T, d_inner)
+
+        # Causal conv1d on x branch
+        x_branch = x_branch.transpose(1, 2)  # (B, d_inner, T)
+        x_branch = self.conv1d(x_branch)[:, :, :T]  # causal: trim future
+        x_branch = x_branch.transpose(1, 2)  # (B, T, d_inner)
+        x_branch = F.silu(x_branch)
+
+        # Compute input-dependent SSM parameters
+        x_ssm = self.x_proj(x_branch)  # (B, T, d_state*2 + 1)
+        B_t = x_ssm[:, :, :self.d_state]  # (B, T, d_state)
+        C_t = x_ssm[:, :, self.d_state:2 * self.d_state]  # (B, T, d_state)
+        dt = x_ssm[:, :, -1:]  # (B, T, 1)
+        dt = F.softplus(self.dt_proj(dt))  # (B, T, d_inner)
+
+        # Discretize: A_bar = exp(dt * A), B_bar = dt * B
+        A = -torch.exp(self.A_log)  # (d_inner, d_state)
+        A_bar = torch.exp(dt.unsqueeze(-1) * A.unsqueeze(0).unsqueeze(0))  # (B, T, d_inner, d_state)
+        B_bar = dt.unsqueeze(-1) * B_t.unsqueeze(2)  # (B, T, d_inner, d_state)
+
+        # Sequential scan
+        h = torch.zeros(B, self.d_inner, self.d_state, device=x.device, dtype=x.dtype)
+        ys = []
+        for t in range(T):
+            h = A_bar[:, t] * h + B_bar[:, t] * x_branch[:, t].unsqueeze(-1)
+            y_t = torch.einsum('bds,bs->bd', h, C_t[:, t])  # (B, d_inner)
+            ys.append(y_t)
+        y = torch.stack(ys, dim=1)  # (B, T, d_inner)
+
+        # Skip connection with D
+        y = y + self.D.unsqueeze(0).unsqueeze(0) * x_branch
+
+        # Gate and output
+        y = y * F.silu(z)
+        y = self.resid_dropout(self.c_proj(y))
+        return y
+
+
+class MambaLayer(nn.Module):
+    """Mamba layer using the mamba-ssm package (fast CUDA kernels)."""
+
+    def __init__(self, config):
+        super().__init__()
+        from mamba_ssm import Mamba
+        self.mamba = Mamba(d_model=config.n_embd, d_state=16, d_conv=4, expand=2)
+        self.c_proj = nn.Identity()  # compatibility: _init_weights checks c_proj
+        self.resid_dropout = nn.Dropout(config.dropout)
+
+    def forward(self, x):
+        return self.resid_dropout(self.mamba(x))
+
+
+def _make_mamba_layer(config):
+    """Factory: try mamba-ssm package, fall back to pure PyTorch."""
+    try:
+        layer = MambaLayer(config)
+        return layer
+    except ImportError:
+        import warnings
+        warnings.warn(
+            "mamba-ssm not installed, using pure PyTorch Mamba (slow sequential scan). "
+            "Install with: pip install mamba-ssm causal-conv1d",
+            stacklevel=2,
+        )
+        return MambaLayerPure(config)
+
+
 class MLP(nn.Module):
 
     def __init__(self, config):
@@ -94,7 +254,12 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = CausalSelfAttention(config)
+        if config.model_type == 'linear-attn':
+            self.attn = CausalLinearAttention(config)
+        elif config.model_type == 'mamba':
+            self.attn = _make_mamba_layer(config)
+        else:
+            self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
@@ -113,6 +278,7 @@ class GPTConfig:
     n_embd: int = 128
     dropout: float = 0.1
     bias: bool = False
+    model_type: str = 'transformer'  # 'transformer' | 'linear-attn' | 'mamba'
 
 
 class KQModel(nn.Module):
@@ -129,13 +295,16 @@ class KQModel(nn.Module):
         assert config.block_size is not None
         self.config = config
 
-        self.transformer = nn.ModuleDict(dict(
+        modules = dict(
             wte=nn.Embedding(config.vocab_size, config.n_embd),
-            wpe=nn.Embedding(config.block_size, config.n_embd),
             drop=nn.Dropout(config.dropout),
             h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f=LayerNorm(config.n_embd, bias=config.bias),
-        ))
+        )
+        # Mamba gets positional info from its recurrence, not learned embeddings
+        if config.model_type != 'mamba':
+            modules['wpe'] = nn.Embedding(config.block_size, config.n_embd)
+        self.transformer = nn.ModuleDict(modules)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # Weight tying: embedding weights = lm_head weights
         self.transformer.wte.weight = self.lm_head.weight
@@ -153,7 +322,7 @@ class KQModel(nn.Module):
 
     def get_num_params(self, non_embedding=True):
         n_params = sum(p.numel() for p in self.parameters())
-        if non_embedding:
+        if non_embedding and hasattr(self.transformer, 'wpe'):
             n_params -= self.transformer.wpe.weight.numel()
         return n_params
 
@@ -184,11 +353,11 @@ class KQModel(nn.Module):
         b, t = idx.size()
         assert t <= self.config.block_size, \
             f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device)
-
         tok_emb = self.transformer.wte(idx)
-        pos_emb = self.transformer.wpe(pos)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        if hasattr(self.transformer, 'wpe'):
+            pos = torch.arange(0, t, dtype=torch.long, device=device)
+            tok_emb = tok_emb + self.transformer.wpe(pos)
+        x = self.transformer.drop(tok_emb)
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)

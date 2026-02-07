@@ -111,6 +111,9 @@ def parse_args():
     parser.add_argument('--warmup-iters', type=int, default=warmup_iters)
     parser.add_argument('--lr-decay-iters', type=int, default=lr_decay_iters)
     parser.add_argument('--min-lr', type=float, default=min_lr)
+    parser.add_argument('--model-type', type=str, default='transformer',
+                        choices=['transformer', 'linear-attn', 'mamba'],
+                        help='Sequence mixing layer type')
     parser.add_argument('--wandb', action='store_true',
                         help='Enable Weights & Biases logging')
     parser.add_argument('--wandb-project', type=str, default='kquity-seq',
@@ -290,7 +293,7 @@ def main():
     model_args = dict(
         n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd,
         block_size=args.block_size, bias=bias, vocab_size=VOCAB_SIZE,
-        dropout=args.dropout,
+        dropout=args.dropout, model_type=args.model_type,
     )
 
     if args.init_from == 'scratch':
@@ -301,8 +304,10 @@ def main():
         print(f"Resuming training from {args.out_dir}")
         ckpt_path = os.path.join(args.out_dir, 'ckpt.pt')
         checkpoint = torch.load(ckpt_path, map_location=args.device, weights_only=False)
-        for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
-            model_args[k] = checkpoint['model_args'][k]
+        for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size', 'model_type']:
+            if k in checkpoint['model_args']:
+                model_args[k] = checkpoint['model_args'][k]
+            # old checkpoints may lack model_type — default is 'transformer'
         gptconf = GPTConfig(**model_args)
         model = KQModel(gptconf)
         state_dict = checkpoint['model']
@@ -332,6 +337,8 @@ def main():
     # Compile
     raw_model = model  # Keep reference to uncompiled model
     if do_compile:
+        if args.model_type == 'mamba':
+            print("WARNING: mamba sequential scan may cause graph breaks with torch.compile")
         print("compiling the model... (takes a ~minute)")
         model = torch.compile(model)
 
@@ -351,6 +358,7 @@ def main():
             project=args.wandb_project,
             name=args.wandb_run_name,
             config={
+                'model_type': args.model_type,
                 'n_layer': args.n_layer, 'n_head': args.n_head,
                 'n_embd': args.n_embd, 'block_size': args.block_size,
                 'batch_size': args.batch_size, 'learning_rate': args.learning_rate,
@@ -366,6 +374,7 @@ def main():
         )
 
     print(f"\nStarting training for {args.max_iters} iterations")
+    print(f"  model_type = {args.model_type}")
     print(f"  lambda_wp = {args.lambda_wp}")
     print(f"  batch_size = {args.batch_size}")
     print(f"  block_size = {args.block_size}")
