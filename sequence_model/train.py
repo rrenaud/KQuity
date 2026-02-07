@@ -22,10 +22,15 @@ from contextlib import nullcontext
 import numpy as np
 import torch
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from sequence_model.model import KQModel, GPTConfig
-from sequence_model.vocab import VOCAB_SIZE, PAD
+from sequence_model.vocab import VOCAB_SIZE, PAD, BOS as BOS_TOKEN
 
 # -----------------------------------------------------------------------------
 # Default config values — designed for our ~2M param KQ model
@@ -46,22 +51,22 @@ data_dir = 'sequence_model/data'
 n_layer = 4
 n_head = 4
 n_embd = 128
-block_size = 1024
+block_size = 2560
 dropout = 0.1
 bias = False
 vocab_size = VOCAB_SIZE
 
 # Optimizer
 learning_rate = 3e-4
-max_iters = 50000
+max_iters = 2000
 weight_decay = 0.1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0
 
 # LR schedule
-warmup_iters = 1000
-lr_decay_iters = 50000
+warmup_iters = 200
+lr_decay_iters = 2000
 min_lr = 3e-5
 
 # Loss weighting
@@ -103,41 +108,87 @@ def parse_args():
     parser.add_argument('--gradient-accumulation-steps', type=int,
                         default=gradient_accumulation_steps)
     parser.add_argument('--eval-iters', type=int, default=eval_iters)
-    parser.add_argument('--max-seconds', type=float, default=None,
-                        help='Stop training after this many seconds')
+    parser.add_argument('--warmup-iters', type=int, default=warmup_iters)
+    parser.add_argument('--lr-decay-iters', type=int, default=lr_decay_iters)
+    parser.add_argument('--min-lr', type=float, default=min_lr)
+    parser.add_argument('--wandb', action='store_true',
+                        help='Enable Weights & Biases logging')
+    parser.add_argument('--wandb-project', type=str, default='kquity-seq',
+                        help='W&B project name')
+    parser.add_argument('--wandb-run-name', type=str, default=None,
+                        help='W&B run name (auto-generated if not set)')
     return parser.parse_args()
 
 
-def get_batch(split, data_dir, block_size, batch_size, device, device_type):
-    """Load a random batch of token sequences and their win-probability labels.
+# Cache for BOS offsets per split — built once, reused across get_batch calls
+_bos_offset_cache = {}
 
-    The token file and label file are parallel arrays of the same length.
-    We sample random starting positions and extract (block_size) chunks.
+
+def _get_bos_offsets(split, data_dir):
+    """Scan .bin file for all positions where token == BOS. Cached per split."""
+    key = (split, data_dir)
+    if key not in _bos_offset_cache:
+        token_file = os.path.join(data_dir, f'{split}.bin')
+        tokens = np.memmap(token_file, dtype=np.uint16, mode='r')
+        offsets = np.where(tokens == BOS_TOKEN)[0]
+        _bos_offset_cache[key] = offsets
+        print(f"  Found {len(offsets)} games (BOS offsets) in {split}.bin")
+    return _bos_offset_cache[key]
+
+
+def get_batch(split, data_dir, block_size, batch_size, device, device_type):
+    """Load a game-aligned random batch of token sequences.
+
+    Each batch element starts at a BOS (game start) token. Games shorter than
+    block_size are padded with PAD=0 for x and -1 for y/wp. Games longer than
+    block_size are truncated (keeping the beginning).
 
     Returns:
         x: (B, T) input tokens
-        y: (B, T) next-token targets
-        wp: (B, T) win probability labels for each position in y
+        y: (B, T) next-token targets (-1 = ignore)
+        wp: (B, T) win probability labels (-1 = ignore)
     """
-    # Recreate memmap each call to avoid memory leak
     token_file = os.path.join(data_dir, f'{split}.bin')
     label_file = os.path.join(data_dir, f'{split}_labels.bin')
 
     tokens = np.memmap(token_file, dtype=np.uint16, mode='r')
     labels = np.memmap(label_file, dtype=np.uint8, mode='r')
+    n = len(tokens)
 
-    ix = torch.randint(len(tokens) - block_size - 1, (batch_size,))
+    bos_offsets = _get_bos_offsets(split, data_dir)
+    chosen = np.random.randint(0, len(bos_offsets), size=batch_size)
 
-    x = torch.stack([
-        torch.from_numpy(tokens[i:i + block_size].astype(np.int64)) for i in ix
-    ])
-    y = torch.stack([
-        torch.from_numpy(tokens[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix
-    ])
-    # Win prob labels aligned with the *target* positions (shifted by 1)
-    wp = torch.stack([
-        torch.from_numpy(labels[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix
-    ])
+    x = np.zeros((batch_size, block_size), dtype=np.int64)  # PAD=0
+    y = np.full((batch_size, block_size), -1, dtype=np.int64)
+    wp = np.full((batch_size, block_size), -1, dtype=np.int64)
+
+    for b, idx in enumerate(chosen):
+        start = bos_offsets[idx]
+        # Determine game length (until next BOS or end of file)
+        if idx + 1 < len(bos_offsets):
+            game_end = bos_offsets[idx + 1]
+        else:
+            game_end = n
+        game_len = game_end - start
+
+        # How many tokens to use (truncate if longer than block_size + 1)
+        use_len = min(game_len, block_size + 1)
+
+        chunk = tokens[start:start + use_len].astype(np.int64)
+        label_chunk = labels[start:start + use_len].astype(np.int64)
+
+        # x gets tokens[:-1], y gets tokens[1:], wp gets labels[1:]
+        seq_len = use_len - 1  # number of positions in x/y
+        if seq_len <= 0:
+            continue
+        actual_len = min(seq_len, block_size)
+        x[b, :actual_len] = chunk[:actual_len]
+        y[b, :actual_len] = chunk[1:actual_len + 1]
+        wp[b, :actual_len] = label_chunk[1:actual_len + 1]
+
+    x = torch.from_numpy(x)
+    y = torch.from_numpy(y)
+    wp = torch.from_numpy(wp)
 
     if device_type == 'cuda':
         x = x.pin_memory().to(device, non_blocking=True)
@@ -210,6 +261,8 @@ def main():
     torch.backends.cudnn.allow_tf32 = True
 
     device_type = 'cuda' if 'cuda' in args.device else 'cpu'
+    assert device_type == 'cuda' and torch.cuda.is_available(), \
+        f"CUDA required but got device={args.device}, cuda.is_available()={torch.cuda.is_available()}"
     ptdtype = {
         'float32': torch.float32,
         'bfloat16': torch.bfloat16,
@@ -289,19 +342,44 @@ def main():
     train_start_time = time.time()
     local_iter_num = 0
 
-    print(f"\nStarting training for {args.max_iters} iterations"
-          + (f" or {args.max_seconds}s" if args.max_seconds else ""))
+    # Wandb init
+    use_wandb = args.wandb and wandb is not None
+    if args.wandb and wandb is None:
+        print("WARNING: --wandb requested but wandb not installed, skipping")
+    if use_wandb:
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run_name,
+            config={
+                'n_layer': args.n_layer, 'n_head': args.n_head,
+                'n_embd': args.n_embd, 'block_size': args.block_size,
+                'batch_size': args.batch_size, 'learning_rate': args.learning_rate,
+                'lambda_wp': args.lambda_wp, 'dropout': args.dropout,
+                'max_iters': args.max_iters,
+                'warmup_iters': args.warmup_iters,
+                'lr_decay_iters': args.lr_decay_iters,
+                'min_lr': args.min_lr,
+                'gradient_accumulation_steps': args.gradient_accumulation_steps,
+                'dtype': args.dtype, 'device': args.device,
+                'params_M': raw_model.get_num_params() / 1e6,
+            },
+        )
+
+    print(f"\nStarting training for {args.max_iters} iterations")
     print(f"  lambda_wp = {args.lambda_wp}")
     print(f"  batch_size = {args.batch_size}")
     print(f"  block_size = {args.block_size}")
+    print(f"  warmup_iters = {args.warmup_iters}")
+    print(f"  lr_decay_iters = {args.lr_decay_iters}")
+    print(f"  min_lr = {args.min_lr}")
     print(f"  device = {args.device}")
     print(f"  dtype = {args.dtype}")
     print()
 
     while True:
         # Set learning rate
-        lr = get_lr(iter_num, args.learning_rate, warmup_iters,
-                    lr_decay_iters, min_lr)
+        lr = get_lr(iter_num, args.learning_rate, args.warmup_iters,
+                    args.lr_decay_iters, args.min_lr)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
@@ -319,6 +397,17 @@ def main():
                   f"(lm {losses['val']['lm_loss']:.4f}, "
                   f"wp {losses['val']['wp_loss']:.4f}, "
                   f"wp_acc {losses['val']['wp_acc']:.3f})")
+            if use_wandb:
+                wandb.log({
+                    'eval/train_loss': losses['train']['loss'],
+                    'eval/train_lm_loss': losses['train']['lm_loss'],
+                    'eval/train_wp_loss': losses['train']['wp_loss'],
+                    'eval/train_wp_acc': losses['train']['wp_acc'],
+                    'eval/val_loss': losses['val']['loss'],
+                    'eval/val_lm_loss': losses['val']['lm_loss'],
+                    'eval/val_wp_loss': losses['val']['wp_loss'],
+                    'eval/val_wp_acc': losses['val']['wp_acc'],
+                }, step=iter_num)
 
             # Save checkpoint
             if (losses['val']['loss'] < best_val_loss or
@@ -369,19 +458,32 @@ def main():
             else:
                 print(f"iter {iter_num}: loss {lossf:.4f}, "
                       f"time {dt * 1000:.2f}ms, lr {lr:.2e}")
+            if use_wandb:
+                log_dict = {
+                    'train/loss': lossf,
+                    'train/lr': lr,
+                    'train/iter_time_ms': dt * 1000,
+                }
+                if details:
+                    log_dict['train/lm_loss'] = details['lm_loss']
+                    log_dict['train/wp_loss'] = details['wp_loss']
+                wandb.log(log_dict, step=iter_num)
 
         iter_num += 1
         local_iter_num += 1
 
         if iter_num > args.max_iters:
             break
-        if args.max_seconds and (time.time() - train_start_time) > args.max_seconds:
-            print(f"Time limit reached ({args.max_seconds}s)")
-            break
 
     elapsed = time.time() - train_start_time
     print(f"\nTraining complete. {iter_num} iters in {elapsed:.1f}s. "
           f"Best val loss: {best_val_loss:.4f}")
+
+    if use_wandb:
+        wandb.log({'final/best_val_loss': best_val_loss,
+                   'final/total_iters': iter_num,
+                   'final/elapsed_s': elapsed}, step=iter_num)
+        wandb.finish()
 
 
 if __name__ == '__main__':
