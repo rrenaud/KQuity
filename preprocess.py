@@ -26,6 +26,15 @@ def opposing_team(team: Team) -> Team:
     return Team.GOLD if team == Team.BLUE else Team.BLUE
 
 
+def swap_pid(pid: int) -> int:
+    """Swap a position ID between Blue and Gold teams.
+
+    Pairs: (1,2), (3,4), (5,6), (7,8), (9,10) — queens then workers.
+    Even PIDs (Blue) swap to pid-1 (Gold), odd PIDs (Gold) swap to pid+1 (Blue).
+    """
+    return pid - 1 if pid % 2 == 0 else pid + 1
+
+
 class WorkerState:
     def __init__(self):
         self.has_speed = False
@@ -125,6 +134,11 @@ class GameEvent:
     def modify_game_state(self, game_state: GameState):
         pass
 
+    def swap_teams(self) -> 'GameEvent':
+        """Return a copy with Blue/Gold teams swapped. Default: unchanged copy."""
+        result = copy.copy(self)
+        return result
+
 
 GameEventsList = List[GameEvent]
 GameEventsIterator = Iterator[GameEvent]
@@ -155,6 +169,11 @@ class GameStartEvent(GameEvent):
         self.gold_on_left = payload_values[1] == 'True'
         self.game_version = payload_values[4]
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.gold_on_left = not self.gold_on_left
+        return result
+
 
 class GameEndEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -169,6 +188,11 @@ class MapStartEvent(GameEvent):
         self.gold_on_left = payload_values[1] == 'True'
         self.game_version = payload_values[4]
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.gold_on_left = not self.gold_on_left
+        return result
+
 
 class SpawnEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -178,6 +202,11 @@ class SpawnEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.get_worker_by_position_id(self.position_id).is_bot = self.is_bot
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class BerryDepositEvent(GameEvent):
@@ -199,6 +228,11 @@ class BerryDepositEvent(GameEvent):
 
         team_state.food_deposited[berry_index] = True
         game_state.berries_available -= 1
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class BerryKickInEvent(GameEvent):
@@ -222,6 +256,11 @@ class BerryKickInEvent(GameEvent):
         game_state.get_team(team).food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class BlessMaidenEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -237,6 +276,15 @@ class BlessMaidenEvent(GameEvent):
         except ValueError:
             raise GameValidationError('Invalid maiden event: {} {}'.format(self.maiden_x, self.maiden_y))
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.maiden_x = constants.SCREEN_WIDTH - self.maiden_x
+        if self.gate_color == ContestableState.BLUE:
+            result.gate_color = ContestableState.GOLD
+        else:
+            result.gate_color = ContestableState.BLUE
+        return result
+
 
 class CarryFoodEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -245,6 +293,11 @@ class CarryFoodEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.get_worker_by_position_id(self.position_id).has_food = True
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class GetOnSnailEvent(GameEvent):
@@ -255,6 +308,11 @@ class GetOnSnailEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.start_snail(self)
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.rider_position_id = swap_pid(self.rider_position_id)
+        return result
 
 
 class SnailEatEvent(GameEvent):
@@ -267,6 +325,12 @@ class SnailEatEvent(GameEvent):
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.start_snail(self)
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.rider_position_id = swap_pid(self.rider_position_id)
+        result.eaten_position_id = swap_pid(self.eaten_position_id)
+        return result
+
 
 class GetOffSnailEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -277,6 +341,11 @@ class GetOffSnailEvent(GameEvent):
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.stop_snail(self)
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class SnailEscapeEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -286,6 +355,11 @@ class SnailEscapeEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.stop_snail(self)
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.escaped_position_id = swap_pid(self.escaped_position_id)
+        return result
 
 
 class GlanceEvent(GameEvent):
@@ -320,6 +394,12 @@ class PlayerKillEvent(GameEvent):
                                'Worker has wings but is not a soldier')
             killed_worker.has_speed = killed_worker.has_food = killed_worker.has_wings = False
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.killer_position_id = swap_pid(self.killer_position_id)
+        result.killed_position_id = swap_pid(self.killed_position_id)
+        return result
+
 
 class GameValidationError(ValueError):
     def __init__(self, message: str):
@@ -352,12 +432,22 @@ class UseMaidenEvent(GameEvent):
 
         worker_state.has_food = False
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class VictoryEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
         self.winning_team = Team.BLUE if payload_values[0] == 'Blue' else Team.GOLD
         self.victory_condition = VictoryCondition[payload_values[1]]
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.winning_team = opposing_team(self.winning_team)
+        return result
 
     def modify_game_state(self, game_state: GameState):
         if self.victory_condition == VictoryCondition.economic:
