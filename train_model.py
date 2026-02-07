@@ -27,6 +27,35 @@ from preprocess import (
 )
 import map_structure
 from fast_materialize import fast_materialize
+from symmetry import swap_teams
+
+
+# Monotone constraints for LightGBM (52 features).
+# +1 = increasing feature should increase Blue win prob
+# -1 = increasing feature should decrease Blue win prob
+#  0 = no constraint
+#
+# Feature layout (from vectorize_game_state):
+#   Per team (20 features):
+#     [0] eggs, [1] food_deposited, [2] num_vanilla_warriors, [3] num_speed_warriors
+#     4 workers × [is_bot, has_food, has_speed, has_wings]
+#   Blue team: indices 0-19 (good things = +1)
+#   Gold team: indices 20-39 (good things = -1, bad for Blue)
+#   40-44: maiden_control (x5, +1 = Blue holding)
+#   45-48: map_one_hot (x4)
+#   49: snail_position (+1, positive = Blue advancing)
+#   50: snail_velocity (0)
+#   51: berries_available (0)
+_BLUE_WORKER = [0, 1, 1, 1]   # is_bot(0), has_food(+1), has_speed(+1), has_wings(+1)
+_GOLD_WORKER = [0, -1, -1, -1]  # mirror for gold
+MONOTONE_CONSTRAINTS = (
+    [1, 1, 1, 1] + _BLUE_WORKER * 4 +   # blue: eggs, food, vanilla, speed_warriors, 4 workers
+    [-1, -1, -1, -1] + _GOLD_WORKER * 4 +  # gold: mirror
+    [1] * 5 +               # 5 maidens
+    [0] * 4 +               # 4 map one-hot
+    [1, 0] +                # snail_position(+1), snail_velocity(0)
+    [0]                     # berries_available
+)
 
 
 def validate_and_partition_data(
@@ -311,7 +340,8 @@ def load_vectors(pattern: str):
     return X, y
 
 
-def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100):
+def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100,
+                    monotone_constraints=None):
     """Train a LightGBM model."""
     param = {
         'num_leaves': num_leaves,
@@ -320,41 +350,98 @@ def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100):
         'boosting': 'gbdt',
         'verbose': 0
     }
+    if monotone_constraints is not None:
+        param['monotone_constraints'] = monotone_constraints
     train_data = lgb.Dataset(train_X, train_y)
     return lgb.train(param, train_data, num_boost_round=num_trees)
 
 
-def evaluate_model(model, test_X, test_y, name: str):
+def _check_monotone_inversions(model, test_X, feature_idx, direction, sample_size=2000):
+    """Check inversion rate for a single feature.
+
+    direction: +1 means increasing feature should increase prediction,
+               -1 means increasing feature should decrease prediction.
+    Returns fraction of samples where the monotone relationship is violated.
+    """
+    eligible_X = test_X
+    # For features with natural bounds (eggs at 3 max), filter out maxed-out rows
+    if direction == 1:
+        eligible_X = test_X[test_X[:, feature_idx] < test_X[:, feature_idx].max()]
+    elif direction == -1:
+        eligible_X = test_X[test_X[:, feature_idx] < test_X[:, feature_idx].max()]
+
+    if len(eligible_X) == 0:
+        return 0.0
+
+    n = min(sample_size, len(eligible_X))
+    indices = np.random.choice(len(eligible_X), n, replace=False)
+    sample_X = eligible_X[indices]
+    orig_preds = model.predict(sample_X)
+
+    modified_X = sample_X.copy()
+    if direction == 1:
+        modified_X[:, feature_idx] += 0.1
+        return (model.predict(modified_X) < orig_preds).mean()
+    else:  # direction == -1
+        modified_X[:, feature_idx] += 0.1
+        return (model.predict(modified_X) > orig_preds).mean()
+
+
+# Features to check for monotone inversions: (index, name, direction)
+MONOTONE_CHECK_FEATURES = [
+    (0, 'blue_eggs', 1),
+    (1, 'blue_food', 1),
+    (2, 'blue_vanilla', 1),
+    (3, 'blue_spd_war', 1),
+    (5, 'blue_w0_food', 1),
+    (6, 'blue_w0_spd', 1),
+    (20, 'gold_eggs', -1),
+    (21, 'gold_food', -1),
+    (22, 'gold_vanilla', -1),
+    (23, 'gold_spd_war', -1),
+    (25, 'gold_w0_food', -1),
+    (26, 'gold_w0_spd', -1),
+    (40, 'maiden_0', 1),
+    (41, 'maiden_1', 1),
+    (42, 'maiden_2', 1),
+    (43, 'maiden_3', 1),
+    (44, 'maiden_4', 1),
+    (49, 'snail_pos', 1),
+]
+
+
+def evaluate_model(model, test_X, test_y, name: str, train_X=None, train_y=None):
     """Evaluate a model and return metrics."""
     predictions = model.predict(test_X)
 
     log_loss = sklearn.metrics.log_loss(test_y, predictions)
     accuracy = sklearn.metrics.accuracy_score(test_y, predictions > 0.5)
 
-    # Egg inversion test
-    mask = test_X[:, 0] != 2
-    eligible_X = test_X[mask]
-    sample_size = min(2000, len(eligible_X))
-    if sample_size > 0:
-        indices = np.random.choice(len(eligible_X), sample_size, replace=False)
-        sample_X = eligible_X[indices]
-        orig_preds = model.predict(sample_X)
-        modified_X = sample_X.copy()
-        modified_X[:, 0] += 1
-        mod_preds = model.predict(modified_X)
-        inversions = (mod_preds < orig_preds).mean()
-    else:
-        inversions = 0.0
+    train_log_loss = None
+    if train_X is not None and train_y is not None:
+        train_preds = model.predict(train_X)
+        train_log_loss = sklearn.metrics.log_loss(train_y, train_preds)
+
+    # Per-feature monotone inversion checks
+    inversion_rates = {}
+    for feat_idx, feat_name, direction in MONOTONE_CHECK_FEATURES:
+        rate = _check_monotone_inversions(model, test_X, feat_idx, direction)
+        inversion_rates[feat_name] = rate
 
     print(f"\n{name} Results:")
-    print(f"  Log Loss: {log_loss:.4f}")
+    if train_log_loss is not None:
+        print(f"  Train Log Loss: {train_log_loss:.4f}")
+    print(f"  Test Log Loss: {log_loss:.4f}")
     print(f"  Accuracy: {accuracy:.4f} ({100*accuracy:.1f}%)")
-    print(f"  Egg Inversions: {inversions:.4f} ({100*inversions:.2f}%)")
+    print(f"  Monotone inversions:")
+    for feat_name, rate in inversion_rates.items():
+        print(f"    {feat_name:>12}: {rate:.4f} ({100*rate:.2f}%)")
 
     return {
         'log_loss': log_loss,
+        'train_log_loss': train_log_loss,
         'accuracy': accuracy,
-        'inversions': inversions
+        'inversion_rates': inversion_rates,
     }
 
 
@@ -363,6 +450,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--slow-and-verify', action='store_true',
                         help='Run both slow and fast paths, assert identical output')
+    parser.add_argument('--symmetry-augment', action='store_true',
+                        help='Double training data via Blue/Gold symmetry swap')
     args = parser.parse_args()
 
     new_export_csv = 'export_20260115_210621/gameevent.csv'
@@ -458,56 +547,66 @@ def main():
         test_y = np.load(f'{expt_dir}/test_labels.npy')
         print(f"  Test samples: {len(test_y):,}")
 
-    # Step 3: Train new model
+    # Symmetry augmentation (applied after loading, before training)
+    if args.symmetry_augment:
+        print("\nApplying symmetry augmentation...")
+        swap_X, swap_y = swap_teams(train_X, train_y)
+        train_X = np.vstack([train_X, swap_X])
+        train_y = np.concatenate([train_y, swap_y])
+        print(f"  Augmented training samples: {len(train_y):,} (2x original)")
+
+    # Step 3: Hyperparameter sweep
     print("\n" + "=" * 60)
-    print("Step 3: Training new model on new data")
+    print("Step 3: Hyperparameter sweep")
     print("=" * 60)
 
     print(f"Training data shape: {train_X.shape}")
     print(f"Test data shape: {test_X.shape}")
 
-    start = time.time()
-    new_model = train_lgb_model(train_X, train_y, num_leaves=200, num_trees=200)
-    print(f"Model trained in {time.time() - start:.1f}s")
+    assert len(MONOTONE_CONSTRAINTS) == train_X.shape[1], \
+        f"Constraint vector length {len(MONOTONE_CONSTRAINTS)} != feature count {train_X.shape[1]}"
 
-    new_model_path = f'{expt_dir}/model.mdl'
-    new_model.save_model(new_model_path)
-    print(f"New model saved to {new_model_path}")
+    leaves_grid = [200, 400, 800]
+    trees_grid = [200, 400]
+    sweep_results = []
 
-    # Step 4: Load repro model and compare
-    print("\n" + "=" * 60)
-    print("Step 4: Comparing models on new test set")
-    print("=" * 60)
+    for num_leaves in leaves_grid:
+        for num_trees in trees_grid:
+            for mode in ['baseline', 'monotone']:
+                constraints = MONOTONE_CONSTRAINTS if mode == 'monotone' else None
+                label = f"{mode} L={num_leaves} T={num_trees}"
 
-    repro_model_path = 'model_experiments/new_data_model/model_100l_100t.mdl'
-    if os.path.exists(repro_model_path):
-        repro_model = lgb.Booster(model_file=repro_model_path)
-        repro_metrics = evaluate_model(repro_model, test_X, test_y, "Current best Model")
-    else:
-        print(f"Warning: Repro model not found at {repro_model_path}")
-        repro_metrics = None
+                start = time.time()
+                model = train_lgb_model(
+                    train_X, train_y,
+                    num_leaves=num_leaves,
+                    num_trees=num_trees,
+                    monotone_constraints=constraints,
+                )
+                elapsed = time.time() - start
+                print(f"Trained {label} in {elapsed:.1f}s")
 
-    new_metrics = evaluate_model(new_model, test_X, test_y, "New Model (trained on new data)")
+                metrics = evaluate_model(
+                    model, test_X, test_y, label,
+                    train_X=train_X, train_y=train_y,
+                )
+                avg_inv = np.mean(list(metrics['inversion_rates'].values()))
+                sweep_results.append({
+                    'label': label,
+                    'train_ll': metrics['train_log_loss'],
+                    'test_ll': metrics['log_loss'],
+                    'test_acc': metrics['accuracy'],
+                    'avg_inv': avg_inv,
+                })
 
-    # Summary
-    print("\n" + "=" * 60)
-    print("COMPARISON SUMMARY")
-    print("=" * 60)
-    print(f"Test set: {len(test_y):,} samples from new data export")
-    print()
-    print(f"{'Metric':<20} {'CurChamp Model':<15} {'New Model':<15} {'Difference':<15}")
-    print("-" * 65)
-
-    if repro_metrics:
-        for metric in ['log_loss', 'accuracy', 'inversions']:
-            repro_val = repro_metrics[metric]
-            new_val = new_metrics[metric]
-            diff = new_val - repro_val
-            sign = '+' if diff > 0 else ''
-            print(f"{metric:<20} {repro_val:<15.4f} {new_val:<15.4f} {sign}{diff:<15.4f}")
-    else:
-        for metric in ['log_loss', 'accuracy', 'inversions']:
-            print(f"{metric:<20} {'N/A':<15} {new_metrics[metric]:<15.4f}")
+    # Summary table
+    print("\n" + "=" * 80)
+    print("SWEEP SUMMARY")
+    print("=" * 80)
+    print(f"{'Config':<28} | {'Train LL':>8} | {'Test LL':>8} | {'Test Acc':>8} | {'Avg Inv%':>8}")
+    print("-" * 80)
+    for r in sweep_results:
+        print(f"{r['label']:<28} | {r['train_ll']:>8.4f} | {r['test_ll']:>8.4f} | {100*r['test_acc']:>7.1f}% | {100*r['avg_inv']:>7.2f}%")
 
 
 if __name__ == '__main__':
