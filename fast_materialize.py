@@ -374,12 +374,13 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
 
 # --- Main entry point ---
 
-def fast_materialize(csv_path, drop_state_probability=0.0):
+def fast_materialize(csv_path, drop_state_probability=0.0, exclude_game_ids=None):
     """Fast path: CSV events -> (feature_matrix, labels).
 
     Args:
         csv_path: Glob pattern for CSV/gzip files (e.g. 'data/gameevents_*.csv.gz')
         drop_state_probability: Probability of dropping each eligible state (0.0 = keep all)
+        exclude_game_ids: Optional set of game IDs to skip entirely
 
     Returns:
         (states, labels): numpy arrays of shape (N, 52) and (N,)
@@ -398,10 +399,12 @@ def fast_materialize(csv_path, drop_state_probability=0.0):
                 if event_type in SKIP_EVENTS:
                     continue
                 game_id = int(row[COL_GAME_ID])
+                if exclude_game_ids and game_id in exclude_game_ids:
+                    continue
                 if game_id not in games:
                     games[game_id] = []
                     game_order.append(game_id)
-                games[game_id].append((_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+                games[game_id].append((datetime.datetime.fromisoformat(row[COL_TS]), event_type, row[COL_VALUES]))
 
     # Phase 2: Pre-allocate output buffers (total_events is the absolute max rows)
     total_events = sum(len(evts) for evts in games.values())
