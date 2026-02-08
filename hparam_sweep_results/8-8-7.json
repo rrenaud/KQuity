@@ -1,0 +1,22 @@
+{
+  "num_train_games": 50000,
+  "n_d": 8,
+  "n_a": 8,
+  "n_steps": 7,
+  "train_shape": [
+    7876625,
+    52
+  ],
+  "test_shape": [
+    161233,
+    52
+  ],
+  "best_epoch": 7,
+  "train_time_s": 6478.421528816223,
+  "device": "cuda",
+  "log_loss": 0.5697746055478232,
+  "accuracy": 0.6898215625833422,
+  "inversions": 0.016,
+  "wall_time_s": 6579.146288871765,
+  "label": "8-8-7"
+}

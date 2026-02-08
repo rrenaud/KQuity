@@ -14,6 +14,7 @@ Usage:
 import argparse
 import csv
 import gzip
+import json
 import os
 import time
 
@@ -46,9 +47,11 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.02)
     parser.add_argument('--batch-size', type=int, default=1024)
     parser.add_argument('--virtual-batch-size', type=int, default=128)
-    parser.add_argument('--max-epochs', type=int, default=200)
-    parser.add_argument('--patience', type=int, default=15)
+    parser.add_argument('--max-epochs', type=int, default=20)
+    parser.add_argument('--patience', type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--results-json', type=str, default=None,
+                        help='Path to write JSON results (for experiment collection)')
     return parser.parse_args()
 
 
@@ -85,7 +88,7 @@ def main():
     print(f"Training: {len(partition_files)} partition file(s) from {args.train_dir}")
     print(f"Test: {args.test_events}")
 
-    # Check for game ID overlap
+    # Check for game ID overlap and collect IDs to exclude
     print("\nChecking for game ID overlap...")
     train_game_ids = set()
     for pf in partition_files:
@@ -94,19 +97,18 @@ def main():
     overlap = train_game_ids & test_game_ids
     print(f"  Train games: {len(train_game_ids)}")
     print(f"  Test games: {len(test_game_ids)}")
-    print(f"  Overlap: {len(overlap)}")
-    if overlap:
-        print(f"  WARNING: {len(overlap)} games appear in both train and test!")
-        print(f"  Overlapping IDs (first 10): {sorted(overlap)[:10]}")
+    print(f"  Overlap: {len(overlap)} (excluded from training)")
 
-    # Materialize training data (no drop — use all states from selected games)
+    # Materialize training data, excluding overlapping game IDs
     print("\nMaterializing training data...")
     start = time.time()
     train_parts = []
     train_label_parts = []
+    exclude_ids = overlap if overlap else None
     for pf in partition_files:
         print(f"  {pf}...")
-        states, labels = fast_materialize(pf, drop_state_probability=0.0)
+        states, labels = fast_materialize(pf, drop_state_probability=0.0,
+                                          exclude_game_ids=exclude_ids)
         if len(labels) > 0:
             train_parts.append(states)
             train_label_parts.append(labels)
@@ -120,6 +122,12 @@ def main():
     test_X, test_y = fast_materialize(args.test_events, drop_state_probability=0.0)
     print(f"  Test: {test_X.shape} in {time.time() - start:.1f}s")
 
+    # Device detection
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"\nDevice: {device}")
+    if device == 'cuda':
+        print(f"  GPU: {torch.cuda.get_device_name(0)}")
+
     # Train TabNet
     clf = TabNetClassifier(
         n_d=args.n_d,
@@ -132,6 +140,7 @@ def main():
         scheduler_fn=torch.optim.lr_scheduler.StepLR,
         verbose=1,
         seed=args.seed,
+        device_name=device,
     )
 
     print(f"\nTraining TabNet (n_d={args.n_d}, n_a={args.n_a}, "
@@ -141,7 +150,7 @@ def main():
         train_X, train_y,
         eval_set=[(test_X, test_y)],
         eval_name=['test'],
-        eval_metric=['logloss', 'accuracy'],
+        eval_metric=['accuracy', 'logloss'],
         max_epochs=args.max_epochs,
         patience=args.patience,
         batch_size=args.batch_size,
@@ -153,7 +162,27 @@ def main():
     def predict_fn(X):
         return clf.predict_proba(X)[:, 1]
 
-    evaluate_model(predict_fn, test_X, test_y, "TabNet")
+    metrics = evaluate_model(predict_fn, test_X, test_y, "TabNet")
+
+    # Write machine-readable results
+    if args.results_json:
+        result = {
+            'num_train_games': args.num_train_games,
+            'n_d': args.n_d,
+            'n_a': args.n_a,
+            'n_steps': args.n_steps,
+            'train_shape': list(train_X.shape),
+            'test_shape': list(test_X.shape),
+            'best_epoch': clf.best_epoch,
+            'train_time_s': elapsed,
+            'device': device,
+            'log_loss': metrics['log_loss'],
+            'accuracy': metrics['accuracy'],
+            'inversions': metrics['inversions'],
+        }
+        with open(args.results_json, 'w') as f:
+            json.dump(result, f, indent=2)
+        print(f"\nResults written to {args.results_json}")
 
 
 if __name__ == '__main__':
