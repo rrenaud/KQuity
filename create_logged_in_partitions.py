@@ -22,7 +22,7 @@ def compute_login_counts(usergame_csv_path):
                 counter[int(row['game_id'])] += 1
     return dict(counter)
 
-SOURCE_DIR = 'new_data_partitioned'
+SOURCE_DIR = 'unfiltered_partitioned'
 OUTPUT_DIR = 'logged_in_games'
 GAME_CSV = os.path.join(SOURCE_DIR, 'game.csv')
 USERGAME_CSV = os.path.join(SOURCE_DIR, 'usergame.csv')

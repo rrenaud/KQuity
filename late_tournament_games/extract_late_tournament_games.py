@@ -135,7 +135,7 @@ def main():
     )
     parser.add_argument(
         "--game-csv", "-g",
-        default="new_data_partitioned/game.csv",
+        default="unfiltered_partitioned/game.csv",
         help="Path to game.csv"
     )
     parser.add_argument(
@@ -145,7 +145,7 @@ def main():
     )
     parser.add_argument(
         "--events-dir", "-e",
-        default="new_data_partitioned",
+        default="unfiltered_partitioned",
         help="Directory with partitioned event files"
     )
     parser.add_argument(
