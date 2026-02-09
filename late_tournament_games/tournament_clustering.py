@@ -276,7 +276,7 @@ def main():
     parser = argparse.ArgumentParser(description="Cluster tournament matches into tournaments")
     parser.add_argument(
         "--input", "-i",
-        default="new_data_partitioned/game.csv",
+        default="unfiltered_partitioned/game.csv",
         help="Path to game.csv file"
     )
     parser.add_argument(

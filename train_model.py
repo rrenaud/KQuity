@@ -369,7 +369,7 @@ def main():
     args = parser.parse_args()
 
     new_export_csv = 'export_20260115_210621/gameevent.csv'
-    new_partitioned_dir = 'new_data_partitioned'
+    new_partitioned_dir = 'unfiltered_partitioned'
     new_expt_name = 'new_data_model'
 
     # DEBUG: Limit number of games for testing (set to None for full run)
