@@ -3,3 +3,5 @@ __pycache__/*
 __pycache__/
 *.pyc
 *.npy
+ratings_viewer/ratings_history.json
+mu_over_time.png
