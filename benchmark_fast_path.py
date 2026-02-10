@@ -19,12 +19,14 @@ def run_existing(csv_path):
     map_infos = MapStructureInfos()
     events = iterate_events_from_csv(csv_path)
     game_states = iterate_game_events_with_state(events, map_infos)
-    return create_game_states_matrix(game_states, drop_state_probability=0.0)
+    states, labels, _ = create_game_states_matrix(game_states, drop_state_probability=0.0)
+    return states, labels
 
 
 def run_fast(csv_path):
     from fast_materialize import fast_materialize
-    return fast_materialize(csv_path)
+    states, labels, _ = fast_materialize(csv_path)
+    return states, labels
 
 
 def measure_peak_memory(func, csv_path):
