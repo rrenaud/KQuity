@@ -109,8 +109,8 @@ class TestCabinetAverageFallback:
 
         result = compute_ratings(outcomes, usergame, cabinets)
 
-        # Anonymous queen (pos 1) should get default 25.0 - discount (6.0)
-        assert result.ratings_by_game[1][0] == pytest.approx(19.0)
+        # Anonymous queen (pos 1) should get default mu (25.0)
+        assert result.ratings_by_game[1][0] == pytest.approx(25.0)
 
     def test_cabinet_avg_diverges_with_asymmetric_participation(self):
         # Strong player (Alice) plays many games at venue_a, always winning.
