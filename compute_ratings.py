@@ -11,6 +11,7 @@ positions getting drone-role mu.
 
 import csv
 import datetime
+from dataclasses import dataclass
 import glob
 import gzip
 import os
@@ -18,6 +19,16 @@ import pickle
 
 import numpy as np
 from openskill.models import PlackettLuce
+
+
+@dataclass
+class RatingResult:
+    ratings_by_game: dict
+    player_ratings: dict
+    user_names: dict
+    cabinet_anon_ratings: dict
+    history: list | None = None
+    cabinet_snapshots: list | None = None
 
 
 def load_usergame(path='unfiltered_partitioned/usergame.csv'):
@@ -114,20 +125,19 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
         anonymous_discount: mu penalty for anonymous (non-logged-in) players
             relative to cabinet average. Used only as initial mu for a cabinet's
             first anonymous rating.
-        record_history: if True, record per-game rating events for
-            visualization. Returns 6-tuple instead of 4-tuple.
+        record_history: if True, populate history and cabinet_snapshots fields
+            on the returned RatingResult.
 
     Returns:
-        ratings_by_game: {game_id: np.array(10, dtype=float32)} - pre-game mu
-            values indexed by position 1-10 (array index 0 = position 1).
-            Queen positions use queen-role mu, drone positions use drone-role mu.
-        player_ratings: {(user_id, role): PlackettLuceRating} - final ratings.
-        user_names: {user_id: name} - most recent name for each user.
-        cabinet_anon_ratings: {(cabinet, role): PlackettLuceRating} - final
-            anonymous ratings per cabinet/role.
-        history: (only if record_history=True) list of per-game rating events.
-        cabinet_snapshots: (only if record_history=True) periodic samples of
-            cabinet anonymous ratings.
+        RatingResult with fields:
+            ratings_by_game: {game_id: np.array(10, dtype=float32)} - pre-game mu
+                values indexed by position 1-10 (array index 0 = position 1).
+            player_ratings: {(user_id, role): PlackettLuceRating} - final ratings.
+            user_names: {user_id: name} - most recent name for each user.
+            cabinet_anon_ratings: {(cabinet, role): PlackettLuceRating} - final
+                anonymous ratings per cabinet/role.
+            history: list of per-game rating events (if record_history=True).
+            cabinet_snapshots: periodic samples of cabinet anonymous ratings.
     """
     model = PlackettLuce()
 
@@ -138,9 +148,12 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
     user_names = {}  # user_id -> name (most recent)
     cabinet_anon_ratings = {}  # (cabinet, role) -> PlackettLuceRating
 
-    # Cabinet running averages for first-time logged-in player initialization
-    cabinet_mu_sum = {}  # (cabinet_name, role) -> sum of known mu values
-    cabinet_mu_count = {}  # (cabinet_name, role) -> count
+    # Cabinet running averages for first-time logged-in player initialization.
+    # Intentionally frequency-weighted (each player-game adds an entry), so
+    # frequent players pull the average toward their skill level. This better
+    # reflects the mu a new player will face at that cabinet.
+    cabinet_mu_sum = {}  # (cabinet_name, role) -> sum of player-game mu values
+    cabinet_mu_count = {}  # (cabinet_name, role) -> count of player-game entries
 
     ratings_by_game = {}
     history = [] if record_history else None
@@ -186,52 +199,32 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
         blue_positions = [2, 4, 6, 8, 10]
         gold_positions = [1, 3, 5, 7, 9]
 
-        blue_keys = []
-        blue_ratings = []
-        gold_keys = []
-        gold_ratings = []
+        def build_team(positions):
+            keys = []
+            ratings = []
+            for pos in positions:
+                role = _role_for_position(pos)
+                if pos in game_users:
+                    user_id, _ = game_users[pos]
+                    rating_key = (user_id, role)
+                    if rating_key not in player_ratings:
+                        player_ratings[rating_key] = model.rating(
+                            mu=cabinet_avg_for_role(role))
+                    keys.append(rating_key)
+                    ratings.append(player_ratings[rating_key])
+                else:
+                    cab_key = (cabinet, role)
+                    if cab_key not in cabinet_anon_ratings:
+                        cabinet_anon_ratings[cab_key] = model.rating(
+                            mu=25.0 - anonymous_discount)
+                    anon_r = cabinet_anon_ratings[cab_key]
+                    keys.append(('anon', cabinet, role))
+                    ratings.append(
+                        model.rating(mu=anon_r.mu, sigma=anon_r.sigma))
+            return keys, ratings
 
-        for pos in blue_positions:
-            role = _role_for_position(pos)
-            if pos in game_users:
-                user_id, _ = game_users[pos]
-                rating_key = (user_id, role)
-                cab_avg = cabinet_avg_for_role(role)
-                if rating_key not in player_ratings:
-                    player_ratings[rating_key] = model.rating(mu=cab_avg)
-                blue_keys.append(rating_key)
-                blue_ratings.append(player_ratings[rating_key])
-            else:
-                # Anonymous: copy of cabinet anonymous rating
-                cab_key = (cabinet, role)
-                if cab_key not in cabinet_anon_ratings:
-                    cabinet_anon_ratings[cab_key] = model.rating(
-                        mu=25.0 - anonymous_discount)
-                anon_r = cabinet_anon_ratings[cab_key]
-                blue_keys.append(('anon', cabinet, role))
-                blue_ratings.append(
-                    model.rating(mu=anon_r.mu, sigma=anon_r.sigma))
-
-        for pos in gold_positions:
-            role = _role_for_position(pos)
-            if pos in game_users:
-                user_id, _ = game_users[pos]
-                rating_key = (user_id, role)
-                cab_avg = cabinet_avg_for_role(role)
-                if rating_key not in player_ratings:
-                    player_ratings[rating_key] = model.rating(mu=cab_avg)
-                gold_keys.append(rating_key)
-                gold_ratings.append(player_ratings[rating_key])
-            else:
-                # Anonymous: copy of cabinet anonymous rating
-                cab_key = (cabinet, role)
-                if cab_key not in cabinet_anon_ratings:
-                    cabinet_anon_ratings[cab_key] = model.rating(
-                        mu=25.0 - anonymous_discount)
-                anon_r = cabinet_anon_ratings[cab_key]
-                gold_keys.append(('anon', cabinet, role))
-                gold_ratings.append(
-                    model.rating(mu=anon_r.mu, sigma=anon_r.sigma))
+        blue_keys, blue_ratings = build_team(blue_positions)
+        gold_keys, gold_ratings = build_team(gold_positions)
 
         # Always 5v5, always rate
         if winner == 'Blue':
@@ -248,7 +241,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
         for team_idx in range(2):
             for i, rating_key in enumerate(team_keys[team_idx]):
                 new_rating = result[team_idx][i]
-                if isinstance(rating_key, tuple) and rating_key[0] == 'anon':
+                if len(rating_key) == 3:
                     _, cab, role = rating_key
                     cab_key = (cab, role)
                     if cab_key not in anon_updates:
@@ -268,7 +261,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
         # Update cabinet running averages for logged-in players (per role)
         if cabinet:
             for rating_key in blue_keys + gold_keys:
-                if isinstance(rating_key, tuple) and rating_key[0] == 'anon':
+                if len(rating_key) == 3:
                     continue
                 _, role = rating_key
                 cab_key = (cabinet, role)
@@ -315,10 +308,14 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
                     }
                 cabinet_snapshots.append(snap)
 
-    if record_history:
-        return (ratings_by_game, player_ratings, user_names,
-                cabinet_anon_ratings, history, cabinet_snapshots)
-    return ratings_by_game, player_ratings, user_names, cabinet_anon_ratings
+    return RatingResult(
+        ratings_by_game=ratings_by_game,
+        player_ratings=player_ratings,
+        user_names=user_names,
+        cabinet_anon_ratings=cabinet_anon_ratings,
+        history=history,
+        cabinet_snapshots=cabinet_snapshots,
+    )
 
 
 def evaluate_prediction(ratings_by_game, outcomes):
@@ -472,18 +469,20 @@ def print_validation(ratings_by_game, player_ratings, user_names, outcomes):
 def load_data():
     """Load all input data (expensive I/O, do once)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(base_dir)
 
     print('Loading usergame.csv...')
-    usergame = load_usergame()
+    usergame = load_usergame(
+        os.path.join(base_dir, 'unfiltered_partitioned/usergame.csv'))
     print(f'  {len(usergame)} games with logged-in users')
 
     print('Loading game.csv...')
-    game_cabinets = load_game_cabinets()
+    game_cabinets = load_game_cabinets(
+        os.path.join(base_dir, 'unfiltered_partitioned/game.csv'))
     print(f'  {len(game_cabinets)} games with cabinet info')
 
     print('Extracting game outcomes from logged_in_games/...')
-    outcomes = extract_game_outcomes()
+    outcomes = extract_game_outcomes(
+        os.path.join(base_dir, 'logged_in_games/gameevents_*.csv.gz'))
     print(f'  {len(outcomes)} games with valid outcomes')
 
     return usergame, game_cabinets, outcomes
@@ -508,10 +507,10 @@ def main():
         best_corr = -1.0
         best_discount = 0.0
         for discount in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15]:
-            ratings_by_game, _, _, _ = compute_ratings(
+            result = compute_ratings(
                 outcomes, usergame, game_cabinets,
                 anonymous_discount=float(discount))
-            corr, _, _ = evaluate_prediction(ratings_by_game, outcomes)
+            corr, _, _ = evaluate_prediction(result.ratings_by_game, outcomes)
             marker = ''
             if corr > best_corr:
                 best_corr = corr
@@ -523,26 +522,26 @@ def main():
         args.anonymous_discount = best_discount
 
     print('Computing ratings...')
-    (ratings_by_game, player_ratings, user_names, cabinet_anon_ratings,
-     history, cabinet_snapshots) = compute_ratings(
+    result = compute_ratings(
         outcomes, usergame, game_cabinets,
         anonymous_discount=args.anonymous_discount,
         record_history=True)
-    print(f'  {len(ratings_by_game)} games rated')
-    print(f'  {len(player_ratings)} unique players')
+    print(f'  {len(result.ratings_by_game)} games rated')
+    print(f'  {len(result.player_ratings)} unique players')
 
     # Save ratings
     base_dir = os.path.dirname(os.path.abspath(__file__))
     output_path = os.path.join(base_dir, args.output)
     with open(output_path, 'wb') as f:
-        pickle.dump(ratings_by_game, f)
+        pickle.dump(result.ratings_by_game, f)
     print(f'Saved ratings to {output_path}')
 
     print('\n=== Rating Deflation ===')
-    print_mu_over_time(history, player_ratings)
+    print_mu_over_time(result.history, result.player_ratings)
 
     print('\n=== Validation ===')
-    print_validation(ratings_by_game, player_ratings, user_names, outcomes)
+    print_validation(result.ratings_by_game, result.player_ratings,
+                     result.user_names, outcomes)
 
 
 if __name__ == '__main__':
