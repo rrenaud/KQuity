@@ -280,7 +280,7 @@ def materialize_partition_range(
 
         if use_fast_path:
             try:
-                states, labels = fast_materialize(csv_path, drop_prob)
+                states, labels, _ = fast_materialize(csv_path, drop_prob)
                 if len(labels) > 0:
                     all_states.append(states)
                     all_labels.append(labels)
@@ -292,7 +292,7 @@ def materialize_partition_range(
             game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
             try:
-                states, labels = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
+                states, labels, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
                 all_states.append(states)
                 all_labels.append(labels)
             except Exception as e:
