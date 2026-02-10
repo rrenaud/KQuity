@@ -96,3 +96,37 @@ Sigma floor at 5 improves raw rating correlation but the downstream LightGBM acc
 | 5         | 0.1961      | 70.12%   | 0.6001   |
 
 Correlation and LightGBM accuracy pull in opposite directions. Higher sigma floors improve raw rating signal but the model benefits from sharper (lower sigma) anonymous ratings — likely using decayed sigma patterns as a proxy for cabinet activity. No floor (Experiment 4) remains the best downstream result.
+
+## Experiment 6: Anonymous Discount Sweep → Remove Discount
+
+**Date**: 2026-02-10
+**Data**: same as Experiment 1
+
+Swept `anonymous_discount` (the mu penalty applied to first-time anonymous cabinet ratings):
+
+| discount | correlation |
+|----------|-------------|
+| **0**    | **0.1883**  |
+| **1**    | **0.1883**  |
+| 2        | 0.1883      |
+| 3        | 0.1882      |
+| 4        | 0.1880      |
+| 5        | 0.1877      |
+| 6        | 0.1874      |
+| 7        | 0.1870      |
+| 8        | 0.1866      |
+| 9        | 0.1860      |
+| 10       | 0.1854      |
+| 12       | 0.1840      |
+| 15       | 0.1815      |
+
+Correlation monotonically decreases with higher discount. Best at 0-1 (0.1883 vs 0.1874 at the previous default of 6).
+
+### LightGBM A/B with discount=0
+
+| Metric   | Baseline (52) | Per-Player (62) | Diff    |
+|----------|---------------|-----------------|---------|
+| Log Loss | 0.5765        | 0.5890          | +0.0125 |
+| Accuracy | 69.10%        | 70.54%          | +1.44%  |
+
+Essentially identical to Experiment 4's 70.6% (within noise). Since discount=0 means anonymous players start at the same default mu as everyone else, the `anonymous_discount` parameter was removed from the code entirely. Deflation with discount=0: -1.5 mu (vs -2.7 at discount=6).

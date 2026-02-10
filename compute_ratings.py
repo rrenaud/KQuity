@@ -109,8 +109,7 @@ def _role_for_position(pos):
     return 'queen' if pos in (1, 2) else 'drone'
 
 
-def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
-                    record_history=False):
+def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
     """Compute OpenSkill ratings chronologically with per-role composite keys.
 
     Each player gets independent ratings for queen and drone roles, keyed by
@@ -122,9 +121,6 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
         outcomes: {game_id: (timestamp, winning_team)}
         usergame: {game_id: {position_id: (user_id, name)}}
         game_cabinets: {game_id: cabinet_name}
-        anonymous_discount: mu penalty for anonymous (non-logged-in) players
-            relative to cabinet average. Used only as initial mu for a cabinet's
-            first anonymous rating.
         record_history: if True, populate history and cabinet_snapshots fields
             on the returned RatingResult.
 
@@ -189,7 +185,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
                 if cab_key in cabinet_anon_ratings:
                     pre_game_mu[pos - 1] = cabinet_anon_ratings[cab_key].mu
                 else:
-                    pre_game_mu[pos - 1] = 25.0 - anonymous_discount
+                    pre_game_mu[pos - 1] = 25.0
 
         ratings_by_game[game_id] = pre_game_mu
 
@@ -215,8 +211,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, anonymous_discount=6.0,
                 else:
                     cab_key = (cabinet, role)
                     if cab_key not in cabinet_anon_ratings:
-                        cabinet_anon_ratings[cab_key] = model.rating(
-                            mu=25.0 - anonymous_discount)
+                        cabinet_anon_ratings[cab_key] = model.rating()
                     anon_r = cabinet_anon_ratings[cab_key]
                     keys.append(('anon', cabinet, role))
                     ratings.append(
@@ -491,41 +486,14 @@ def load_data():
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Compute player skill ratings')
-    parser.add_argument('--sweep', action='store_true',
-                        help='Sweep anonymous_discount values instead of single run')
-    parser.add_argument('--anonymous-discount', type=float, default=6.0,
-                        help='Mu penalty for anonymous players (default: 6.0)')
     parser.add_argument('--output', type=str, default='ratings_queen_drone.pkl',
                         help='Output pickle filename (default: ratings_queen_drone.pkl)')
     args = parser.parse_args()
 
     usergame, game_cabinets, outcomes = load_data()
 
-    if args.sweep:
-        print('\n=== Discount Sweep ===')
-        print(f'  {"discount":>10s}  {"correlation":>12s}')
-        best_corr = -1.0
-        best_discount = 0.0
-        for discount in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15]:
-            result = compute_ratings(
-                outcomes, usergame, game_cabinets,
-                anonymous_discount=float(discount))
-            corr, _, _ = evaluate_prediction(result.ratings_by_game, outcomes)
-            marker = ''
-            if corr > best_corr:
-                best_corr = corr
-                best_discount = discount
-                marker = '  <-- best'
-            print(f'  {discount:10.1f}  {corr:12.4f}{marker}')
-
-        print(f'\nRecomputing with best discount={best_discount:.1f}...')
-        args.anonymous_discount = best_discount
-
     print('Computing ratings...')
-    result = compute_ratings(
-        outcomes, usergame, game_cabinets,
-        anonymous_discount=args.anonymous_discount,
-        record_history=True)
+    result = compute_ratings(outcomes, usergame, game_cabinets, record_history=True)
     print(f'  {len(result.ratings_by_game)} games rated')
     print(f'  {len(result.player_ratings)} unique players')
 
