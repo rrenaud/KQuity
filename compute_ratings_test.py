@@ -39,16 +39,16 @@ class TestChronologicalCorrectness:
         ])
         cabinets = {1: 'venue_a', 2: 'venue_a', 3: 'venue_a'}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Game 1: Alice has no history, should get default mu (25.0)
-        assert ratings_by_game[1][1] == pytest.approx(25.0)  # pos 2 -> index 1
+        assert result.ratings_by_game[1][1] == pytest.approx(25.0)  # pos 2 -> index 1
 
         # Game 2: Alice won game 1, her mu should be > 25
-        assert ratings_by_game[2][1] > 25.0
+        assert result.ratings_by_game[2][1] > 25.0
 
         # Game 3: Alice won games 1 and 2, her mu should be even higher
-        assert ratings_by_game[3][1] > ratings_by_game[2][1]
+        assert result.ratings_by_game[3][1] > result.ratings_by_game[2][1]
 
 
 class TestWinningTeamRatingsIncrease:
@@ -66,13 +66,13 @@ class TestWinningTeamRatingsIncrease:
         outcomes = _make_outcomes(outcomes_list)
         cabinets = {i: 'venue' for i in range(1, 11)}
 
-        _, player_ratings, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Both play as queens (positions 1 and 2)
-        assert player_ratings[(100, 'queen')].mu > 25.0
-        assert player_ratings[(200, 'queen')].mu < 25.0
+        assert result.player_ratings[(100, 'queen')].mu > 25.0
+        assert result.player_ratings[(200, 'queen')].mu < 25.0
         # Winner should be clearly above loser
-        assert player_ratings[(100, 'queen')].mu - player_ratings[(200, 'queen')].mu > 5.0
+        assert result.player_ratings[(100, 'queen')].mu - result.player_ratings[(200, 'queen')].mu > 5.0
 
 
 class TestCabinetAverageFallback:
@@ -91,11 +91,10 @@ class TestCabinetAverageFallback:
         ])
         cabinets = {1: 'venue_a', 2: 'venue_a', 3: 'venue_b'}
 
-        ratings_by_game, player_ratings, _, _ = compute_ratings(
-            outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Alice should have mu > 25 after two wins
-        alice_mu = player_ratings[(100, 'queen')].mu
+        alice_mu = result.player_ratings[(100, 'queen')].mu
         assert alice_mu > 25.0
 
     def test_no_cabinet_history_falls_back_to_default(self):
@@ -108,10 +107,10 @@ class TestCabinetAverageFallback:
         ])
         cabinets = {1: 'new_venue'}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Anonymous queen (pos 1) should get default 25.0 - discount (6.0)
-        assert ratings_by_game[1][0] == pytest.approx(19.0)
+        assert result.ratings_by_game[1][0] == pytest.approx(19.0)
 
     def test_cabinet_avg_diverges_with_asymmetric_participation(self):
         # Strong player (Alice) plays many games at venue_a, always winning.
@@ -131,13 +130,13 @@ class TestCabinetAverageFallback:
         outcomes = _make_outcomes(outcomes_list)
         cabinets = {i: 'venue_a' for i in range(1, 7)}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Cabinet average has more entries from Alice (who plays every game
         # and has high mu) than from each individual opponent.
         # Alice contributes 5 high-mu entries; each opponent contributes 1
         # low-mu entry. The average should be above 25.
-        new_player_mu = ratings_by_game[6][1]  # pos 2 = index 1
+        new_player_mu = result.ratings_by_game[6][1]  # pos 2 = index 1
         assert new_player_mu > 25.0
 
 
@@ -158,10 +157,10 @@ class TestFirstTimePlayerCabinetAverage:
         outcomes = _make_outcomes(outcomes_list)
         cabinets = {i: 'venue_a' for i in range(1, 7)}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # NewPlayer (pos 2, index 1) should get cabinet avg, which is > 25
-        new_player_mu = ratings_by_game[6][1]
+        new_player_mu = result.ratings_by_game[6][1]
         assert new_player_mu > 25.0
 
 
@@ -182,14 +181,14 @@ class TestDualRoleRatings:
         ])
         cabinets = {1: 'venue', 2: 'venue'}
 
-        _, player_ratings, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # Queen rating should be above default (won)
-        assert player_ratings[(100, 'queen')].mu > 25.0
+        assert result.player_ratings[(100, 'queen')].mu > 25.0
         # Drone rating should be below default (lost)
-        assert player_ratings[(100, 'drone')].mu < 25.0
+        assert result.player_ratings[(100, 'drone')].mu < 25.0
         # They should be different
-        assert player_ratings[(100, 'queen')].mu != player_ratings[(100, 'drone')].mu
+        assert result.player_ratings[(100, 'queen')].mu != result.player_ratings[(100, 'drone')].mu
 
     def test_queen_cabinet_avg_separate_from_drone(self):
         # Build up cabinet history with a dominant queen.
@@ -218,12 +217,12 @@ class TestDualRoleRatings:
         outcomes = _make_outcomes(outcomes_list)
         cabinets = {i: 'venue' for i in range(1, 7)}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         # New queen (pos 2, idx 1) gets queen cabinet avg
-        new_queen_mu = ratings_by_game[6][1]
+        new_queen_mu = result.ratings_by_game[6][1]
         # New drone (pos 4, idx 3) gets drone cabinet avg
-        new_drone_mu = ratings_by_game[6][3]
+        new_drone_mu = result.ratings_by_game[6][3]
         # These should generally be different since queen and drone pools differ
         # Alice (queen, always winning) skews queen avg up more than drone avg
         assert new_queen_mu != pytest.approx(new_drone_mu, abs=0.5)
@@ -241,15 +240,15 @@ class TestPickleRoundtrip:
         ])
         cabinets = {1: 'venue'}
 
-        ratings_by_game, _, _, _ = compute_ratings(outcomes, usergame, cabinets)
+        result = compute_ratings(outcomes, usergame, cabinets)
 
         with tempfile.NamedTemporaryFile(suffix='.pkl') as tmp:
             with open(tmp.name, 'wb') as f:
-                pickle.dump(ratings_by_game, f)
+                pickle.dump(result.ratings_by_game, f)
             with open(tmp.name, 'rb') as f:
                 loaded = pickle.load(f)
 
-        assert set(loaded.keys()) == set(ratings_by_game.keys())
-        for game_id in ratings_by_game:
+        assert set(loaded.keys()) == set(result.ratings_by_game.keys())
+        for game_id in result.ratings_by_game:
             np.testing.assert_array_equal(
-                loaded[game_id], ratings_by_game[game_id])
+                loaded[game_id], result.ratings_by_game[game_id])

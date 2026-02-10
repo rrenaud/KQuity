@@ -19,26 +19,25 @@ def main():
     usergame, game_cabinets, outcomes = load_data()
 
     print('Computing ratings with history...')
-    (ratings_by_game, player_ratings, user_names, cabinet_anon_ratings,
-     history, cabinet_snapshots) = compute_ratings(
+    result = compute_ratings(
         outcomes, usergame, game_cabinets, record_history=True)
-    print(f'  {len(history)} games with rating updates')
+    print(f'  {len(result.history)} games with rating updates')
 
     # Build player index with per-role stats
     # Count games per (user_id, role) from history
     game_counts = {}  # (user_id, role) -> count
-    for event in history:
+    for event in result.history:
         for p in event['participants']:
             key = (p['user_id'], p['role'])
             game_counts[key] = game_counts.get(key, 0) + 1
 
     players = {}
-    for (user_id, role), rating in player_ratings.items():
+    for (user_id, role), rating in result.player_ratings.items():
         uid_str = str(user_id)
         if uid_str not in players:
             players[uid_str] = {
                 'user_id': user_id,
-                'name': user_names.get(user_id, f'user_{user_id}'),
+                'name': result.user_names.get(user_id, f'user_{user_id}'),
                 'roles': {},
             }
         players[uid_str]['roles'][role] = {
@@ -48,7 +47,7 @@ def main():
         }
 
     # Add cabinet pseudo-players
-    for (cab, role), rating in cabinet_anon_ratings.items():
+    for (cab, role), rating in result.cabinet_anon_ratings.items():
         uid_str = f'cab_{cab}_{role}'
         if uid_str not in players:
             # Derive a display name from the cabinet name
@@ -67,7 +66,7 @@ def main():
 
     # Round floats in game history
     games = []
-    for event in history:
+    for event in result.history:
         participants = []
         for p in event['participants']:
             participants.append({
@@ -89,12 +88,12 @@ def main():
 
     output = {
         'metadata': {
-            'total_games': len(history),
+            'total_games': len(result.history),
             'total_players': len(players),
         },
         'players': players,
         'games': games,
-        'cabinet_snapshots': cabinet_snapshots,
+        'cabinet_snapshots': result.cabinet_snapshots,
     }
 
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),

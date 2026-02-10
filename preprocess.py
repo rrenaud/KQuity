@@ -682,15 +682,15 @@ def compute_kill_matrix():
 GameStateVector: Type = npt.NDArray[np.float64]
 
 
-def vectorize_worker(worker: WorkerState, mu: float = None) -> GameStateVector:
+def vectorize_worker(worker: WorkerState, mu: float | None = None) -> GameStateVector:
     base = [worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings]
     if mu is not None:
         base.append(mu)
     return np.array(base, np.float32)
 
 
-def vectorize_team(team_state: TeamState, queen_mu: float = None,
-                   worker_mus: list = None) -> GameStateVector:
+def vectorize_team(team_state: TeamState, queen_mu: float | None = None,
+                   worker_mus: list | None = None) -> GameStateVector:
     eggs = float(team_state.eggs)
     num_food_deposits = float(sum(team_state.food_deposited))
     num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
