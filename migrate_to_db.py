@@ -25,6 +25,10 @@ MEMORY_LIMIT_BYTES = 8 * 1024 ** 3  # 8 GB
 
 def _set_resource_limits():
     """Set RLIMIT_DATA to 8 GB and lock pages into RAM to prevent swap thrashing."""
+    if sys.platform != 'linux':
+        print(f"Skipping resource limits on {sys.platform} (Linux only)")
+        return
+
     # RLIMIT_DATA caps the data segment (heap) without counting mmap'd regions,
     # shared libraries, or gzip decompression buffers that inflate virtual size.
     # RLIMIT_AS is too aggressive — Python+gzip+SQLite virtual overhead can
@@ -335,7 +339,7 @@ def enrich_with_metadata(db_dir: str, csv_dir: str, verbose: bool = True):
 
     for sid in sorted(set(shard_updates) | set(shard_players)):
         db = sharded.get_or_create_shard(sid)
-        conn = db._get_conn()
+        conn = db.conn
 
         if sid in shard_updates:
             for game_id, meta, login_count, scene in shard_updates[sid]:
@@ -383,7 +387,7 @@ def migrate_ratings(db_dir: str, ratings_path: str, verbose: bool = True):
     total = 0
     for sid in sorted(shard_ratings):
         db = sharded.get_or_create_shard(sid)
-        conn = db._get_conn()
+        conn = db.conn
 
         for game_id, mu_list in shard_ratings[sid]:
             # Store as metadata
@@ -391,7 +395,7 @@ def migrate_ratings(db_dir: str, ratings_path: str, verbose: bool = True):
                 """INSERT OR REPLACE INTO game_metadata (game_id, key, value, updated_at)
                    VALUES (?, 'ratings', ?, ?)""",
                 (game_id, json.dumps(mu_list),
-                 datetime.datetime.utcnow().isoformat()))
+                 datetime.datetime.now(datetime.timezone.utc).isoformat()))
 
             # Denormalize max/avg mu
             max_mu = max(mu_list)
@@ -423,6 +427,7 @@ def migrate_jsonl_cache(db_dir: str, jsonl_dir: str, verbose: bool = True):
 
     migrated = 0
     skipped = 0
+    dirty_shards: set[int] = set()
 
     for filepath in jsonl_files:
         game_id = int(os.path.basename(filepath).replace('.jsonl', ''))
@@ -503,8 +508,12 @@ def migrate_jsonl_cache(db_dir: str, jsonl_dir: str, verbose: bool = True):
         sid = shard_id_for_game(game_id)
         db = sharded.get_or_create_shard(sid)
         db.insert_game(doc)
-        db.commit()
+        dirty_shards.add(sid)
         migrated += 1
+
+    # Commit all dirty shards at end
+    for sid in dirty_shards:
+        sharded.get_or_create_shard(sid).commit()
 
     sharded.close()
     print(f"JSONL migration complete: {migrated} games, {skipped} skipped")
@@ -537,12 +546,12 @@ def main():
     parser.add_argument('--all', action='store_true',
                         help='Run full pipeline')
     args = parser.parse_args()
-    _set_resource_limits()
 
     if args.all:
         if not args.csv_dir:
             args.csv_dir = os.path.join(os.path.dirname(__file__),
                                         'unfiltered_partitioned')
+        _set_resource_limits()
         migrate_csv_partitions(args.db_dir, args.csv_dir)
         enrich_with_metadata(args.db_dir, args.csv_dir)
         if args.ratings:
@@ -555,6 +564,7 @@ def main():
         return
 
     if args.csv_dir and not args.enrich:
+        _set_resource_limits()
         migrate_csv_partitions(args.db_dir, args.csv_dir)
 
     if args.enrich:
