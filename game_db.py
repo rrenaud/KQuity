@@ -187,9 +187,6 @@ class GameDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
 
-    def _get_conn(self) -> sqlite3.Connection:
-        return self.conn
-
     def close(self):
         if self._conn is not None:
             self._conn.close()
@@ -202,12 +199,12 @@ class GameDB:
         self.close()
 
     def create_schema(self):
-        init_db(self._get_conn())
+        init_db(self.conn)
 
     # --- Insert operations ---
 
     def insert_game(self, doc: GameDocument):
-        conn = self._get_conn()
+        conn = self.conn
         conn.execute(
             """INSERT OR REPLACE INTO games
                (game_id, game_uuid, map_name, gold_on_left, cabinet_name,
@@ -223,7 +220,7 @@ class GameDB:
              doc.max_player_mu, doc.avg_player_mu))
 
     def insert_games_batch(self, docs: list[GameDocument]):
-        conn = self._get_conn()
+        conn = self.conn
         rows = []
         for doc in docs:
             rows.append((
@@ -243,7 +240,7 @@ class GameDB:
             rows)
 
     def insert_player(self, player: PlayerEntry):
-        conn = self._get_conn()
+        conn = self.conn
         conn.execute(
             """INSERT OR REPLACE INTO game_players
                (game_id, position_id, user_id, user_name, role)
@@ -252,7 +249,7 @@ class GameDB:
              player.user_name, player.role))
 
     def insert_players_batch(self, players: list[PlayerEntry]):
-        conn = self._get_conn()
+        conn = self.conn
         conn.executemany(
             """INSERT OR REPLACE INTO game_players
                (game_id, position_id, user_id, user_name, role)
@@ -267,7 +264,7 @@ class GameDB:
     # --- Core lookups ---
 
     def get_game(self, game_id: int) -> GameDocument | None:
-        conn = self._get_conn()
+        conn = self.conn
         row = conn.execute(
             "SELECT * FROM games WHERE game_id = ?", (game_id,)).fetchone()
         if row is None:
@@ -275,7 +272,7 @@ class GameDB:
         return _row_to_game_document(row)
 
     def get_events(self, game_id: int) -> list[GameEvent] | None:
-        conn = self._get_conn()
+        conn = self.conn
         row = conn.execute(
             "SELECT events FROM games WHERE game_id = ?", (game_id,)).fetchone()
         if row is None:
@@ -283,13 +280,13 @@ class GameDB:
         return _deserialize_events(row['events'])
 
     def game_count(self) -> int:
-        conn = self._get_conn()
+        conn = self.conn
         return conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
 
     # --- Metadata ---
 
     def get_metadata(self, game_id: int, key: str) -> dict | None:
-        conn = self._get_conn()
+        conn = self.conn
         row = conn.execute(
             "SELECT value FROM game_metadata WHERE game_id = ? AND key = ?",
             (game_id, key)).fetchone()
@@ -298,7 +295,7 @@ class GameDB:
         return json.loads(row['value'])
 
     def set_metadata(self, game_id: int, key: str, value: dict):
-        conn = self._get_conn()
+        conn = self.conn
         conn.execute(
             """INSERT OR REPLACE INTO game_metadata (game_id, key, value, updated_at)
                VALUES (?, ?, ?, ?)""",
@@ -308,13 +305,13 @@ class GameDB:
     # --- Bulk iteration ---
 
     def iter_games(self, where: str = "1=1", params: tuple = ()) -> Iterator[GameDocument]:
-        conn = self._get_conn()
+        conn = self.conn
         cursor = conn.execute(f"SELECT * FROM games WHERE {where}", params)
         for row in cursor:
             yield _row_to_game_document(row)
 
     def list_game_ids(self, where: str = "1=1", params: tuple = ()) -> list[int]:
-        conn = self._get_conn()
+        conn = self.conn
         rows = conn.execute(
             f"SELECT game_id FROM games WHERE {where}", params).fetchall()
         return [r['game_id'] for r in rows]
@@ -350,7 +347,7 @@ class GameDB:
 
         Returns {game_id: np.array(10)} of pre-game mu values.
         """
-        conn = self._get_conn()
+        conn = self.conn
         result = {}
         # Process in chunks to avoid SQLite variable limit
         chunk_size = 500
@@ -379,7 +376,7 @@ class GameDB:
         """Update a single column on the games table."""
         if field not in self.VALID_COLUMNS:
             raise ValueError(f"Invalid column: {field!r}")
-        conn = self._get_conn()
+        conn = self.conn
         conn.execute(
             f"UPDATE games SET {field} = ? WHERE game_id = ?",
             (value, game_id))

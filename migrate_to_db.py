@@ -9,7 +9,6 @@ Usage:
 """
 
 import argparse
-import ctypes
 import csv
 import datetime
 import glob
@@ -17,7 +16,6 @@ import gzip
 import json
 import os
 import pickle
-import resource
 import sys
 
 MEMORY_LIMIT_BYTES = 8 * 1024 ** 3  # 8 GB
@@ -28,6 +26,9 @@ def _set_resource_limits():
     if sys.platform != 'linux':
         print(f"Skipping resource limits on {sys.platform} (Linux only)")
         return
+
+    import ctypes
+    import resource
 
     # RLIMIT_DATA caps the data segment (heap) without counting mmap'd regions,
     # shared libraries, or gzip decompression buffers that inflate virtual size.

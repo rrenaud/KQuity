@@ -50,15 +50,15 @@ def _copy_matching_games(sharded: ShardedGameDB, replica_path: str,
         conn_r.execute(
             f"""INSERT OR REPLACE INTO game_players
                 SELECT p.* FROM src.game_players p
-                INNER JOIN src.games g ON p.game_id = g.game_id
-                WHERE {where}""", params)
+                WHERE p.game_id IN (SELECT game_id FROM src.games WHERE {where})""",
+            params)
 
         # Copy metadata rows for matching games
         conn_r.execute(
             f"""INSERT OR REPLACE INTO game_metadata
                 SELECT m.* FROM src.game_metadata m
-                INNER JOIN src.games g ON m.game_id = g.game_id
-                WHERE {where}""", params)
+                WHERE m.game_id IN (SELECT game_id FROM src.games WHERE {where})""",
+            params)
 
         conn_r.execute("DETACH DATABASE src")
         total += count

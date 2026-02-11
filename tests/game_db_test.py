@@ -163,7 +163,7 @@ class TestGameDB(unittest.TestCase):
         self.db.insert_players_batch(players)
         self.db.commit()
 
-        conn = self.db._get_conn()
+        conn = self.db.conn
         rows = conn.execute(
             "SELECT * FROM game_players WHERE game_id = 100").fetchall()
         self.assertEqual(len(rows), 2)
