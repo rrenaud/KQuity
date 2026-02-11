@@ -30,8 +30,14 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.18
+          echo "CLAUDE_PATH=$(which claude)" >> $GITHUB_ENV
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
