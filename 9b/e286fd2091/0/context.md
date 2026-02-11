@@ -1,0 +1,92 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+is the git worktree working?  i want to work on the doc_db migration.
+
+### Prompt 2
+
+is there a multi model game viewer work set, and a doc db migration work set here?
+
+### Prompt 3
+
+<bash-input>git status</bash-input>
+
+### Prompt 4
+
+<bash-stdout>On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   fast_materialize.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/
+	.entire/
+	assemble_comparison.py
+	export_predictions.py
+	game_db.py
+	migrate_to_db.py
+	model_experiments/.obsidian/
+	predictions/
+	rat...
+
+### Prompt 5
+
+classify untracked files.  should be about prediction exports/old ratings.pkl stuff, or a database migration.
+
+### Prompt 6
+
+split the prediction exports/ratings and db migration code into seperate PRs, then stash the prediction PR and let's work on database migration.
+
+### Prompt 7
+
+do a batch wise migration.  do not store more than 10% of games in memory at once.  set an RLIMIT of 8 GB and force disable swap to avoid OOMing/trashing the machine.
+
+### Prompt 8
+
+run it
+
+### Prompt 9
+
+<task-notification>
+<task-id>b5ba20d</task-id>
+<output-file>/tmp/claude-1000/-home-rrenaud-KQuity/tasks/b5ba20d.output</output-file>
+<status>failed</status>
+<summary>Background command "Run batch-wise CSV migration to SQLite" failed with exit code 1</summary>
+</task-notification>
+Read the output file to retrieve the result: /tmp/claude-1000/-home-rrenaud-KQuity/tasks/b5ba20d.output
+
+### Prompt 10
+
+<task-notification>
+<task-id>b6886e7</task-id>
+<output-file>REDACTED.output</output-file>
+<status>failed</status>
+<summary>Background command "Re-run batch-wise CSV migration" failed with exit code 1</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+### Prompt 11
+
+wait for background task.  make sure we don't have a timeout
+
+### Prompt 12
+
+<task-notification>
+<task-id>b640f51</task-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Run streaming CSV migration" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+### Prompt 13
+
+bench mark featurization on 1000 games with the old from gameevents.csv and the new from db.
+
