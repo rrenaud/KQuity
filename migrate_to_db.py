@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import ctypes
 import csv
 import datetime
 import glob
@@ -16,7 +17,34 @@ import gzip
 import json
 import os
 import pickle
+import resource
 import sys
+
+MEMORY_LIMIT_BYTES = 8 * 1024 ** 3  # 8 GB
+
+
+def _set_resource_limits():
+    """Set RLIMIT_DATA to 8 GB and lock pages into RAM to prevent swap thrashing."""
+    # RLIMIT_DATA caps the data segment (heap) without counting mmap'd regions,
+    # shared libraries, or gzip decompression buffers that inflate virtual size.
+    # RLIMIT_AS is too aggressive — Python+gzip+SQLite virtual overhead can
+    # exceed the limit even when actual heap usage is well within budget.
+    resource.setrlimit(resource.RLIMIT_DATA,
+                       (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
+    print(f"RLIMIT_DATA set to {MEMORY_LIMIT_BYTES / 1024**3:.0f} GB")
+
+    # mlockall: lock all current and future pages into RAM
+    libc = ctypes.CDLL('libc.so.6', use_errno=True)
+    MCL_CURRENT = 1
+    MCL_FUTURE = 2
+    ret = libc.mlockall(MCL_CURRENT | MCL_FUTURE)
+    if ret != 0:
+        errno = ctypes.get_errno()
+        print(f"Warning: mlockall failed (errno={errno}). "
+              "Run with CAP_IPC_LOCK or as root to prevent swap usage.",
+              file=sys.stderr)
+    else:
+        print("mlockall succeeded — pages locked into RAM")
 
 from game_db import (
     GameDocument, GameEvent, PlayerEntry, GameDB, ShardedGameDB,
@@ -130,101 +158,106 @@ def _build_game_document(game_id, raw_events, game_info):
     )
 
 
+def _find_csv_files(csv_dir: str, csv_glob: str | None = None) -> list[str]:
+    """Locate gameevents CSV files, preferring .csv.gz."""
+    if csv_glob:
+        return sorted(glob.glob(csv_glob))
+    files = sorted(glob.glob(os.path.join(csv_dir, 'gameevents_*.csv.gz')))
+    if not files:
+        files = sorted(glob.glob(os.path.join(csv_dir, 'gameevents_*.csv')))
+    return files
+
+
+
+def _flush_games(game_ids, pending, sharded, stats):
+    """Process pending games and write to shard DBs, removing them from pending."""
+    batch_by_shard: dict[int, list[GameDocument]] = {}
+
+    for game_id in game_ids:
+        raw_events = pending.pop(game_id)
+        raw_events.sort(key=lambda x: x[0])
+
+        game_info = _extract_game_info(raw_events)
+        if game_info is None:
+            stats['skipped'] += 1
+            continue
+
+        doc = _build_game_document(game_id, raw_events, game_info)
+        sid = shard_id_for_game(game_id)
+        if sid not in batch_by_shard:
+            batch_by_shard[sid] = []
+        batch_by_shard[sid].append(doc)
+        stats['migrated'] += 1
+
+    for sid in sorted(batch_by_shard):
+        db = sharded.get_or_create_shard(sid)
+        db.insert_games_batch(batch_by_shard[sid])
+        db.commit()
+
+
 def migrate_csv_partitions(db_dir: str, csv_dir: str, verbose: bool = True,
                            csv_glob: str | None = None):
-    """Step 2: Migrate CSV.gz partition files into sharded SQLite.
+    """Single-pass, streaming CSV migration into sharded SQLite.
 
-    Streams through all CSV.gz files, groups events by game_id,
-    and routes each game to its shard.
+    Reads each partition file once. After each file, flushes games that
+    did not appear in the current file (their events are complete).
+    Games spanning consecutive files stay buffered until they stop appearing.
+    Memory usage ≈ one partition file's worth of games (~1000 games).
 
     Args:
         db_dir: Output directory for shard DBs.
         csv_dir: Directory containing CSV files.
         verbose: Print progress.
         csv_glob: Optional explicit glob pattern for CSV files.
-            If None, searches for gameevents_*.csv.gz then gameevents_*.csv.
     """
-    sharded = ShardedGameDB(db_dir)
-    os.makedirs(db_dir, exist_ok=True)
-
-    if csv_glob:
-        csv_pattern = csv_glob
-        files = sorted(glob.glob(csv_pattern))
-    else:
-        csv_pattern = os.path.join(csv_dir, 'gameevents_*.csv.gz')
-        files = sorted(glob.glob(csv_pattern))
-        if not files:
-            csv_pattern = os.path.join(csv_dir, 'gameevents_*.csv')
-            files = sorted(glob.glob(csv_pattern))
-
+    files = _find_csv_files(csv_dir, csv_glob)
     if not files:
-        print(f"No CSV files found matching {csv_pattern}")
+        print(f"No CSV files found in {csv_dir}")
         return
 
     print(f"Found {len(files)} CSV files to migrate")
+    os.makedirs(db_dir, exist_ok=True)
 
-    # Accumulate by game across all files
-    games: dict[int, list] = {}
-    game_order = []
-    total_rows = 0
+    sharded = ShardedGameDB(db_dir)
+    pending: dict[int, list] = {}   # game_id -> raw events
+    stats = {'migrated': 0, 'skipped': 0, 'rows': 0}
 
     for file_idx, filename in enumerate(files):
         if verbose:
-            print(f"  Reading [{file_idx+1}/{len(files)}]: {os.path.basename(filename)}")
+            print(f"  [{file_idx+1}/{len(files)}] {os.path.basename(filename)}")
+
+        seen_in_file: set[int] = set()
         opener = gzip.open if filename.endswith('.gz') else open
         with opener(filename, 'rt') as f:
             reader = csv.reader(f)
             next(reader)  # skip header
             for row in reader:
-                total_rows += 1
+                stats['rows'] += 1
                 game_id = int(row[COL_GAME_ID])
-                if game_id not in games:
-                    games[game_id] = []
-                    game_order.append(game_id)
-                games[game_id].append((
+                seen_in_file.add(game_id)
+                if game_id not in pending:
+                    pending[game_id] = []
+                pending[game_id].append((
                     datetime.datetime.fromisoformat(row[COL_TS]),
                     row[COL_TYPE],
                     row[COL_VALUES],
                 ))
 
-    print(f"Read {total_rows} event rows across {len(games)} games")
+        # Flush games not seen in this file — their events are complete
+        flushable = [gid for gid in pending if gid not in seen_in_file]
+        if flushable:
+            _flush_games(flushable, pending, sharded, stats)
 
-    # Process games and write to shards
-    batch_by_shard: dict[int, list[GameDocument]] = {}
-    skipped = 0
+        if verbose and (file_idx + 1) % 100 == 0:
+            print(f"    {stats['migrated']} migrated, {stats['skipped']} skipped, "
+                  f"{len(pending)} pending in buffer")
 
-    for game_id in game_order:
-        raw_events = games[game_id]
-        raw_events.sort(key=lambda x: x[0])
-
-        game_info = _extract_game_info(raw_events)
-        if game_info is None:
-            skipped += 1
-            continue
-
-        doc = _build_game_document(game_id, raw_events, game_info)
-        sid = shard_id_for_game(game_id)
-
-        if sid not in batch_by_shard:
-            batch_by_shard[sid] = []
-        batch_by_shard[sid].append(doc)
-
-    print(f"Skipped {skipped} invalid games (no gamestart/mapstart)")
-
-    # Write batches to shard DBs
-    for sid in sorted(batch_by_shard):
-        batch = batch_by_shard[sid]
-        db = sharded.get_or_create_shard(sid)
-        db.insert_games_batch(batch)
-        db.commit()
-        if verbose:
-            print(f"  Shard {sid:05d}: {len(batch)} games")
+    # Flush remaining games from the last file(s)
+    _flush_games(list(pending.keys()), pending, sharded, stats)
 
     sharded.close()
-
-    # Free memory
-    del games, game_order, batch_by_shard
-    print("CSV migration complete")
+    print(f"CSV migration complete: {stats['migrated']} games, "
+          f"{stats['skipped']} skipped, {stats['rows']} rows read")
 
 
 def enrich_with_metadata(db_dir: str, csv_dir: str, verbose: bool = True):
@@ -504,6 +537,7 @@ def main():
     parser.add_argument('--all', action='store_true',
                         help='Run full pipeline')
     args = parser.parse_args()
+    _set_resource_limits()
 
     if args.all:
         if not args.csv_dir:
