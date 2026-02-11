@@ -65,7 +65,7 @@ class PipelineRegressionTest(unittest.TestCase):
         expected_labels = expected['labels']
 
         start_time = time.time()
-        states, labels, _ = fast_materialize(benchmark_path)
+        states, labels, _, _ = fast_materialize(benchmark_path)
         elapsed = time.time() - start_time
 
         print(f'\nFast path time: {elapsed:.2f} seconds')
@@ -91,7 +91,7 @@ class PipelineRegressionTest(unittest.TestCase):
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
         # First, run fast path without ratings to get game_ids
-        _, _, game_ids = fast_materialize(benchmark_path)
+        _, _, game_ids, _ = fast_materialize(benchmark_path)
         unique_game_ids = set(game_ids)
 
         # Generate deterministic dummy ratings for each game
@@ -103,7 +103,7 @@ class PipelineRegressionTest(unittest.TestCase):
 
         # Fast path with ratings
         start_time = time.time()
-        fast_states, fast_labels, fast_game_ids = fast_materialize(
+        fast_states, fast_labels, fast_game_ids, _ = fast_materialize(
             benchmark_path, ratings_by_game=ratings_by_game)
         fast_elapsed = time.time() - start_time
 

@@ -25,7 +25,7 @@ def run_existing(csv_path):
 
 def run_fast(csv_path):
     from fast_materialize import fast_materialize
-    states, labels, _ = fast_materialize(csv_path)
+    states, labels, _, _ = fast_materialize(csv_path)
     return states, labels
 
 
