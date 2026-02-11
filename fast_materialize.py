@@ -499,49 +499,49 @@ def fast_materialize_from_db(db_path, drop_state_probability=0.0,
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    # Load ratings if requested
-    ratings_by_game = None
-    if ratings_from_db:
-        ratings_by_game = {}
-        for row in conn.execute(
-                "SELECT game_id, value FROM game_metadata WHERE key = 'ratings'"):
-            import json as _json
-            mu_list = _json.loads(row['value'])
-            ratings_by_game[row['game_id']] = np.array(mu_list, dtype=np.float32)
+    try:
+        # Load ratings if requested
+        ratings_by_game = None
+        if ratings_from_db:
+            ratings_by_game = {}
+            for row in conn.execute(
+                    "SELECT game_id, value FROM game_metadata WHERE key = 'ratings'"):
+                mu_list = json.loads(row['value'])
+                ratings_by_game[row['game_id']] = np.array(mu_list, dtype=np.float32)
 
-    num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game else NUM_FEATURES
+        num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game else NUM_FEATURES
 
-    # Phase 1: Read games from DB, reconstruct raw_events format
-    games = {}
-    game_order = []
+        # Phase 1: Read games from DB, reconstruct raw_events format
+        games = {}
+        game_order = []
 
-    cursor = conn.execute(
-        f"SELECT game_id, start_time, events FROM games WHERE {where}", params)
+        cursor = conn.execute(
+            f"SELECT game_id, start_time, events FROM games WHERE {where}", params)
 
-    for row in cursor:
-        game_id = row['game_id']
-        gamestart_dt = datetime.datetime.fromisoformat(row['start_time'])
-        events_json = json.loads(row['events'])
+        for row in cursor:
+            game_id = row['game_id']
+            gamestart_dt = datetime.datetime.fromisoformat(row['start_time'])
+            events_json = json.loads(row['events'])
 
-        raw_events = []
-        for e in events_json:
-            rel_t = e['t']
-            event_type = e['type']
-            vals = e.get('vals', [])
+            raw_events = []
+            for e in events_json:
+                rel_t = e['t']
+                event_type = e['type']
+                vals = e.get('vals', [])
 
-            # Reconstruct absolute datetime
-            dt = gamestart_dt + timedelta(seconds=rel_t)
+                # Reconstruct absolute datetime
+                dt = gamestart_dt + timedelta(seconds=rel_t)
 
-            # Reconstruct values_str in {val1,val2,...} format
-            vals_str = '{' + ','.join(str(v) for v in vals) + '}'
+                # Reconstruct values_str in {val1,val2,...} format
+                vals_str = '{' + ','.join(str(v) for v in vals) + '}'
 
-            raw_events.append((dt, event_type, vals_str))
+                raw_events.append((dt, event_type, vals_str))
 
-        if raw_events:
-            games[game_id] = raw_events
-            game_order.append(game_id)
-
-    conn.close()
+            if raw_events:
+                games[game_id] = raw_events
+                game_order.append(game_id)
+    finally:
+        conn.close()
 
     # Phase 2: Pre-allocate output buffers
     total_events = sum(len(evts) for evts in games.values())

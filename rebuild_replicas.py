@@ -11,67 +11,57 @@ Usage:
 import argparse
 import os
 
-from game_db import GameDB, ShardedGameDB, init_db
+from game_db import GameDB, ShardedGameDB
 
 
 def _copy_matching_games(sharded: ShardedGameDB, replica_path: str,
                          where: str, params: tuple = (),
                          verbose: bool = True) -> int:
-    """Copy games matching a WHERE clause from all shards into a replica DB."""
+    """Copy games matching a WHERE clause from all shards into a replica DB.
+
+    Uses ATTACH DATABASE + INSERT INTO ... SELECT FROM for bulk copy,
+    which is much faster than row-by-row Python iteration.
+    """
     replica = GameDB(replica_path)
     replica.create_schema()
-    conn_r = replica._get_conn()
+    conn_r = replica.conn
 
     total = 0
     for shard_db in sharded.iter_shards():
-        conn_s = shard_db._get_conn()
+        shard_path = str(shard_db.db_path)
 
-        # Copy matching game rows
-        rows = conn_s.execute(
-            f"SELECT * FROM games WHERE {where}", params).fetchall()
-        if not rows:
-            shard_db.close()
+        # ATTACH the shard, bulk-copy matching rows, DETACH
+        conn_r.execute("ATTACH DATABASE ? AS src", (shard_path,))
+
+        # Count matching games first
+        count = conn_r.execute(
+            f"SELECT COUNT(*) FROM src.games WHERE {where}", params
+        ).fetchone()[0]
+
+        if count == 0:
+            conn_r.execute("DETACH DATABASE src")
             continue
 
-        game_ids = [r['game_id'] for r in rows]
+        conn_r.execute(
+            f"""INSERT OR REPLACE INTO games
+                SELECT * FROM src.games WHERE {where}""", params)
 
-        for row in rows:
-            conn_r.execute(
-                """INSERT OR REPLACE INTO games
-                   (game_id, game_uuid, map_name, gold_on_left, cabinet_name,
-                    scene_name, start_time, end_time, win_condition, winning_team,
-                    player_count, tournament_match_id, events, event_count,
-                    duration_seconds, login_count, max_player_mu, avg_player_mu)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                tuple(row))
+        # Copy player rows for matching games
+        conn_r.execute(
+            f"""INSERT OR REPLACE INTO game_players
+                SELECT p.* FROM src.game_players p
+                INNER JOIN src.games g ON p.game_id = g.game_id
+                WHERE {where}""", params)
 
-        # Copy matching player rows
-        placeholders = ','.join('?' * len(game_ids))
-        player_rows = conn_s.execute(
-            f"""SELECT * FROM game_players
-                WHERE game_id IN ({placeholders})""",
-            game_ids).fetchall()
-        for pr in player_rows:
-            conn_r.execute(
-                """INSERT OR REPLACE INTO game_players
-                   (game_id, position_id, user_id, user_name, role)
-                   VALUES (?,?,?,?,?)""",
-                tuple(pr))
+        # Copy metadata rows for matching games
+        conn_r.execute(
+            f"""INSERT OR REPLACE INTO game_metadata
+                SELECT m.* FROM src.game_metadata m
+                INNER JOIN src.games g ON m.game_id = g.game_id
+                WHERE {where}""", params)
 
-        # Copy matching metadata rows
-        meta_rows = conn_s.execute(
-            f"""SELECT * FROM game_metadata
-                WHERE game_id IN ({placeholders})""",
-            game_ids).fetchall()
-        for mr in meta_rows:
-            conn_r.execute(
-                """INSERT OR REPLACE INTO game_metadata
-                   (game_id, key, value, updated_at)
-                   VALUES (?,?,?,?)""",
-                tuple(mr))
-
-        total += len(rows)
-        shard_db.close()
+        conn_r.execute("DETACH DATABASE src")
+        total += count
 
     replica.commit()
     replica.close()

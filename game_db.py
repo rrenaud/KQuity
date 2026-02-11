@@ -11,7 +11,7 @@ for fast sequential access to interesting subsets.
 
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -178,13 +178,17 @@ class GameDB:
         self.db_path = Path(db_path)
         self._conn = None
 
-    def _get_conn(self) -> sqlite3.Connection:
+    @property
+    def conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(str(self.db_path))
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
+
+    def _get_conn(self) -> sqlite3.Connection:
+        return self.conn
 
     def close(self):
         if self._conn is not None:
@@ -299,7 +303,7 @@ class GameDB:
             """INSERT OR REPLACE INTO game_metadata (game_id, key, value, updated_at)
                VALUES (?, ?, ?, ?)""",
             (game_id, key, json.dumps(value),
-             datetime.utcnow().isoformat()))
+             datetime.now(timezone.utc).isoformat()))
 
     # --- Bulk iteration ---
 
@@ -309,7 +313,7 @@ class GameDB:
         for row in cursor:
             yield _row_to_game_document(row)
 
-    def iter_game_ids(self, where: str = "1=1", params: tuple = ()) -> list[int]:
+    def list_game_ids(self, where: str = "1=1", params: tuple = ()) -> list[int]:
         conn = self._get_conn()
         rows = conn.execute(
             f"SELECT game_id FROM games WHERE {where}", params).fetchall()
@@ -319,12 +323,12 @@ class GameDB:
 
     def tournament_game_ids(self, tournament_id: int | None = None) -> list[int]:
         if tournament_id is not None:
-            return self.iter_game_ids(
+            return self.list_game_ids(
                 "tournament_match_id = ?", (tournament_id,))
-        return self.iter_game_ids("tournament_match_id IS NOT NULL")
+        return self.list_game_ids("tournament_match_id IS NOT NULL")
 
     def high_skill_game_ids(self, min_mu: float = 30.0) -> list[int]:
-        return self.iter_game_ids("max_player_mu >= ?", (min_mu,))
+        return self.list_game_ids("max_player_mu >= ?", (min_mu,))
 
     def games_by_cabinet(self, cabinet_name: str,
                          start: str | None = None,
@@ -337,7 +341,7 @@ class GameDB:
         if end is not None:
             conditions.append("start_time <= ?")
             params.append(end)
-        return self.iter_game_ids(" AND ".join(conditions), tuple(params))
+        return self.list_game_ids(" AND ".join(conditions), tuple(params))
 
     # --- Ratings integration ---
 
@@ -364,8 +368,17 @@ class GameDB:
 
     # --- Update helpers ---
 
+    VALID_COLUMNS = frozenset({
+        'game_uuid', 'map_name', 'gold_on_left', 'cabinet_name', 'scene_name',
+        'start_time', 'end_time', 'win_condition', 'winning_team',
+        'player_count', 'tournament_match_id', 'events', 'event_count',
+        'duration_seconds', 'login_count', 'max_player_mu', 'avg_player_mu',
+    })
+
     def update_game_field(self, game_id: int, field: str, value):
         """Update a single column on the games table."""
+        if field not in self.VALID_COLUMNS:
+            raise ValueError(f"Invalid column: {field!r}")
         conn = self._get_conn()
         conn.execute(
             f"UPDATE games SET {field} = ? WHERE game_id = ?",

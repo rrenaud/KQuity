@@ -9,6 +9,7 @@ Verifies:
 
 import json
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -80,6 +81,7 @@ class TestGameDB(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+        shutil.rmtree(self.tmpdir)
 
     def _make_doc(self, game_id=100, map_name='map_day', gold_on_left=True):
         return GameDocument(
@@ -200,9 +202,15 @@ class TestGameDB(unittest.TestCase):
         self.assertEqual(len(docs), 2)
 
     def test_context_manager(self):
+        self.db.insert_game(self._make_doc())
+        self.db.commit()
+
         with GameDB(self.db_path) as db:
-            doc = db.get_game(100)
-            # Should not raise after close
+            retrieved = db.get_game(100)
+            self.assertIsNotNone(retrieved)
+            self.assertEqual(retrieved.game_id, 100)
+        # Connection should be closed after exiting context
+        self.assertIsNone(db._conn)
 
     def test_upsert(self):
         """INSERT OR REPLACE should overwrite existing game."""
@@ -224,9 +232,14 @@ class TestShardedGameDB(unittest.TestCase):
         self.assertEqual(shard_id_for_game(GAMES_PER_SHARD), 1)
         self.assertEqual(shard_id_for_game(GAMES_PER_SHARD * 2 + 5), 2)
 
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
     def test_insert_and_get_across_shards(self):
-        tmpdir = tempfile.mkdtemp()
-        sharded = ShardedGameDB(tmpdir)
+        sharded = ShardedGameDB(self.tmpdir)
 
         doc1 = GameDocument(
             game_id=100, map_name='map_day', gold_on_left=True,
@@ -256,6 +269,12 @@ class TestShardedGameDB(unittest.TestCase):
 class TestDBFeaturization(unittest.TestCase):
     """Verify DB-backed featurization matches CSV path."""
 
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
     def test_db_matches_csv(self):
         """Migrate benchmark CSVs to DB, then compare featurization output."""
         test_dir = os.path.dirname(__file__)
@@ -273,13 +292,12 @@ class TestDBFeaturization(unittest.TestCase):
             self.skipTest("No events in benchmark data")
 
         # Migrate to temp DB
-        tmpdir = tempfile.mkdtemp()
-        migrate_csv_partitions(tmpdir, test_dir, verbose=False,
+        migrate_csv_partitions(self.tmpdir, test_dir, verbose=False,
                                csv_glob=benchmark_path)
 
         # Find the shard file(s) created
         import glob as glob_mod
-        shard_files = sorted(glob_mod.glob(os.path.join(tmpdir, 'shard_*.db')))
+        shard_files = sorted(glob_mod.glob(os.path.join(self.tmpdir, 'shard_*.db')))
         self.assertTrue(len(shard_files) > 0, "No shard files created")
 
         # Run DB path on each shard and collect results
