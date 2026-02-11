@@ -471,3 +471,109 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
     # Phase 4: Trim to actual size
     return (output_buf[:write_idx], label_buf[:write_idx],
             game_id_buf[:write_idx], timestamp_buf[:write_idx])
+
+
+# --- DB-backed materialization ---
+
+def fast_materialize_from_db(db_path, drop_state_probability=0.0,
+                             where="1=1", params=(),
+                             ratings_from_db=False):
+    """DB-backed materialization: SQLite game documents -> numpy feature matrix.
+
+    Replaces Phase 1 (CSV reading) with SQLite queries, then reuses _process_game
+    unchanged by reconstructing the (datetime, event_type, values_str) format.
+
+    Args:
+        db_path: Path to a SQLite DB file (shard or replica).
+        drop_state_probability: Probability of dropping each eligible state.
+        where: SQL WHERE clause to filter games (default: all games).
+        params: Parameters for the WHERE clause.
+        ratings_from_db: If True, load ratings from game_metadata table.
+
+    Returns:
+        (states, labels, game_ids, timestamps): same as fast_materialize.
+    """
+    import sqlite3
+    from datetime import timedelta
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    try:
+        # Load ratings if requested
+        ratings_by_game = None
+        if ratings_from_db:
+            ratings_by_game = {}
+            for row in conn.execute(
+                    "SELECT game_id, value FROM game_metadata WHERE key = 'ratings'"):
+                mu_list = json.loads(row['value'])
+                ratings_by_game[row['game_id']] = np.array(mu_list, dtype=np.float32)
+
+        num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game else NUM_FEATURES
+
+        # Phase 1: Read games from DB, reconstruct raw_events format
+        games = {}
+        game_order = []
+
+        cursor = conn.execute(
+            f"SELECT game_id, start_time, events FROM games WHERE {where}", params)
+
+        for row in cursor:
+            game_id = row['game_id']
+            gamestart_dt = datetime.datetime.fromisoformat(row['start_time'])
+            events_json = json.loads(row['events'])
+
+            raw_events = []
+            for e in events_json:
+                rel_t = e['t']
+                event_type = e['type']
+                vals = e.get('vals', [])
+
+                # Reconstruct absolute datetime
+                dt = gamestart_dt + timedelta(seconds=rel_t)
+
+                # Reconstruct values_str in {val1,val2,...} format
+                vals_str = '{' + ','.join(str(v) for v in vals) + '}'
+
+                raw_events.append((dt, event_type, vals_str))
+
+            if raw_events:
+                games[game_id] = raw_events
+                game_order.append(game_id)
+    finally:
+        conn.close()
+
+    # Phase 2: Pre-allocate output buffers
+    total_events = sum(len(evts) for evts in games.values())
+    if total_events == 0:
+        return (np.empty((0, num_features), dtype=np.float32),
+                np.empty(0, dtype=np.int8),
+                np.empty(0, dtype=np.int64),
+                np.empty(0, dtype=np.float32))
+
+    output_buf = np.empty((total_events, num_features), dtype=np.float32)
+    label_buf = np.empty(total_events, dtype=np.int8)
+    game_id_buf = np.empty(total_events, dtype=np.int64)
+    timestamp_buf = np.empty(total_events, dtype=np.float32)
+    write_idx = 0
+
+    # Phase 3: Process each game (reuses _process_game unchanged)
+    rng = random.Random(42)
+
+    for game_id in game_order:
+        raw_events = games[game_id]
+        game_ratings = None
+        if ratings_by_game is not None:
+            game_ratings = ratings_by_game.get(game_id)
+        start_idx = write_idx
+        try:
+            write_idx = _process_game(raw_events, output_buf, label_buf,
+                                      timestamp_buf, write_idx,
+                                      drop_state_probability, rng, game_ratings)
+        except Exception:
+            continue
+        game_id_buf[start_idx:write_idx] = game_id
+
+    # Phase 4: Trim to actual size
+    return (output_buf[:write_idx], label_buf[:write_idx],
+            game_id_buf[:write_idx], timestamp_buf[:write_idx])
