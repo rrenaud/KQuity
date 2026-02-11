@@ -280,7 +280,7 @@ def materialize_partition_range(
 
         if use_fast_path:
             try:
-                states, labels, _ = fast_materialize(csv_path, drop_prob)
+                states, labels, _, _ = fast_materialize(csv_path, drop_prob)
                 if len(labels) > 0:
                     all_states.append(states)
                     all_labels.append(labels)

@@ -83,7 +83,7 @@ def main():
     # Materialize with per-player ratings (62 features)
     print('\nMaterializing with per-player ratings (62 features)...')
     start = time.time()
-    states_62, labels_62, game_ids_62 = fast_materialize(csv_pattern, ratings_by_game=ratings_by_game)
+    states_62, labels_62, game_ids_62, _ = fast_materialize(csv_pattern, ratings_by_game=ratings_by_game)
     print(f'  {states_62.shape[0]} samples, shape={states_62.shape}, {time.time()-start:.1f}s')
 
     # Chronological split

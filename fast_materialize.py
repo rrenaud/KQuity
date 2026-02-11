@@ -222,8 +222,8 @@ def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
 
 # --- Per-game processing ---
 
-def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng,
-                   game_ratings=None):
+def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
+                   drop_prob, rng, game_ratings=None):
     """Process one game's events, write feature vectors into output_buf.
 
     raw_events: list of (datetime, event_type, values_str)
@@ -298,6 +298,7 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng,
                              map_idx, snail_x, snail_vel, snail_last_ts,
                              rel_ts, berries_avail, gold_sym, game_ratings)
             label_buf[write_idx] = label
+            timestamp_buf[write_idx] = rel_ts
             write_idx += 1
 
         # Apply state mutation
@@ -408,7 +409,7 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng,
 # --- Main entry point ---
 
 def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None):
-    """Fast path: CSV events -> (feature_matrix, labels, game_ids).
+    """Fast path: CSV events -> (feature_matrix, labels, game_ids, timestamps).
 
     Args:
         csv_path: Glob pattern for CSV/gzip files (e.g. 'data/gameevents_*.csv.gz')
@@ -418,7 +419,8 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
             When None, output has 52 features (original layout).
 
     Returns:
-        (states, labels, game_ids): numpy arrays of shape (N, num_features), (N,), (N,)
+        (states, labels, game_ids, timestamps): numpy arrays of shape
+        (N, num_features), (N,), (N,), (N,). timestamps are seconds since gamestart.
     """
     num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game is not None else NUM_FEATURES
 
@@ -446,6 +448,7 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
     output_buf = np.empty((total_events, num_features), dtype=np.float32)
     label_buf = np.empty(total_events, dtype=np.int8)
     game_id_buf = np.empty(total_events, dtype=np.int64)
+    timestamp_buf = np.empty(total_events, dtype=np.float32)
     write_idx = 0
 
     # Phase 3: Process each game
@@ -458,11 +461,13 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
             game_ratings = ratings_by_game.get(game_id)
         start_idx = write_idx
         try:
-            write_idx = _process_game(raw_events, output_buf, label_buf, write_idx,
+            write_idx = _process_game(raw_events, output_buf, label_buf,
+                                      timestamp_buf, write_idx,
                                       drop_state_probability, rng, game_ratings)
         except Exception:
             continue
         game_id_buf[start_idx:write_idx] = game_id
 
     # Phase 4: Trim to actual size
-    return output_buf[:write_idx], label_buf[:write_idx], game_id_buf[:write_idx]
+    return (output_buf[:write_idx], label_buf[:write_idx],
+            game_id_buf[:write_idx], timestamp_buf[:write_idx])
