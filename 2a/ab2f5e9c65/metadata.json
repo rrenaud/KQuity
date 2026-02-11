@@ -3,9 +3,13 @@
   "checkpoint_id": "2aab2f5e9c65",
   "strategy": "manual-commit",
   "branch": "doc-db-migration",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
-    "migrate_to_db.py"
+    "fast_materialize.py",
+    "game_db.py",
+    "migrate_to_db.py",
+    "rebuild_replicas.py",
+    "tests/game_db_test.py"
   ],
   "sessions": [
     {
@@ -14,13 +18,20 @@
       "context": "/2a/ab2f5e9c65/0/context.md",
       "content_hash": "/2a/ab2f5e9c65/0/content_hash.txt",
       "prompt": "/2a/ab2f5e9c65/0/prompt.txt"
+    },
+    {
+      "metadata": "/2a/ab2f5e9c65/1/metadata.json",
+      "transcript": "/2a/ab2f5e9c65/1/full.jsonl",
+      "context": "/2a/ab2f5e9c65/1/context.md",
+      "content_hash": "/2a/ab2f5e9c65/1/content_hash.txt",
+      "prompt": "/2a/ab2f5e9c65/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 105,
-    "cache_creation_tokens": 89730,
-    "cache_read_tokens": 4752297,
-    "output_tokens": 18177,
-    "api_call_count": 77
+    "input_tokens": 147,
+    "cache_creation_tokens": 156496,
+    "cache_read_tokens": 7187942,
+    "output_tokens": 24638,
+    "api_call_count": 115
   }
 }

@@ -1,0 +1,52 @@
+Implement the following plan:
+
+# Plan: Address PR #8 code review feedback
+
+## Context
+PR #8 review identified 10 issues across `game_db.py`, `fast_materialize.py`, `migrate_to_db.py`, `rebuild_replicas.py`, and `tests/game_db_test.py`. All are worth fixing — most are quick.
+
+## Changes
+
+### 1. SQL injection allowlist in `update_game_field` — `game_db.py:367`
+Add a `VALID_COLUMNS` set and validate `field` against it before interpolation.
+
+### 2. Remove `import json as _json` inside loop — `fast_materialize.py:508`
+Replace `import json as _json` / `_json.loads` with `json.loads` (already imported at module level).
+
+### 3. Fix `datetime.utcnow()` — `game_db.py:302`, `migrate_to_db.py`
+Replace with `datetime.now(datetime.timezone.utc)`.
+
+### 4. Guard `mlockall` for Linux only — `migrate_to_db.py:26-47`
+Wrap the ctypes/mlockall block in `sys.platform == 'linux'` check. Move `_set_resource_limits()` call to just before `migrate_csv_partitions` instead of unconditionally in `main()`.
+
+### 5. Batch JSONL commits — `migrate_to_db.py:503-506`
+Accumulate inserts per shard, commit after each shard (or every N games). Move `db.commit()` outside the per-game loop.
+
+### 6. Use ATTACH for replica copy — `rebuild_replicas.py`
+Replace Python row-by-row copy with `ATTACH DATABASE` + `INSERT INTO ... SELECT FROM` for each shard.
+
+### 7. Expose `conn` property on GameDB — `game_db.py`
+Add a public `conn` property so callers don't need `_get_conn()`. Update `migrate_to_db.py` and `rebuild_replicas.py` callers.
+
+### 8. Fix connection leak in `fast_materialize_from_db` — `fast_materialize.py:499`
+Wrap `conn` usage in `try/finally` to ensure `conn.close()`.
+
+### 9. Fix test tempdir cleanup — `tests/game_db_test.py`
+Add `shutil.rmtree(self.tmpdir)` to `tearDown`. Same for `TestShardedGameDB` and `TestDBFeaturization` if applicable.
+
+### 10. Minor: rename `iter_game_ids` → `list_game_ids`, fix `test_context_manager`
+- Rename method and update all callers.
+- Fix test to insert a game first, then verify it can be read inside `with`, and that conn is closed after.
+
+## Verification
+```
+pytest tests/game_db_test.py -v
+pytest tests/ -v
+```
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/rrenaud/.REDACTED.jsonl
+
+---
+
+push to PR
