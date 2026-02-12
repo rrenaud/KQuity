@@ -218,6 +218,7 @@ class TestEventCodecSpeed(unittest.TestCase):
         cls.games, cls.game_order = _read_benchmark_games()
 
     def test_speed_benchmark(self):
+        """Both paths include featurization for a fair comparison."""
         games = self.games
         game_order = self.game_order
 
@@ -228,15 +229,25 @@ class TestEventCodecSpeed(unittest.TestCase):
             if enc is not None:
                 encoded_games[game_id] = enc
 
-        # Benchmark binary walk
+        # Benchmark binary walk + vectorization
+        row_buf = np.empty((1, NUM_FEATURES), dtype=np.float32)
         total_events_bin = 0
         start = time.perf_counter()
         for game_id, enc in encoded_games.items():
             for rel_ts, gs in walk_game_states(enc):
-                total_events_bin += 1
+                if rel_ts > 5.0:
+                    args = _game_state_to_vectorize_args(gs)
+                    (w, eggs, food_count, maiden_states, map_idx,
+                     snail_x, snail_vel, snail_last_ts,
+                     berries_avail, gold_sym) = args
+                    _vectorize_state(row_buf, 0, w, eggs, food_count,
+                                     maiden_states, map_idx, snail_x,
+                                     snail_vel, snail_last_ts,
+                                     rel_ts, berries_avail, gold_sym)
+                    total_events_bin += 1
         binary_elapsed = time.perf_counter() - start
 
-        # Benchmark fast_materialize._process_game
+        # Benchmark fast_materialize._process_game (includes vectorization)
         total_events_csv = 0
         buf = np.empty((5000, NUM_FEATURES), dtype=np.float32)
         lbl = np.empty(5000, dtype=np.int8)
@@ -252,9 +263,9 @@ class TestEventCodecSpeed(unittest.TestCase):
         bin_rate = total_events_bin / binary_elapsed
         csv_rate = total_events_csv / csv_elapsed
 
-        print(f'\nSpeed benchmark ({len(encoded_games)} games):')
-        print(f'  Binary walk: {binary_elapsed:.3f}s, {bin_rate:.0f} events/s')
-        print(f'  CSV fast:    {csv_elapsed:.3f}s, {csv_rate:.0f} events/s')
+        print(f'\nSpeed benchmark ({len(encoded_games)} games, both include featurization):')
+        print(f'  Binary walk: {binary_elapsed:.3f}s, {bin_rate:.0f} states/s')
+        print(f'  CSV fast:    {csv_elapsed:.3f}s, {csv_rate:.0f} states/s')
         print(f'  Speedup:     {bin_rate / csv_rate:.2f}x')
 
 

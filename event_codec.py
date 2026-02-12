@@ -33,6 +33,7 @@ from preprocess import GameState, position_id_to_team, position_id_to_worker_ind
 from fast_materialize import (
     _MAP_LOOKUPS, MAP_INDEX, MAP_NAMES, SCREEN_WIDTH,
     SKIP_EVENTS, VANILLA_SNAIL_PPS, SPEED_SNAIL_PPS, _snail_mult,
+    _parse_ts, COL_TS, COL_TYPE, COL_VALUES, COL_GAME_ID,
 )
 import map_structure
 
@@ -430,3 +431,76 @@ def _apply_stop_snail(game_state, snail_x, rel_ts):
     game_state.snail_state.snail_x = float(snail_x)
     game_state.snail_state.snail_velocity = 0.0
     game_state.snail_state.last_touch_timestamp = rel_ts
+
+
+# ---------------------------------------------------------------------------
+# Multi-game binary file I/O
+# ---------------------------------------------------------------------------
+#
+# Format: [num_games: uint32 LE]
+#         per game: [game_id: uint32 LE] [length: uint16 LE] [binary payload]
+
+import struct
+
+_HEADER_FMT = '<I'       # num_games
+_ENTRY_FMT = '<IH'       # game_id, payload_length
+_ENTRY_SIZE = struct.calcsize(_ENTRY_FMT)
+
+
+def write_packed_games(entries, path):
+    """Write a list of (game_id, encoded_bytes) to a packed binary file."""
+    with open(path, 'wb') as f:
+        f.write(struct.pack(_HEADER_FMT, len(entries)))
+        for game_id, data in entries:
+            f.write(struct.pack(_ENTRY_FMT, game_id, len(data)))
+            f.write(data)
+
+
+def read_packed_games(path):
+    """Read a packed binary file, yielding (game_id, encoded_bytes) pairs."""
+    with open(path, 'rb') as f:
+        (num_games,) = struct.unpack(_HEADER_FMT, f.read(4))
+        for _ in range(num_games):
+            game_id, length = struct.unpack(_ENTRY_FMT, f.read(_ENTRY_SIZE))
+            data = f.read(length)
+            yield game_id, data
+
+
+def encode_csv_to_packed(csv_path, out_path):
+    """Encode all games from CSV/gzip files into a packed binary file.
+
+    Returns (encoded_count, rejected_count).
+    """
+    import csv as csv_mod
+    import glob
+    import gzip
+
+    games = {}
+    game_order = []
+    for filename in sorted(glob.glob(csv_path)):
+        opener = gzip.open if filename.endswith('.gz') else open
+        with opener(filename, 'rt') as f:
+            reader = csv_mod.reader(f)
+            next(reader)
+            for row in reader:
+                event_type = row[COL_TYPE]
+                if event_type in SKIP_EVENTS:
+                    continue
+                game_id = int(row[COL_GAME_ID])
+                if game_id not in games:
+                    games[game_id] = []
+                    game_order.append(game_id)
+                games[game_id].append(
+                    (_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+
+    entries = []
+    rejected = 0
+    for game_id in game_order:
+        encoded = encode_game(list(games[game_id]))
+        if encoded is None:
+            rejected += 1
+            continue
+        entries.append((game_id, encoded))
+
+    write_packed_games(entries, out_path)
+    return len(entries), rejected
