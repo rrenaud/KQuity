@@ -118,7 +118,7 @@ class TestEventCodecCorrectness(unittest.TestCase):
                 continue  # anomalous game (e.g. >60s gap) rejected by encoder
 
             all_codec = []
-            for rel_ts, gs in walk_game_states(encoded):
+            for rel_ts, gs, _opcode in walk_game_states(encoded):
                 args = _game_state_to_vectorize_args(gs)
                 (w, eggs, food_count, maiden_states, map_idx,
                  snail_x, snail_vel, snail_last_ts,
@@ -234,7 +234,7 @@ class TestEventCodecSpeed(unittest.TestCase):
         total_events_bin = 0
         start = time.perf_counter()
         for game_id, enc in encoded_games.items():
-            for rel_ts, gs in walk_game_states(enc):
+            for rel_ts, gs, _opcode in walk_game_states(enc):
                 if rel_ts > 5.0:
                     args = _game_state_to_vectorize_args(gs)
                     (w, eggs, food_count, maiden_states, map_idx,

@@ -282,11 +282,15 @@ def encode_game(raw_events):
 def walk_game_states(encoded_bytes):
     """Decode binary events and yield game states.
 
-    Yields (rel_ts, game_state) BEFORE each event's mutation is applied,
-    matching the vectorize-before-mutate pattern in fast_materialize.
+    Yields (rel_ts, game_state, opcode) BEFORE each event's mutation is
+    applied, matching the vectorize-before-mutate pattern in fast_materialize.
 
     The game_state is the SAME object mutated each iteration; callers must
     copy or vectorize before advancing the iterator.
+
+    For the final victory event, opcode == OP_VICTORY and the payload encodes
+    the winning team and condition. Use decode_victory() on the encoded_bytes
+    to extract this without walking.
     """
     data = encoded_bytes
     pos = 0
@@ -330,7 +334,7 @@ def walk_game_states(encoded_bytes):
             payload = ((b0 & 0xF) << 16) | (b1 << 8) | b2
 
         # Yield state BEFORE mutation
-        yield (rel_ts, game_state)
+        yield (rel_ts, game_state, opcode)
 
         # Apply mutation
         if opcode == OP_SPAWN:
@@ -415,6 +419,24 @@ def walk_game_states(encoded_bytes):
                 w.has_wings = False
 
         # gamestart, mapstart, victory: no state mutation
+
+
+def decode_victory(encoded_bytes):
+    """Extract victory result from encoded game without walking all events.
+
+    Returns (winning_team, victory_condition) where winning_team is
+    Team.BLUE or Team.GOLD, or None if the last event isn't a victory.
+    """
+    # The last encoded event is 1 ts_delta byte(s) + 1 opcode+payload byte.
+    # Victory is a 1-byte opcode, so the last byte is always the victory.
+    last_byte = encoded_bytes[-1]
+    opcode = last_byte >> 4
+    if opcode != OP_VICTORY:
+        return None
+    payload = last_byte & 0xF
+    team = Team.GOLD if (payload >> 2) else Team.BLUE
+    condition = _INT_TO_VICTORY_COND[payload & 0x3]
+    return team, condition
 
 
 def _apply_start_snail(game_state, snail_x, rider_pid, rel_ts, gold_on_left):
