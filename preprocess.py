@@ -113,6 +113,8 @@ class GameState:
         self.berries_available = map_info.total_berries
         self.maiden_states = [ContestableState.NEUTRAL for _ in range(5)]
         self.snail_state = InferredSnailState(self)
+        self.winning_team = None          # Team or None
+        self.victory_condition = None     # VictoryCondition or None
 
     def get_team(self, team: Team) -> TeamState:
         return self.teams[team.value]
@@ -465,6 +467,9 @@ class VictoryEvent(GameEvent):
 
             # This condition failed one in 65 games in a sample of otherwise validated snail victories.
             validate_condition(abs(distance_from_goal) < 100, 'inferred snail position far from goal')
+
+        game_state.winning_team = self.winning_team
+        game_state.victory_condition = self.victory_condition
 
 
 def parse_event(raw_event_row) -> Optional[GameEvent]:
