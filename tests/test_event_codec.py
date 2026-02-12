@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from constants import ContestableState
+from constants import ContestableState, Team
 from fast_materialize import (
     _MAP_LOOKUPS, _parse_ts, _process_game, _vectorize_state,
     MAP_INDEX, NUM_FEATURES, SCREEN_WIDTH, SKIP_EVENTS, SPEED_SNAIL_PPS,
@@ -118,7 +118,7 @@ class TestEventCodecCorrectness(unittest.TestCase):
                 continue  # anomalous game (e.g. >60s gap) rejected by encoder
 
             all_codec = []
-            for rel_ts, gs, _opcode in walk_game_states(encoded):
+            for rel_ts, gs in walk_game_states(encoded):
                 args = _game_state_to_vectorize_args(gs)
                 (w, eggs, food_count, maiden_states, map_idx,
                  snail_x, snail_vel, snail_last_ts,
@@ -168,6 +168,45 @@ class TestEventCodecCorrectness(unittest.TestCase):
         print(f'\nCorrectness: {total_games} games, {total_matched} states matched')
         print(f'Max snail position diff: {max_snail_diff:.6f}')
         self.assertGreater(total_games, 100, 'Expected >100 valid games')
+
+    def test_victory_fields_set(self):
+        """After walking a game, game_state.winning_team matches CSV label."""
+        games = self.games
+        game_order = self.game_order
+        total_checked = 0
+
+        for game_id in game_order:
+            raw_events = games[game_id]
+
+            # Find expected winner from the CSV victory event
+            expected_team = None
+            for _dt, etype, vals in raw_events:
+                if etype == 'victory':
+                    v = vals[1:-1].split(',')
+                    expected_team = Team.BLUE if v[0] == 'Blue' else Team.GOLD
+            if expected_team is None:
+                continue
+
+            encoded = encode_game(list(raw_events))
+            if encoded is None:
+                continue
+
+            # Walk all states; after the loop gs has the final mutations applied
+            gs = None
+            for _rel_ts, gs in walk_game_states(encoded):
+                pass
+
+            self.assertIsNotNone(gs.winning_team,
+                                 f'Game {game_id}: winning_team not set')
+            self.assertEqual(gs.winning_team, expected_team,
+                             f'Game {game_id}: expected {expected_team}, '
+                             f'got {gs.winning_team}')
+            self.assertIsNotNone(gs.victory_condition,
+                                 f'Game {game_id}: victory_condition not set')
+            total_checked += 1
+
+        print(f'\nVictory fields: {total_checked} games checked')
+        self.assertGreater(total_checked, 100, 'Expected >100 games with victory')
 
 
 class TestEventCodecCompression(unittest.TestCase):
@@ -234,7 +273,7 @@ class TestEventCodecSpeed(unittest.TestCase):
         total_events_bin = 0
         start = time.perf_counter()
         for game_id, enc in encoded_games.items():
-            for rel_ts, gs, _opcode in walk_game_states(enc):
+            for rel_ts, gs in walk_game_states(enc):
                 if rel_ts > 5.0:
                     args = _game_state_to_vectorize_args(gs)
                     (w, eggs, food_count, maiden_states, map_idx,
