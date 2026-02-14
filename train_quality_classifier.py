@@ -64,15 +64,28 @@ def main():
     print(f'\n=== Data ===')
     print(f'Unfiltered: {len(df_unfiltered)} games, Logged-in: {len(df_logged_in)} games, Tournament: {len(df_tournament)} games')
 
+    # Remove tournament games from training sets to avoid data leakage
+    tournament_ids = set(df_tournament['game_id'])
+    unf_before = len(df_unfiltered)
+    log_before = len(df_logged_in)
+    df_unfiltered_train = df_unfiltered[~df_unfiltered['game_id'].isin(tournament_ids)]
+    df_logged_in_train = df_logged_in[~df_logged_in['game_id'].isin(tournament_ids)]
+    unf_removed = unf_before - len(df_unfiltered_train)
+    log_removed = log_before - len(df_logged_in_train)
+    print(f'\n=== Tournament Leakage Removal ===')
+    print(f'Removed from unfiltered: {unf_removed}/{unf_before}')
+    print(f'Removed from logged-in:  {log_removed}/{log_before}')
+    print(f'Training sets: Unfiltered={len(df_unfiltered_train)}, Logged-in={len(df_logged_in_train)}')
+
     features = FEATURE_COLUMNS
     print(f'\n=== Features ({len(features)} total) ===')
     print(features)
 
-    # Build training data: unfiltered=0, logged_in=1
-    X_unf = df_unfiltered[features].values
-    X_log = df_logged_in[features].values
-    X = np.vstack([X_unf, X_log])
-    y = np.concatenate([np.zeros(len(X_unf)), np.ones(len(X_log))])
+    # Build training data: unfiltered=0, logged_in=1 (tournament games excluded)
+    X_unf_train = df_unfiltered_train[features].values
+    X_log_train = df_logged_in_train[features].values
+    X = np.vstack([X_unf_train, X_log_train])
+    y = np.concatenate([np.zeros(len(X_unf_train)), np.ones(len(X_log_train))])
 
     # 80/20 stratified split
     X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(
@@ -117,10 +130,13 @@ def main():
         print(f'  {name:<40} {imp:.1f}')
 
     # === Tournament-Anchored Quality Threshold ===
+    # Score all games (including any that were removed from training)
     X_tournament = df_tournament[features].values
+    X_unf_all = df_unfiltered[features].values
+    X_log_all = df_logged_in[features].values
     tournament_scores = model.predict(X_tournament)
-    unfiltered_scores = model.predict(X_unf)
-    logged_in_scores = model.predict(X_log)
+    unfiltered_scores = model.predict(X_unf_all)
+    logged_in_scores = model.predict(X_log_all)
 
     print(f'\n=== Tournament-Anchored Quality Threshold ===')
     for recall_target in [0.99, 0.95]:
