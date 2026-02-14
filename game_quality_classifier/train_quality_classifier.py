@@ -97,7 +97,10 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
     auc = sklearn.metrics.roc_auc_score(y_val, val_preds)
     log_loss = sklearn.metrics.log_loss(y_val, val_preds)
 
-    # Tournament-anchored thresholds
+    # Tournament-anchored thresholds.
+    # Note: logged-in pass rates are computed on training data (intentionally —
+    # we want to see what fraction of logged-in games pass the quality bar,
+    # not generalization error). Unfiltered uses separate eval shards.
     X_tournament = df_tournament[features].values
     X_unf_all = df_unfiltered_all[features].values
     X_log_all = df_logged_in_all[features].values
@@ -160,6 +163,8 @@ def main():
         print(f'{"Size":>7} {"Unf":>7} {"Log":>7} {"AUC":>7} {"LogLoss":>8} {"Unf@99%":>8} {"Unf@95%":>8} {"Log@99%":>8} {"Log@95%":>8}')
         print('-' * 80)
 
+        # iloc[:n] gives deterministic subsets since shards are time-ordered
+        # and strided across the hundreds digit for temporal coverage.
         for n in sizes:
             df_unf_n = df_unfiltered_clean.iloc[:n]
             df_log_n = df_logged_in_clean.iloc[:n]

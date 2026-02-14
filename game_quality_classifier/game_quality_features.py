@@ -24,7 +24,7 @@ from preprocess import (
     GetOffSnailEvent, SnailEscapeEvent,
     position_id_to_team,
 )
-from constants import PlayerCategory, Map, VictoryCondition, Team
+from constants import PlayerCategory, Map, VictoryCondition, Team, ContestableState
 import map_structure
 
 GAMEPLAY_EVENT_TYPES = (
@@ -74,7 +74,7 @@ def compute_quality_features(csv_path):
         csv_path: Glob pattern or path to CSV/CSV.gz game event files.
 
     Returns:
-        pd.DataFrame with one row per game and ~41 feature columns.
+        pd.DataFrame with one row per game and len(FEATURE_COLUMNS) feature columns.
     """
     map_structure_infos = map_structure.MapStructureInfos()
     rows = []
@@ -84,7 +84,8 @@ def compute_quality_features(csv_path):
     for game_id, game_events in iterate_events_by_game_and_normalize_time(events):
         game_count += 1
 
-        # Find key structural events
+        # Find key structural events (gamestart/map_start are near the
+        # beginning; victory is always the last event)
         gamestart = None
         map_start = None
         victory = None
@@ -92,9 +93,9 @@ def compute_quality_features(csv_path):
         for event in game_events:
             if isinstance(event, GameStartEvent) and gamestart is None:
                 gamestart = event
-            if isinstance(event, MapStartEvent) and map_start is None:
+            elif isinstance(event, MapStartEvent) and map_start is None:
                 map_start = event
-            if isinstance(event, VictoryEvent):
+            elif isinstance(event, VictoryEvent):
                 victory = event
 
         if gamestart is None or victory is None:
@@ -196,7 +197,6 @@ def compute_quality_features(csv_path):
                     try:
                         _, maiden_index = map_info.get_type_and_maiden_index(
                             event.maiden_x, event.maiden_y)
-                        from constants import ContestableState
                         team = Team.BLUE if event.gate_color == ContestableState.BLUE else Team.GOLD
                         gate_bless_times[team][maiden_index].append(event.timestamp)
                     except ValueError:
@@ -341,7 +341,7 @@ def compute_quality_features(csv_path):
             'map_night': float(map_id == Map.map_night) if map_id else 0.0,
             'map_dusk': float(map_id == Map.map_dusk) if map_id else 0.0,
             'map_twilight': float(map_id == Map.map_twilight) if map_id else 0.0,
-            # Counts (10)
+            # Counts (12)
             'total_kills': total_kills,
             'queen_kills': queen_kills,
             'total_carry_food': total_carry,
@@ -354,7 +354,7 @@ def compute_quality_features(csv_path):
             'total_snail_escape': total_snail_escape,
             'total_get_off_snail': total_get_off_snail,
             'gameplay_events': gameplay_event_count,
-            # Rates (8)
+            # Rates (10)
             'gameplay_eps': gameplay_event_count / duration,
             'events_per_second': total_events / duration,
             'kill_rate': total_kills / duration,
@@ -365,7 +365,7 @@ def compute_quality_features(csv_path):
             'snail_rate': total_get_on_snail / duration,
             'snail_escape_rate': total_snail_escape / duration,
             'get_off_snail_rate': total_get_off_snail / duration,
-            # Temporal (7)
+            # Temporal (8)
             'time_to_first_kill': first_kill_t,
             'time_to_first_carry': first_carry_t,
             'time_to_first_bless': first_bless_t,
@@ -410,17 +410,17 @@ FEATURE_COLUMNS = [
     'duration_seconds', 'total_event_count', 'bot_count',
     'vc_military', 'vc_economic', 'vc_snail',
     'map_day', 'map_night', 'map_dusk', 'map_twilight',
-    # Counts (10)
+    # Counts (12)
     'total_kills', 'queen_kills', 'total_carry_food',
     'total_berry_deposits', 'total_berry_kick_ins',
     'total_bless_maiden', 'total_use_maiden',
     'total_get_on_snail', 'total_snail_eat', 'total_snail_escape', 'total_get_off_snail',
     'gameplay_events',
-    # Rates (8)
+    # Rates (10)
     'gameplay_eps', 'events_per_second', 'kill_rate', 'carry_rate',
     'bless_rate', 'deposit_rate', 'maiden_use_rate', 'snail_rate', 'snail_escape_rate',
     'get_off_snail_rate',
-    # Temporal (7)
+    # Temporal (8)
     'time_to_first_kill', 'time_to_first_carry', 'time_to_first_bless',
     'time_to_first_maiden_use', 'time_to_first_snail', 'time_to_first_snail_escape',
     'time_to_first_get_off_snail',
