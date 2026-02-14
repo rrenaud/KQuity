@@ -11,7 +11,7 @@ metadata at inference time).
 
 ## Architecture
 
-LightGBM binary classifier. 66 hand-crafted features from game event streams.
+LightGBM binary classifier. 69 hand-crafted features from game event streams.
 Training: 16K games per class (32K total), 80/20 train/val split. Early stopping
 on validation AUC.
 
@@ -26,12 +26,13 @@ on validation AUC.
 | 5b0f7b2 | 65 | Replace per-maiden counts with time-to-Nth-bless features |
 | b98ebb7 | 63 | Remove frac_to_first_kill and frac_to_first_carry |
 | 166bbdd | 66 | +snail escape count, rate, and time-to-first |
+| 17746f9 | 69 | +get-off-snail count, rate, and time-to-first |
 
-Feature categories (66 total):
+Feature categories (69 total):
 - Basic game info (10): duration, event count, bot count, victory condition, map
-- Event counts (11): kills, carries, deposits, blesses, snail actions
-- Event rates (9): per-second rates for the above
-- Temporal (6): time-to-first for key game actions
+- Event counts (12): kills, carries, deposits, blesses, snail actions
+- Event rates (10): per-second rates for the above
+- Temporal (7): time-to-first for key game actions
 - Engagement (4): active player count, worker objective engagement
 - Gate triples (2): fastest 3-gate-touch window
 - Per-cabinet first event (10): first action timing per position
@@ -57,7 +58,7 @@ across the full dataset.
 
 ## Hyperparameter Sweep Results
 
-Swept 6 LightGBM params one-at-a-time, 16K training per class, 66 features,
+Swept 6 LightGBM params one-at-a-time, 16K training per class, 69 features,
 evaluated on held-out unfiltered data.
 
 ### Baseline (old defaults): num_leaves=63, min_child_samples=20
@@ -79,7 +80,7 @@ LogLoss 0.345→0.342). Higher values regularize against noisy proxy labels.
 **learning_rate**: 0.01-0.03 slightly better than 0.05 (LogLoss improvement),
 with auto-scaled num_boost_round=2000.
 
-**feature_fraction**: Mild improvement at 0.5-0.7 (decorrelates trees with 66
+**feature_fraction**: Mild improvement at 0.5-0.7 (decorrelates trees with
 partially-redundant features).
 
 **bagging_fraction=0.9**: Small AUC/LogLoss improvement.
