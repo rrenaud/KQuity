@@ -127,6 +127,59 @@ Interpretation: at a threshold that catches 99% of tournament games, ~28% of
 unfiltered games also pass (the rest are filtered as low-quality). At a stricter
 95% tournament recall threshold, ~22% of unfiltered pass.
 
+## Downstream Validation: Win-Probability Training
+
+To test whether the classifier identifies games that are actually more useful
+for training, we compared win-probability models trained on quality-filtered
+(QF) vs logged-in (LI) game data at multiple scales (5K-40K games, 10 variance
+runs each). See [data_quality_report.md](../model_experiments/data_quality_report.md)
+for full results and plots.
+
+**Exclusive comparison (equal-states)**: QF-exclusive games (high-quality
+anonymous games the classifier found) consistently outperform LI-exclusive
+games (logged-in games the classifier rejected) on log loss, AUC-ROC, accuracy,
+and symmetry deviation. This validates that the classifier captures a real
+quality signal beyond login status — it can find good training data among
+anonymous games that the login heuristic misses, and correctly rejects
+logged-in games that happen to be low quality.
+
+**Caveat**: The exclusive comparison doesn't directly measure the marginal
+value of quality filtering on top of login filtering (i.e., would adding
+QF-exclusive games to the logged-in pool improve the model?). It establishes
+that the classifier's quality signal is genuine, but the additive benefit
+remains untested.
+
+**Non-exclusive comparison**: QF outperforms LI across all scales tested
+(5K-20K). Since both datasets are similar in size (~182-183K games), this
+comparison is less confounded and provides additional evidence that
+quality-filtered data produces better models.
+
+## Downstream Validation: Win-Probability Training
+
+To test whether quality filtering actually produces better training data, we
+compared win-probability models trained on quality_filtered (QF) vs
+logged_in_games (LI) datasets. Both datasets are ~182-183K games with ~108K
+overlap; each has ~75K exclusive games.
+
+**Exclusive experiment (equal-states)**: Trained only on games unique to each
+dataset, subsampling to equalize state counts. QF-exclusive outperforms
+LI-exclusive on log loss, AUC-ROC, accuracy, and symmetry deviation at every
+scale tested (5K-40K games, 10 variance runs each).
+
+**Interpretation**: QF-exclusive games are anonymous games the classifier
+identified as high-quality from event features alone. LI-exclusive games are
+logged-in games the classifier rejected. The experiment shows the classifier
+finds good training data that the login heuristic misses — its quality signal
+is genuine and not just a proxy for login status. Prior results established
+that logged-in games outperform random unfiltered games, so login is already a
+quality proxy; the classifier captures something beyond that.
+
+**Limitation**: The exclusive comparison doesn't measure the marginal value of
+quality filtering on top of login filtering (e.g., would adding QF-exclusive
+games to the logged-in pool help?). That remains a future experiment.
+
+Full results: [model_experiments/data_quality_report.md](../model_experiments/data_quality_report.md)
+
 ## Key Methodological Lesson
 
 The original eval setup (scoring unfiltered data that overlapped with training)
