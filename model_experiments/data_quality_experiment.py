@@ -202,6 +202,12 @@ def main():
     if args.equal_states and not args.exclusive:
         parser.error('--equal-states requires --exclusive')
 
+    # Mutual exclusivity: --grid, --exclusive, and --variance are distinct modes
+    mode_count = sum([args.grid, args.exclusive, args.variance > 0])
+    if mode_count > 1 and not (args.exclusive and args.variance > 0):
+        parser.error('--grid, --exclusive, and --variance are mutually exclusive '
+                     '(except --exclusive may combine with --variance)')
+
     # Load tournament holdout (shared across all grid points)
     print("--- Loading tournament holdout ---")
     holdout_X, holdout_y, holdout_gids, holdout_ts = load_and_materialize(
@@ -263,24 +269,21 @@ def main():
             print(f"\n--- Run {run_idx + 1}/{n_runs} (seed={seed}) ---")
             row = {'seed': seed}
 
-            # Phase 1: materialize and remove leakage for all sources
+            # Phase 1: sample, filter holdout, materialize for all sources
             materialized = {}
             for name, entries in exclusive_entries.items():
                 rng = random.Random(seed)
                 n_sample = min(max_games, len(entries)) if max_games else len(entries)
                 sampled = rng.sample(entries, n_sample)
 
+                # Filter holdout games before materialization to avoid wasted work
+                sampled = [(gid, data) for gid, data in sampled
+                           if gid not in holdout_set]
+
                 start = time.time()
                 train_X, train_y, train_gids, train_ts = materialize_entries(
                     sampled)
                 elapsed = time.time() - start
-
-                # Remove holdout leakage
-                mask = np.array([gid not in holdout_set for gid in train_gids])
-                train_X = train_X[mask]
-                train_y = train_y[mask]
-                train_gids = train_gids[mask]
-                train_ts = train_ts[mask]
 
                 print(f"  {name}: {len(train_y):,} states in {elapsed:.1f}s")
                 materialized[name] = (train_X, train_y, train_gids, train_ts)
@@ -315,11 +318,13 @@ def main():
             for name in materialized:
                 train_X, train_y, train_gids, train_ts = materialized[name]
                 n_states = len(train_y)
-                print(f"  {name}: training on {n_states:,} states")
+                n_games = len(np.unique(train_gids))
+                print(f"  {name}: training on {n_states:,} states from {n_games:,} games")
 
                 model = train_model(train_X, train_y, num_leaves, num_trees)
                 metrics = evaluate_model(model, holdout_X, holdout_y)
                 metrics['n_states'] = n_states
+                metrics['n_games'] = n_games
                 row[name] = metrics
 
                 del model
