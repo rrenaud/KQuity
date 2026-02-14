@@ -5,10 +5,10 @@ from junk/practice/button-check games.
 Labels: logged_in=1 (high quality), unfiltered=0 (mixed quality).
 Validation: tournament games should almost all score as high quality.
 
-Usage:
-    python train_quality_classifier.py              # uses cached features
-    python train_quality_classifier.py --recompute  # recomputes features from CSVs
-    python train_quality_classifier.py --sweep      # data size sweep 1K-32K
+Usage (from repo root):
+    python -m game_quality_classifier.train_quality_classifier              # uses cached features
+    python -m game_quality_classifier.train_quality_classifier --recompute  # recomputes features from CSVs
+    python -m game_quality_classifier.train_quality_classifier --sweep      # data size sweep 1K-32K
 """
 
 import argparse
@@ -22,18 +22,19 @@ import pandas as pd
 import sklearn.metrics
 import sklearn.model_selection
 
-from game_quality_features import compute_quality_features, FEATURE_COLUMNS
+from .game_quality_features import compute_quality_features, FEATURE_COLUMNS
 
-CACHE_DIR = 'quality_cache'
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE_DIR = os.path.join(REPO_ROOT, 'quality_cache')
 
 # Unfiltered shards are time-ordered. Stride over the hundreds digit for
 # temporal coverage rather than taking contiguous shards from one time period.
 # 20 train shards: X00, X01 for X=0-9. 20 eval shards: X02, X03 for X=0-9.
-UNFILTERED_PATH = 'unfiltered_partitioned/gameevents_[0-9]0[01].csv.gz'
-UNFILTERED_EVAL_PATH = 'unfiltered_partitioned/gameevents_[0-9]0[23].csv.gz'
+UNFILTERED_PATH = os.path.join(REPO_ROOT, 'unfiltered_partitioned/gameevents_[0-9]0[01].csv.gz')
+UNFILTERED_EVAL_PATH = os.path.join(REPO_ROOT, 'unfiltered_partitioned/gameevents_[0-9]0[23].csv.gz')
 # Logged-in shards are sorted by login count (highest quality first).
-LOGGED_IN_PATH = 'logged_in_games/gameevents_0[0-1][0-9].csv.gz'
-TOURNAMENT_PATH = 'late_tournament_games/late_tournament_game_events.csv.gz'
+LOGGED_IN_PATH = os.path.join(REPO_ROOT, 'logged_in_games/gameevents_0[0-1][0-9].csv.gz')
+TOURNAMENT_PATH = os.path.join(REPO_ROOT, 'late_tournament_games/late_tournament_game_events.csv.gz')
 
 
 def load_or_compute(name, csv_path, recompute=False):

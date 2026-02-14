@@ -4,10 +4,16 @@ Computes per-game summary features from CSV event streams.
 Designed for fast iteration: modify features here, re-run classifier.
 """
 
+import os
+import sys
 from collections import defaultdict
 from itertools import combinations
 
 import pandas as pd
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from preprocess import (
     iterate_events_from_csv,
