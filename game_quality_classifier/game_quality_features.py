@@ -365,7 +365,7 @@ def compute_quality_features(csv_path):
             'snail_rate': total_get_on_snail / duration,
             'snail_escape_rate': total_snail_escape / duration,
             'get_off_snail_rate': total_get_off_snail / duration,
-            # Temporal (8)
+            # Temporal (7)
             'time_to_first_kill': first_kill_t,
             'time_to_first_carry': first_carry_t,
             'time_to_first_bless': first_bless_t,
@@ -420,7 +420,7 @@ FEATURE_COLUMNS = [
     'gameplay_eps', 'events_per_second', 'kill_rate', 'carry_rate',
     'bless_rate', 'deposit_rate', 'maiden_use_rate', 'snail_rate', 'snail_escape_rate',
     'get_off_snail_rate',
-    # Temporal (8)
+    # Temporal (7)
     'time_to_first_kill', 'time_to_first_carry', 'time_to_first_bless',
     'time_to_first_maiden_use', 'time_to_first_snail', 'time_to_first_snail_escape',
     'time_to_first_get_off_snail',
