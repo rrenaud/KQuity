@@ -80,7 +80,7 @@ sweet spot for 5-20K games, with larger models overfitting at small data sizes.
 ### Variance Runs
 
 Each scale point is repeated 10 times with different random seeds (controlling
-game subsampling). Error bars show +/- 1 standard deviation.
+game subsampling). Error bars show +/- 1 standard error of the mean (SEM).
 
 ## Results
 
@@ -113,28 +113,51 @@ Blue bars indicate QF outperforms LI; red bars indicate the reverse.
 ## Conclusions
 
 Quality-filtered games produce better win-probability models than
-logged-in games at every scale tested, even when controlling for data
-volume (equal-states exclusive comparison). The advantage is consistent
-across log loss, AUC-ROC, accuracy, and symmetry deviation. Egg inversion
-rates show more variance but trend in QF's favor at larger scales.
+logged-in games at every scale tested, in both exclusive and non-exclusive
+comparisons. The advantage is consistent across log loss, AUC-ROC,
+accuracy, and symmetry deviation. Egg inversion rates show more variance
+but trend in QF's favor at larger scales.
 
-The quality classifier successfully identifies games that are more useful
-for training, beyond what login-based filtering achieves alone.
+The exclusive comparison shows the classifier captures a genuine quality
+signal: it finds good training data among anonymous games that the login
+heuristic misses (QF-exclusive), and correctly rejects logged-in games
+that are low quality (LI-exclusive). This establishes that the classifier
+has learned something beyond "is someone logged in."
+
+**Caveat**: The exclusive comparison does not directly measure the marginal
+value of adding quality-filtered games on top of login filtering. A
+stronger test would train on (shared baseline + QF-exclusive) vs (shared
+baseline + LI-exclusive) to measure the additive contribution. The current
+experiment is a first step establishing that the quality signal is real.
 
 ## Reproduction
 
+Full pipeline from scratch:
+
 ```bash
-# Run exclusive scaling experiments
+# 1. Train the quality classifier
+python -m game_quality_classifier.train_quality_classifier
+
+# 2. Score all games and reshard into quality_filtered/
+python -m game_quality_classifier.apply_quality_filter --score --reshard
+
+# 3. Encode datasets to compact binary format
+python encode_datasets.py
+
+# 4. Run exclusive scaling experiments (or use run_exclusive_scaling.sh)
 python model_experiments/data_quality_experiment.py \
     --exclusive --equal-states --variance 10 \
     --max-games 5000 --num-leaves 70 --num-trees 70 \
     --output model_experiments/scaling_exclusive_5000.json
 
-# Run non-exclusive scaling experiments
+# 5. Run non-exclusive scaling experiments
 python model_experiments/data_quality_experiment.py \
     --variance 10 --max-games 5000 --num-leaves 70 --num-trees 70 \
     --output model_experiments/scaling_nonexclusive_5000.json
 
-# Generate plots
+# 6. Generate plots
 jupyter nbconvert --execute model_experiments/scaling_plots.ipynb
 ```
+
+Steps 1-3 produce the datasets consumed by the experiments. Step 3 requires
+the `quality_filtered/` and `logged_in_games/` CSV partitions to already exist.
