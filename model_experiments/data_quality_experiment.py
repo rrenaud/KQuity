@@ -19,9 +19,11 @@ import numpy as np
 import lightgbm as lgb
 import sklearn.metrics
 
-import random as random_mod
+import random
 
-from event_codec import fast_materialize_from_codec, read_packed_games
+from event_codec import (
+    fast_materialize_from_codec, read_packed_games, materialize_entries,
+)
 from eval_metrics import (
     compute_standard_metrics, compute_kq_metrics,
 )
@@ -31,6 +33,9 @@ SOURCES = {
     'quality_filtered': 'quality_filtered/encoded/all_games.bin',
     'logged_in_games': 'logged_in_games/encoded/all_games.bin',
 }
+
+METRIC_KEYS = ['log_loss', 'auc_roc', 'accuracy',
+               'egg_inversion_rate', 'symmetry_deviation']
 
 # Grid informed by prior KQuity LGB scaling experiment (commit bf28e14).
 # Loss plateaus ~5K games; egg inversions improve to ~10K.
@@ -66,80 +71,6 @@ def load_and_materialize(bin_path, drop_state_probability=0.0, max_games=None):
 def load_all_entries(bin_path):
     """Read all (game_id, encoded_bytes) from a packed binary file into memory."""
     return list(read_packed_games(bin_path))
-
-
-def materialize_from_entries(entries):
-    """Materialize features from a list of (game_id, encoded_bytes) in memory.
-
-    Same logic as fast_materialize_from_codec but operates on pre-loaded entries
-    so we can shuffle/subsample without re-reading the file.
-    """
-    from event_codec import (
-        walk_game_states, _game_state_to_vectorize_args, _vectorize_state,
-        NUM_FEATURES, Team,
-    )
-
-    capacity = len(entries) * 300
-    output_buf = np.empty((capacity, NUM_FEATURES), dtype=np.float32)
-    label_buf = np.empty(capacity, dtype=np.int8)
-    game_id_buf = np.empty(capacity, dtype=np.int64)
-    timestamp_buf = np.empty(capacity, dtype=np.float32)
-    write_idx = 0
-
-    def _grow(needed):
-        nonlocal capacity, output_buf, label_buf, game_id_buf, timestamp_buf
-        new_cap = max(capacity + capacity // 2, needed)
-        for old, dtype, cols in [
-            (output_buf, np.float32, NUM_FEATURES),
-            (label_buf, np.int8, None),
-            (game_id_buf, np.int64, None),
-            (timestamp_buf, np.float32, None),
-        ]:
-            shape = (new_cap, cols) if cols else (new_cap,)
-            new = np.empty(shape, dtype=dtype)
-            new[:write_idx] = old[:write_idx]
-            if cols:
-                output_buf = new
-            elif dtype == np.int8:
-                label_buf = new
-            elif dtype == np.int64:
-                game_id_buf = new
-            else:
-                timestamp_buf = new
-        capacity = new_cap
-
-    for game_id, encoded in entries:
-        start_idx = write_idx
-        game_state = None
-        try:
-            for rel_ts, game_state in walk_game_states(encoded):
-                if rel_ts > 5.0:
-                    if write_idx >= capacity:
-                        _grow(write_idx + 1)
-                    args = _game_state_to_vectorize_args(game_state)
-                    (w, eggs, food_count, maiden_states, map_idx,
-                     snail_x, snail_vel, snail_last_ts,
-                     berries_avail, gold_sym) = args
-                    _vectorize_state(output_buf, write_idx, w, eggs, food_count,
-                                     maiden_states, map_idx, snail_x,
-                                     snail_vel, snail_last_ts,
-                                     rel_ts, berries_avail, gold_sym)
-                    timestamp_buf[write_idx] = rel_ts
-                    write_idx += 1
-        except Exception:
-            write_idx = start_idx
-            continue
-
-        if game_state is None or game_state.winning_team is None:
-            write_idx = start_idx
-            continue
-
-        label = 1 if game_state.winning_team == Team.BLUE else 0
-        label_buf[start_idx:write_idx] = label
-        game_id_buf[start_idx:write_idx] = game_id
-
-    return (output_buf[:write_idx], label_buf[:write_idx],
-            game_id_buf[:write_idx], timestamp_buf[:write_idx])
 
 
 def remove_leakage(train_states, train_labels, train_game_ids, train_timestamps,
@@ -216,8 +147,6 @@ def run_single(holdout_X, holdout_y, holdout_gids, holdout_ts,
 
 def print_grid_results(all_results):
     """Print a compact results table across the full grid."""
-    metric_keys = ['log_loss', 'auc_roc', 'accuracy', 'egg_inversion_rate',
-                   'symmetry_deviation']
     header = ('{:>7} {:>6} {:>5} {:>10}  '
               '{:>8} {:>8} {:>7} {:>7} {:>7}  '
               '{:>8} {:>8} {:>7} {:>7} {:>7}')
@@ -269,6 +198,9 @@ def main():
     parser.add_argument('--output', type=str, default=None,
                         help='Save results to JSON file')
     args = parser.parse_args()
+
+    if args.equal_states and not args.exclusive:
+        parser.error('--equal-states requires --exclusive')
 
     # Load tournament holdout (shared across all grid points)
     print("--- Loading tournament holdout ---")
@@ -324,8 +256,6 @@ def main():
         print(f"{'=' * 90}")
 
         holdout_set = set(holdout_gids)
-        metric_keys = ['log_loss', 'auc_roc', 'accuracy',
-                        'egg_inversion_rate', 'symmetry_deviation']
         all_runs = []
 
         for run_idx in range(n_runs):
@@ -336,11 +266,11 @@ def main():
             # Phase 1: materialize and remove leakage for all sources
             materialized = {}
             for name, entries in exclusive_entries.items():
-                rng = random_mod.Random(seed)
+                rng = random.Random(seed)
                 sampled = rng.sample(entries, min(max_games, len(entries)))
 
                 start = time.time()
-                train_X, train_y, train_gids, train_ts = materialize_from_entries(
+                train_X, train_y, train_gids, train_ts = materialize_entries(
                     sampled)
                 elapsed = time.time() - start
 
@@ -354,20 +284,31 @@ def main():
                 print(f"  {name}: {len(train_y):,} states in {elapsed:.1f}s")
                 materialized[name] = (train_X, train_y, train_gids, train_ts)
 
-            # Phase 2: equalize state counts if requested
+            # Phase 2: equalize state counts by dropping whole games
             if args.equal_states:
                 counts = {n: len(d[1]) for n, d in materialized.items()}
                 min_states = min(counts.values())
                 for name in materialized:
                     if counts[name] > min_states:
                         train_X, train_y, train_gids, train_ts = materialized[name]
+                        # Drop random games until at or below target
                         np_rng = np.random.RandomState(seed)
-                        idx = np_rng.choice(counts[name], min_states, replace=False)
-                        idx.sort()
+                        unique_gids = np.unique(train_gids)
+                        np_rng.shuffle(unique_gids)
+                        keep_gids = set()
+                        kept = 0
+                        for gid in unique_gids:
+                            game_count = (train_gids == gid).sum()
+                            if kept + game_count > min_states:
+                                continue
+                            keep_gids.add(gid)
+                            kept += game_count
+                        mask = np.array([gid in keep_gids for gid in train_gids])
                         materialized[name] = (
-                            train_X[idx], train_y[idx],
-                            train_gids[idx], train_ts[idx])
-                        print(f"  {name}: subsampled {counts[name]:,} -> {min_states:,} states")
+                            train_X[mask], train_y[mask],
+                            train_gids[mask], train_ts[mask])
+                        print(f"  {name}: subsampled {counts[name]:,} -> {kept:,} states "
+                              f"({len(keep_gids):,} games)")
 
             # Phase 3: train and evaluate
             for name in materialized:
@@ -419,7 +360,7 @@ def main():
             summary_header = '{:<25} {:>18} {:>18}'
             print(summary_header.format('Metric', 'qf_exclusive', 'li_exclusive'))
             print('-' * 65)
-            for key in metric_keys:
+            for key in METRIC_KEYS:
                 qf_vals = [r['qf_exclusive'][key] for r in all_runs]
                 li_vals = [r['li_exclusive'][key] for r in all_runs]
                 print(summary_header.format(
@@ -431,6 +372,7 @@ def main():
         if args.output:
             with open(args.output, 'w') as f:
                 json.dump(all_runs, f, indent=2)
+                f.write('\n')
             print(f"\nSaved to {args.output}")
 
     elif args.variance > 0:
@@ -452,8 +394,6 @@ def main():
             print(f"  {len(all_entries[name]):,} games loaded")
 
         holdout_set = set(holdout_gids)
-        metric_keys = ['log_loss', 'auc_roc', 'accuracy',
-                        'egg_inversion_rate', 'symmetry_deviation']
         all_runs = []
 
         for run_idx in range(n_runs):
@@ -463,11 +403,11 @@ def main():
 
             for name in SOURCES:
                 entries = all_entries[name]
-                rng = random_mod.Random(seed)
+                rng = random.Random(seed)
                 sampled = rng.sample(entries, min(max_games, len(entries)))
 
                 start = time.time()
-                train_X, train_y, train_gids, train_ts = materialize_from_entries(
+                train_X, train_y, train_gids, train_ts = materialize_entries(
                     sampled)
                 elapsed = time.time() - start
 
@@ -519,9 +459,7 @@ def main():
         summary_header = '{:<25} {:>18} {:>18}'
         print(summary_header.format('Metric', 'quality_filtered', 'logged_in_games'))
         print('-' * 65)
-        for key in metric_keys:
-            for name in ['quality_filtered', 'logged_in_games']:
-                vals = [r[name][key] for r in all_runs]
+        for key in METRIC_KEYS:
             qf_vals = [r['quality_filtered'][key] for r in all_runs]
             li_vals = [r['logged_in_games'][key] for r in all_runs]
             print(summary_header.format(
@@ -533,6 +471,7 @@ def main():
         if args.output:
             with open(args.output, 'w') as f:
                 json.dump(all_runs, f, indent=2)
+                f.write('\n')
             print(f"\nSaved to {args.output}")
 
     elif args.grid:
@@ -558,6 +497,7 @@ def main():
             if args.output:
                 with open(args.output, 'w') as f:
                     json.dump(all_results, f, indent=2)
+                    f.write('\n')
                 print(f"  (saved to {args.output})")
 
     else:
@@ -579,17 +519,14 @@ def main():
         print(f"Holdout: {len(holdout_y):,} states from "
               f"{len(np.unique(holdout_gids)):,} tournament games\n")
 
-        metric_keys = [
-            'log_loss', 'brier_score', 'auc_roc', 'accuracy',
-            'egg_inversion_rate', 'symmetry_deviation',
-        ]
+        single_metric_keys = ['brier_score'] + METRIC_KEYS
         sources = list(row.keys())
         header = f"{'Metric':<25}"
         for src in sources:
             header += f"  {src:<18}"
         print(header)
         print("-" * len(header))
-        for key in metric_keys:
+        for key in single_metric_keys:
             line = f"{key:<25}"
             for src in sources:
                 val = row[src].get(key)
@@ -604,6 +541,7 @@ def main():
         if args.output:
             with open(args.output, 'w') as f:
                 json.dump(row, f, indent=2)
+                f.write('\n')
             print(f"\nSaved to {args.output}")
 
 
