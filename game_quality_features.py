@@ -129,6 +129,8 @@ def compute_quality_features(csv_path):
         active_pids = set()
         worker_first_objective_t = {}  # pid -> timestamp
         first_event_by_pid = {}  # pid -> timestamp of first gameplay event
+        first_maiden_use_by_team = {}  # Team -> timestamp
+        first_maiden_use_by_pid = {}   # pid -> timestamp
 
         # Gate triple tracking: team -> maiden_index -> [timestamps]
         gate_bless_times = {
@@ -190,8 +192,14 @@ def compute_quality_features(csv_path):
                 total_use_maiden += 1
                 if first_maiden_use_t is None:
                     first_maiden_use_t = event.timestamp
-                active_pids.add(event.position_id)
-                player_event_counts[event.position_id] += 1
+                pid = event.position_id
+                active_pids.add(pid)
+                player_event_counts[pid] += 1
+                team = position_id_to_team(pid)
+                if team not in first_maiden_use_by_team:
+                    first_maiden_use_by_team[team] = event.timestamp
+                if pid not in first_maiden_use_by_pid:
+                    first_maiden_use_by_pid[pid] = event.timestamp
 
             elif isinstance(event, GetOnSnailEvent):
                 total_get_on_snail += 1
@@ -265,6 +273,16 @@ def compute_quality_features(csv_path):
         # Map one-hot
         map_id = map_start.map if map_start else None
 
+        # Per-team first maiden use (sorted so team identity doesn't matter)
+        team_maiden_times = sorted([
+            first_maiden_use_by_team.get(Team.BLUE, duration),
+            first_maiden_use_by_team.get(Team.GOLD, duration),
+        ])
+        # Per-PID first maiden use (sorted ascending, 8 workers only — queens can't use maidens)
+        pid_maiden_times = sorted(
+            first_maiden_use_by_pid.get(pid, duration) for pid in WORKER_PIDS
+        )
+
         # Per-cab-position first event times, sorted ascending (team-agnostic)
         cab_first_times = sorted(
             first_event_by_pid.get(pid, duration) for pid in ALL_PIDS
@@ -323,6 +341,12 @@ def compute_quality_features(csv_path):
         # Per-cab first event (10) — sorted ascending
         for i, t in enumerate(cab_first_times):
             row[f'first_event_cab_{i+1:02d}'] = t
+        # Per-team first maiden use (2) — sorted ascending
+        row['first_maiden_use_team_1'] = team_maiden_times[0]
+        row['first_maiden_use_team_2'] = team_maiden_times[1]
+        # Per-PID first maiden use (8) — sorted ascending across workers
+        for i, t in enumerate(pid_maiden_times):
+            row[f'first_maiden_use_pid_{i+1:02d}'] = t
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -354,4 +378,8 @@ FEATURE_COLUMNS = [
     # Gate triples (2)
     'best_gate_triple_window', 'best_gate_triple_window_frac',
     # Per-cab first event (10)
-] + [f'first_event_cab_{i:02d}' for i in range(1, 11)]
+] + [f'first_event_cab_{i:02d}' for i in range(1, 11)] + [
+    # Per-team first maiden use (2)
+    'first_maiden_use_team_1', 'first_maiden_use_team_2',
+    # Per-PID first maiden use (8)
+] + [f'first_maiden_use_pid_{i:02d}' for i in range(1, 9)]
