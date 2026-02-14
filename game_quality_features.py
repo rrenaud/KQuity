@@ -27,6 +27,7 @@ GAMEPLAY_EVENT_TYPES = (
     GetOffSnailEvent, SnailEscapeEvent,
 )
 
+ALL_PIDS = range(1, 11)     # PIDs 1-10: all cabinet positions
 WORKER_PIDS = range(3, 11)  # PIDs 3-10 are workers; 1-2 are queens
 
 
@@ -127,6 +128,7 @@ def compute_quality_features(csv_path):
         player_event_counts = defaultdict(int)
         active_pids = set()
         worker_first_objective_t = {}  # pid -> timestamp
+        first_event_by_pid = {}  # pid -> timestamp of first gameplay event
 
         # Gate triple tracking: team -> maiden_index -> [timestamps]
         gate_bless_times = {
@@ -208,6 +210,23 @@ def compute_quality_features(csv_path):
 
             if isinstance(event, GAMEPLAY_EVENT_TYPES):
                 gameplay_event_count += 1
+                # Track first gameplay event per cabinet position
+                pids_in_event = []
+                if hasattr(event, 'position_id'):
+                    pids_in_event.append(event.position_id)
+                if hasattr(event, 'killer_position_id'):
+                    pids_in_event.append(event.killer_position_id)
+                if hasattr(event, 'killed_position_id'):
+                    pids_in_event.append(event.killed_position_id)
+                if hasattr(event, 'rider_position_id'):
+                    pids_in_event.append(event.rider_position_id)
+                if hasattr(event, 'eaten_position_id'):
+                    pids_in_event.append(event.eaten_position_id)
+                if hasattr(event, 'escaped_position_id'):
+                    pids_in_event.append(event.escaped_position_id)
+                for pid in pids_in_event:
+                    if pid not in first_event_by_pid:
+                        first_event_by_pid[pid] = event.timestamp
 
         # --- Derived features ---
         total_events = len(game_events)
@@ -245,6 +264,11 @@ def compute_quality_features(csv_path):
         vc = victory.victory_condition
         # Map one-hot
         map_id = map_start.map if map_start else None
+
+        # Per-cab-position first event times, sorted ascending (team-agnostic)
+        cab_first_times = sorted(
+            first_event_by_pid.get(pid, duration) for pid in ALL_PIDS
+        )
 
         row = {
             'game_id': game_id,
@@ -296,6 +320,9 @@ def compute_quality_features(csv_path):
             'best_gate_triple_window': best_triple,
             'best_gate_triple_window_frac': best_triple / duration if best_triple < 9999.0 else 9999.0,
         }
+        # Per-cab first event (10) — sorted ascending
+        for i, t in enumerate(cab_first_times):
+            row[f'first_event_cab_{i+1:02d}'] = t
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -326,4 +353,5 @@ FEATURE_COLUMNS = [
     'max_player_event_share', 'max_worker_first_objective',
     # Gate triples (2)
     'best_gate_triple_window', 'best_gate_triple_window_frac',
-]
+    # Per-cab first event (10)
+] + [f'first_event_cab_{i:02d}' for i in range(1, 11)]
