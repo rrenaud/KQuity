@@ -120,8 +120,8 @@ def phase_reshard(threshold=None, threshold_pct=99):
     print('=== Phase 2: Reshard ===')
 
     if not os.path.exists(SCORES_PATH):
-        print(f'Error: {SCORES_PATH} not found. Run --score first.')
-        return
+        raise FileNotFoundError(
+            f'{SCORES_PATH} not found. Run --score first.')
 
     scores_df = pd.read_parquet(SCORES_PATH)
     print(f'Loaded {len(scores_df):,} game scores')
@@ -151,7 +151,13 @@ def phase_reshard(threshold=None, threshold_pct=99):
 
 def _stream_and_repartition(game_to_partition):
     """Stream source partitions and write qualifying games to output."""
+    # Clear stale output files to ensure idempotency across re-runs
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    stale = [f for f in os.listdir(OUTPUT_DIR) if f.endswith('.csv.gz')]
+    if stale:
+        print(f'  Clearing {len(stale)} existing output files in {OUTPUT_DIR}')
+        for f in stale:
+            os.remove(os.path.join(OUTPUT_DIR, f))
 
     open_writers = {}  # partition_num -> (gzip_file, csv_writer)
     header = None
@@ -165,54 +171,60 @@ def _stream_and_repartition(game_to_partition):
     print(f'\nStreaming {len(source_files)} source partitions...')
 
     t0 = time.time()
-    for file_idx, filename in enumerate(source_files):
-        filepath = os.path.join(SOURCE_DIR, filename)
+    try:
+        for file_idx, filename in enumerate(source_files):
+            filepath = os.path.join(SOURCE_DIR, filename)
 
-        with gzip.open(filepath, 'rt') as f:
-            reader = csv.reader(f)
-            file_header = next(reader)
-            if header is None:
-                header = file_header
+            with gzip.open(filepath, 'rt') as f:
+                reader = csv.reader(f)
+                file_header = next(reader)
+                if header is None:
+                    header = file_header
 
-            current_game_id = None
-            current_buffer = []
+                current_game_id = None
+                current_buffer = []
 
-            for row in reader:
-                game_id = int(row[GAME_ID_COL])
+                for row in reader:
+                    game_id = int(row[GAME_ID_COL])
 
-                if game_id != current_game_id:
-                    # Flush previous game's buffer
-                    if current_buffer and current_game_id in game_to_partition:
-                        _flush_game(
-                            current_game_id, current_buffer,
-                            game_to_partition, open_writers, header,
-                        )
-                        games_written.add(current_game_id)
-                        events_written += len(current_buffer)
+                    if game_id != current_game_id:
+                        # Flush previous game's buffer
+                        if current_buffer and current_game_id in game_to_partition:
+                            _flush_game(
+                                current_game_id, current_buffer,
+                                game_to_partition, open_writers, header,
+                            )
+                            games_written.add(current_game_id)
+                            events_written += len(current_buffer)
 
-                    current_game_id = game_id
-                    current_buffer = [row]
-                else:
-                    current_buffer.append(row)
+                        current_game_id = game_id
+                        current_buffer = [row]
+                    else:
+                        current_buffer.append(row)
 
-            # Flush last game in file
-            if current_buffer and current_game_id in game_to_partition:
-                _flush_game(
-                    current_game_id, current_buffer,
-                    game_to_partition, open_writers, header,
-                )
-                games_written.add(current_game_id)
-                events_written += len(current_buffer)
+                # Flush last game in file
+                if current_buffer and current_game_id in game_to_partition:
+                    _flush_game(
+                        current_game_id, current_buffer,
+                        game_to_partition, open_writers, header,
+                    )
+                    games_written.add(current_game_id)
+                    events_written += len(current_buffer)
 
-        if (file_idx + 1) % 100 == 0:
-            elapsed = time.time() - t0
-            print(f'  Processed {file_idx + 1}/{len(source_files)} files '
-                  f'({elapsed:.0f}s, {len(games_written):,} games, '
-                  f'{events_written:,} events)')
+            if (file_idx + 1) % 100 == 0:
+                elapsed = time.time() - t0
+                print(f'  Processed {file_idx + 1}/{len(source_files)} files '
+                      f'({elapsed:.0f}s, {len(games_written):,} games, '
+                      f'{events_written:,} events)')
+    finally:
+        # Close all open writers even if an exception occurs
+        for part_num, (gz_file, _) in open_writers.items():
+            gz_file.close()
 
-    # Close all open writers
-    for part_num, (gz_file, _) in open_writers.items():
-        gz_file.close()
+    # Log missing games (qualifying but not found in source files)
+    missing = set(game_to_partition) - games_written
+    if missing:
+        print(f'\n  WARNING: {len(missing):,} qualifying games not found in source files')
 
     elapsed = time.time() - t0
     print(f'\nDone in {elapsed:.0f}s')
