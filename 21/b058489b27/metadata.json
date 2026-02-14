@@ -1,0 +1,29 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "21b058489b27",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "game_db.py",
+    "migrate_to_db.py",
+    "rebuild_replicas.py",
+    "tests/game_db_test.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/b058489b27/0/metadata.json",
+      "transcript": "/21/b058489b27/0/full.jsonl",
+      "context": "/21/b058489b27/0/context.md",
+      "content_hash": "/21/b058489b27/0/content_hash.txt",
+      "prompt": "/21/b058489b27/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 19866,
+    "cache_read_tokens": 1808958,
+    "output_tokens": 4238,
+    "api_call_count": 20
+  }
+}

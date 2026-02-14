@@ -1,0 +1,34 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "21b058489b27",
+  "session_id": "781ecfc3-e037-4a3f-b3d8-69ba88682b14",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-14T06:51:10.678112648Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "game_db.py",
+    "migrate_to_db.py",
+    "rebuild_replicas.py",
+    "tests/game_db_test.py"
+  ],
+  "agent": "Claude Code",
+  "checkpoint_transcript_start": 201,
+  "transcript_lines_at_start": 201,
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 19866,
+    "cache_read_tokens": 1808958,
+    "output_tokens": 4238,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-14T06:51:10.607749274Z",
+    "agent_lines": 0,
+    "human_added": 1749985,
+    "human_modified": 2107,
+    "human_removed": 0,
+    "total_committed": 1750007,
+    "agent_percentage": 0
+  }
+}
