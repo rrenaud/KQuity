@@ -26,8 +26,9 @@ from game_quality_features import compute_quality_features, FEATURE_COLUMNS
 
 CACHE_DIR = 'quality_cache'
 
-UNFILTERED_PATH = 'unfiltered_partitioned/gameevents_0[0-9][0-9].csv.gz'
-LOGGED_IN_PATH = 'logged_in_games/gameevents_0[0-9][0-9].csv.gz'
+# 20 shards (~20K games), sliced to DEFAULT_SIZE in training
+UNFILTERED_PATH = 'unfiltered_partitioned/gameevents_0[0-1][0-9].csv.gz'
+LOGGED_IN_PATH = 'logged_in_games/gameevents_0[0-1][0-9].csv.gz'
 TOURNAMENT_PATH = 'late_tournament_games/late_tournament_game_events.csv.gz'
 
 
