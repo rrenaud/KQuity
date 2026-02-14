@@ -341,8 +341,6 @@ def compute_quality_features(csv_path):
             'time_to_first_bless': first_bless_t,
             'time_to_first_maiden_use': first_maiden_use_t,
             'time_to_first_snail': first_snail_t,
-            'frac_to_first_kill': first_kill_t / duration,
-            'frac_to_first_carry': first_carry_t / duration,
             # Engagement (4)
             'active_player_count': active_player_count,
             'workers_never_touched_objective': workers_never_touched,
@@ -391,7 +389,6 @@ FEATURE_COLUMNS = [
     # Temporal (7)
     'time_to_first_kill', 'time_to_first_carry', 'time_to_first_bless',
     'time_to_first_maiden_use', 'time_to_first_snail',
-    'frac_to_first_kill', 'frac_to_first_carry',
     # Engagement (4)
     'active_player_count', 'workers_never_touched_objective',
     'max_player_event_share', 'max_worker_first_objective',
