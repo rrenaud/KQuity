@@ -12,6 +12,7 @@ Usage (from repo root):
 """
 
 import argparse
+import json
 import os
 import pathlib
 import shutil
@@ -26,6 +27,8 @@ from .game_quality_features import compute_quality_features, FEATURE_COLUMNS
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(REPO_ROOT, 'quality_cache')
+MODEL_PATH = os.path.join(CACHE_DIR, 'quality_model.mdl')
+THRESHOLD_PATH = os.path.join(CACHE_DIR, 'threshold.json')
 
 # Unfiltered shards are time-ordered. Stride over the hundreds digit for
 # temporal coverage rather than taking contiguous shards from one time period.
@@ -255,6 +258,14 @@ def main():
         print(f'At {pct}% tournament recall: threshold={r[f"threshold_{pct}"]:.4f}')
         print(f'  Unfiltered passing:  {r[f"unf_pass_{pct}"]:.1%}  <- lower is better')
         print(f'  Logged-in passing:   {r[f"log_pass_{pct}"]:.1%}')
+
+    # Save model and threshold for downstream use
+    r['model'].save_model(MODEL_PATH)
+    print(f'\nSaved model to {MODEL_PATH}')
+
+    with open(THRESHOLD_PATH, 'w') as f:
+        json.dump({'threshold_99': r['threshold_99'], 'threshold_95': r['threshold_95']}, f)
+    print(f'Saved thresholds to {THRESHOLD_PATH}')
 
 
 if __name__ == '__main__':
