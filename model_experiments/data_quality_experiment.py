@@ -103,7 +103,7 @@ def train_model(train_X, train_y, num_leaves, num_trees):
     return model
 
 
-def evaluate_model(model, test_X, test_y, test_timestamps):
+def evaluate_model(model, test_X, test_y):
     """Evaluate model and return metrics dict."""
     predictions = model.predict(test_X)
     labels_float = test_y.astype(np.float64)
@@ -134,7 +134,7 @@ def run_single(holdout_X, holdout_y, holdout_gids, holdout_ts,
         model = train_model(train_X, train_y, num_leaves, num_trees)
 
         print("  Evaluating on tournament holdout...")
-        metrics = evaluate_model(model, holdout_X, holdout_y, holdout_ts)
+        metrics = evaluate_model(model, holdout_X, holdout_y)
         metrics['n_states'] = n_states
         metrics['n_games'] = n_games
         row[name] = metrics
@@ -217,7 +217,7 @@ def main():
     del swapped_X, swapped_y
 
     if args.exclusive:
-        max_games = args.max_games if args.max_games > 0 else 5000
+        max_games = args.max_games if args.max_games > 0 else None
         num_leaves = args.num_leaves
         num_trees = args.num_trees
         n_runs = max(args.variance, 1)
@@ -267,7 +267,8 @@ def main():
             materialized = {}
             for name, entries in exclusive_entries.items():
                 rng = random.Random(seed)
-                sampled = rng.sample(entries, min(max_games, len(entries)))
+                n_sample = min(max_games, len(entries)) if max_games else len(entries)
+                sampled = rng.sample(entries, n_sample)
 
                 start = time.time()
                 train_X, train_y, train_gids, train_ts = materialize_entries(
@@ -317,7 +318,7 @@ def main():
                 print(f"  {name}: training on {n_states:,} states")
 
                 model = train_model(train_X, train_y, num_leaves, num_trees)
-                metrics = evaluate_model(model, holdout_X, holdout_y, holdout_ts)
+                metrics = evaluate_model(model, holdout_X, holdout_y)
                 metrics['n_states'] = n_states
                 row[name] = metrics
 
@@ -376,7 +377,7 @@ def main():
             print(f"\nSaved to {args.output}")
 
     elif args.variance > 0:
-        max_games = args.max_games if args.max_games > 0 else 5000
+        max_games = args.max_games if args.max_games > 0 else None
         num_leaves = args.num_leaves
         num_trees = args.num_trees
         n_runs = args.variance
@@ -404,7 +405,8 @@ def main():
             for name in SOURCES:
                 entries = all_entries[name]
                 rng = random.Random(seed)
-                sampled = rng.sample(entries, min(max_games, len(entries)))
+                n_sample = min(max_games, len(entries)) if max_games else len(entries)
+                sampled = rng.sample(entries, n_sample)
 
                 start = time.time()
                 train_X, train_y, train_gids, train_ts = materialize_entries(
@@ -420,7 +422,7 @@ def main():
                 print(f"  {name}: {n_states:,} states in {elapsed:.1f}s")
 
                 model = train_model(train_X, train_y, num_leaves, num_trees)
-                metrics = evaluate_model(model, holdout_X, holdout_y, holdout_ts)
+                metrics = evaluate_model(model, holdout_X, holdout_y)
                 metrics['n_states'] = n_states
                 row[name] = metrics
 
