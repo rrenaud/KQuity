@@ -123,6 +123,8 @@ def compute_quality_features(csv_path):
         total_get_on_snail = 0
         first_snail_t = None
         total_snail_eat = 0
+        total_snail_escape = 0
+        first_snail_escape_t = None
         gameplay_event_count = 0
 
         player_event_counts = defaultdict(int)
@@ -220,6 +222,13 @@ def compute_quality_features(csv_path):
                 active_pids.add(event.rider_position_id)
                 player_event_counts[event.rider_position_id] += 1
 
+            elif isinstance(event, SnailEscapeEvent):
+                total_snail_escape += 1
+                if first_snail_escape_t is None:
+                    first_snail_escape_t = event.timestamp
+                active_pids.add(event.escaped_position_id)
+                player_event_counts[event.escaped_position_id] += 1
+
             if isinstance(event, GAMEPLAY_EVENT_TYPES):
                 gameplay_event_count += 1
                 # Track first gameplay event per cabinet position
@@ -271,6 +280,7 @@ def compute_quality_features(csv_path):
         first_bless_t = first_bless_t if first_bless_t is not None else duration
         first_maiden_use_t = first_maiden_use_t if first_maiden_use_t is not None else duration
         first_snail_t = first_snail_t if first_snail_t is not None else duration
+        first_snail_escape_t = first_snail_escape_t if first_snail_escape_t is not None else duration
 
         # Victory condition one-hot
         vc = victory.victory_condition
@@ -325,6 +335,7 @@ def compute_quality_features(csv_path):
             'total_use_maiden': total_use_maiden,
             'total_get_on_snail': total_get_on_snail,
             'total_snail_eat': total_snail_eat,
+            'total_snail_escape': total_snail_escape,
             'gameplay_events': gameplay_event_count,
             # Rates (8)
             'gameplay_eps': gameplay_event_count / duration,
@@ -335,12 +346,14 @@ def compute_quality_features(csv_path):
             'deposit_rate': total_deposit / duration,
             'maiden_use_rate': total_use_maiden / duration,
             'snail_rate': total_get_on_snail / duration,
+            'snail_escape_rate': total_snail_escape / duration,
             # Temporal (7)
             'time_to_first_kill': first_kill_t,
             'time_to_first_carry': first_carry_t,
             'time_to_first_bless': first_bless_t,
             'time_to_first_maiden_use': first_maiden_use_t,
             'time_to_first_snail': first_snail_t,
+            'time_to_first_snail_escape': first_snail_escape_t,
             # Engagement (4)
             'active_player_count': active_player_count,
             'workers_never_touched_objective': workers_never_touched,
@@ -382,13 +395,13 @@ FEATURE_COLUMNS = [
     'total_kills', 'queen_kills', 'total_carry_food',
     'total_berry_deposits', 'total_berry_kick_ins',
     'total_bless_maiden', 'total_use_maiden',
-    'total_get_on_snail', 'total_snail_eat', 'gameplay_events',
+    'total_get_on_snail', 'total_snail_eat', 'total_snail_escape', 'gameplay_events',
     # Rates (8)
     'gameplay_eps', 'events_per_second', 'kill_rate', 'carry_rate',
-    'bless_rate', 'deposit_rate', 'maiden_use_rate', 'snail_rate',
+    'bless_rate', 'deposit_rate', 'maiden_use_rate', 'snail_rate', 'snail_escape_rate',
     # Temporal (7)
     'time_to_first_kill', 'time_to_first_carry', 'time_to_first_bless',
-    'time_to_first_maiden_use', 'time_to_first_snail',
+    'time_to_first_maiden_use', 'time_to_first_snail', 'time_to_first_snail_escape',
     # Engagement (4)
     'active_player_count', 'workers_never_touched_objective',
     'max_player_event_share', 'max_worker_first_objective',
