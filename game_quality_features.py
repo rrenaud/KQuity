@@ -131,6 +131,9 @@ def compute_quality_features(csv_path):
         first_event_by_pid = {}  # pid -> timestamp of first gameplay event
         first_maiden_use_by_team = {}  # Team -> timestamp
         first_maiden_use_by_pid = {}   # pid -> timestamp
+        carry_timestamps = []          # all CarryFood timestamps (for Nth pickup)
+        maiden_use_by_index = defaultdict(int)        # maiden_index -> count
+        maiden_use_by_team_index = defaultdict(int)   # (team, maiden_index) -> count
 
         # Gate triple tracking: team -> maiden_index -> [timestamps]
         gate_bless_times = {
@@ -155,6 +158,7 @@ def compute_quality_features(csv_path):
 
             elif isinstance(event, CarryFoodEvent):
                 total_carry += 1
+                carry_timestamps.append(event.timestamp)
                 if first_carry_t is None:
                     first_carry_t = event.timestamp
                 pid = event.position_id
@@ -200,6 +204,15 @@ def compute_quality_features(csv_path):
                     first_maiden_use_by_team[team] = event.timestamp
                 if pid not in first_maiden_use_by_pid:
                     first_maiden_use_by_pid[pid] = event.timestamp
+                # Per-maiden and per-maiden-per-team usage counts
+                if map_info is not None:
+                    try:
+                        _, m_idx = map_info.get_type_and_maiden_index(
+                            event.maiden_x, event.maiden_y)
+                        maiden_use_by_index[m_idx] += 1
+                        maiden_use_by_team_index[(team, m_idx)] += 1
+                    except ValueError:
+                        pass
 
             elif isinstance(event, GetOnSnailEvent):
                 total_get_on_snail += 1
@@ -283,6 +296,20 @@ def compute_quality_features(csv_path):
             first_maiden_use_by_pid.get(pid, duration) for pid in WORKER_PIDS
         )
 
+        # Time to Nth berry pickup (fill with duration if fewer than N pickups)
+        time_to_6_carry = carry_timestamps[5] if len(carry_timestamps) >= 6 else duration
+
+        # Per-maiden usage counts (5 maidens, sorted descending — identity doesn't matter)
+        per_maiden_uses = sorted(
+            [maiden_use_by_index.get(i, 0) for i in range(5)], reverse=True
+        )
+        # Per-maiden-per-team usage counts (10 slots, sorted descending)
+        per_maiden_team_uses = sorted(
+            [maiden_use_by_team_index.get((t, i), 0)
+             for t in (Team.BLUE, Team.GOLD) for i in range(5)],
+            reverse=True
+        )
+
         # Per-cab-position first event times, sorted ascending (team-agnostic)
         cab_first_times = sorted(
             first_event_by_pid.get(pid, duration) for pid in ALL_PIDS
@@ -347,6 +374,14 @@ def compute_quality_features(csv_path):
         # Per-PID first maiden use (8) — sorted ascending across workers
         for i, t in enumerate(pid_maiden_times):
             row[f'first_maiden_use_pid_{i+1:02d}'] = t
+        # Time to 6 berry pickups (1)
+        row['time_to_6_carry'] = time_to_6_carry
+        # Per-maiden usage counts (5) — sorted descending
+        for i, c in enumerate(per_maiden_uses):
+            row[f'maiden_uses_{i+1}'] = c
+        # Per-maiden-per-team usage counts (10) — sorted descending
+        for i, c in enumerate(per_maiden_team_uses):
+            row[f'maiden_team_uses_{i+1:02d}'] = c
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -382,4 +417,10 @@ FEATURE_COLUMNS = [
     # Per-team first maiden use (2)
     'first_maiden_use_team_1', 'first_maiden_use_team_2',
     # Per-PID first maiden use (8)
-] + [f'first_maiden_use_pid_{i:02d}' for i in range(1, 9)]
+] + [f'first_maiden_use_pid_{i:02d}' for i in range(1, 9)] + [
+    # Time to 6 berry pickups (1)
+    'time_to_6_carry',
+    # Per-maiden usage counts (5)
+] + [f'maiden_uses_{i}' for i in range(1, 6)] + [
+    # Per-maiden-per-team usage counts (10)
+] + [f'maiden_team_uses_{i:02d}' for i in range(1, 11)]
