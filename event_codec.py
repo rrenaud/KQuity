@@ -26,6 +26,7 @@ Opcode+payload packing:
 
 import json
 import os
+import struct
 from typing import Iterator, Tuple
 
 from constants import Team, ContestableState, VictoryCondition, Map
@@ -156,6 +157,16 @@ def encode_game(raw_events):
     berry_lookup = map_lookup['berry_lookup']
     maiden_lookup = map_lookup['maiden_lookup']
 
+    try:
+        return _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
+                              berry_lookup, maiden_lookup)
+    except KeyError:
+        return None
+
+
+def _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
+                   berry_lookup, maiden_lookup):
+    """Inner encoding loop. Raises KeyError on unmapped positions."""
     buf = bytearray([(map_idx << 1) | int(gold_on_left)])
     last_cs = 0
 
@@ -321,6 +332,8 @@ def walk_game_states(encoded_bytes):
         # Opcode + payload
         b0 = data[pos]; pos += 1
         opcode = b0 >> 4
+        if opcode >= len(_OPCODE_SIZES):
+            raise ValueError(f"Invalid opcode {opcode} at byte {pos - 1}")
         sz = _OPCODE_SIZES[opcode]
 
         if sz == 1:
@@ -421,6 +434,8 @@ def walk_game_states(encoded_bytes):
         elif opcode == OP_VICTORY:
             team_int = payload >> 2
             cond_int = payload & 0x3
+            # NB: This mutation happens AFTER the final yield, so callers
+            # must fully exhaust the generator to get a valid winning_team.
             game_state.winning_team = Team.GOLD if team_int else Team.BLUE
             game_state.victory_condition = _INT_TO_VICTORY_COND[cond_int]
 
@@ -450,20 +465,36 @@ def _apply_stop_snail(game_state, snail_x, rel_ts):
 # Format: [num_games: uint32 LE]
 #         per game: [game_id: uint32 LE] [length: uint16 LE] [binary payload]
 
-import struct
-
 _HEADER_FMT = '<I'       # num_games
-_ENTRY_FMT = '<IH'       # game_id, payload_length
+_ENTRY_FMT = '<IH'       # game_id (uint32, max ~4.3B), payload_length (uint16, max 65535 bytes)
 _ENTRY_SIZE = struct.calcsize(_ENTRY_FMT)
 
 
 def write_packed_games(entries, path):
-    """Write a list of (game_id, encoded_bytes) to a packed binary file."""
+    """Write a list of (game_id, encoded_bytes) to a packed binary file.
+
+    Games with payloads exceeding uint16 max (65535 bytes) are skipped.
+    """
+    skipped = 0
     with open(path, 'wb') as f:
-        f.write(struct.pack(_HEADER_FMT, len(entries)))
+        # Write placeholder count, patch after
+        count_pos = f.tell()
+        f.write(struct.pack(_HEADER_FMT, 0))
+        written = 0
         for game_id, data in entries:
+            if len(data) > 65535:
+                skipped += 1
+                continue
             f.write(struct.pack(_ENTRY_FMT, game_id, len(data)))
             f.write(data)
+            written += 1
+        # Patch actual count
+        f.seek(count_pos)
+        f.write(struct.pack(_HEADER_FMT, written))
+    if skipped > 0:
+        import sys
+        print(f"  Warning: {skipped} games skipped (payload > 65535 bytes)",
+              file=sys.stderr)
 
 
 def read_packed_games(path):
