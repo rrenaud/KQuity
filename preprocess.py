@@ -581,7 +581,7 @@ def is_valid_game(events: GameEventsList,
 
 
 def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
-    for filename in glob.glob(csv_path):
+    for filename in sorted(glob.glob(csv_path)):
         if filename.endswith('.gz'):
             f = gzip.open(filename, 'rt')
         else:
