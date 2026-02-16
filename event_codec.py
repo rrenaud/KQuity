@@ -27,6 +27,7 @@ Opcode+payload packing:
 import glob
 import json
 import os
+import struct
 from typing import Iterator, Tuple
 
 from constants import Team, ContestableState, VictoryCondition, Map
@@ -35,6 +36,7 @@ from fast_materialize import (
     _MAP_LOOKUPS, MAP_INDEX, MAP_NAMES, SCREEN_WIDTH,
     SKIP_EVENTS, VANILLA_SNAIL_PPS, SPEED_SNAIL_PPS, _snail_mult,
     _parse_ts, COL_TS, COL_TYPE, COL_VALUES, COL_GAME_ID,
+    _vectorize_state, NUM_FEATURES,
 )
 import map_structure
 
@@ -156,6 +158,16 @@ def encode_game(raw_events):
     berry_lookup = map_lookup['berry_lookup']
     maiden_lookup = map_lookup['maiden_lookup']
 
+    try:
+        return _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
+                              berry_lookup, maiden_lookup)
+    except KeyError:
+        return None
+
+
+def _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
+                   berry_lookup, maiden_lookup):
+    """Inner encoding loop. Raises KeyError on unmapped positions."""
     buf = bytearray([(map_idx << 1) | int(gold_on_left)])
     last_cs = 0
 
@@ -321,6 +333,8 @@ def walk_game_states(encoded_bytes):
         # Opcode + payload
         b0 = data[pos]; pos += 1
         opcode = b0 >> 4
+        if opcode >= len(_OPCODE_SIZES):
+            raise ValueError(f"Invalid opcode {opcode} at byte {pos - 1}")
         sz = _OPCODE_SIZES[opcode]
 
         if sz == 1:
@@ -421,6 +435,8 @@ def walk_game_states(encoded_bytes):
         elif opcode == OP_VICTORY:
             team_int = payload >> 2
             cond_int = payload & 0x3
+            # NB: This mutation happens AFTER the final yield, so callers
+            # must fully exhaust the generator to get a valid winning_team.
             game_state.winning_team = Team.GOLD if team_int else Team.BLUE
             game_state.victory_condition = _INT_TO_VICTORY_COND[cond_int]
 
@@ -450,20 +466,36 @@ def _apply_stop_snail(game_state, snail_x, rel_ts):
 # Format: [num_games: uint32 LE]
 #         per game: [game_id: uint32 LE] [length: uint16 LE] [binary payload]
 
-import struct
-
 _HEADER_FMT = '<I'       # num_games
-_ENTRY_FMT = '<IH'       # game_id, payload_length
+_ENTRY_FMT = '<IH'       # game_id (uint32, max ~4.3B), payload_length (uint16, max 65535 bytes)
 _ENTRY_SIZE = struct.calcsize(_ENTRY_FMT)
 
 
 def write_packed_games(entries, path):
-    """Write a list of (game_id, encoded_bytes) to a packed binary file."""
+    """Write a list of (game_id, encoded_bytes) to a packed binary file.
+
+    Games with payloads exceeding uint16 max (65535 bytes) are skipped.
+    """
+    skipped = 0
     with open(path, 'wb') as f:
-        f.write(struct.pack(_HEADER_FMT, len(entries)))
+        # Write placeholder count, patch after
+        count_pos = f.tell()
+        f.write(struct.pack(_HEADER_FMT, 0))
+        written = 0
         for game_id, data in entries:
+            if len(data) > 65535:
+                skipped += 1
+                continue
             f.write(struct.pack(_ENTRY_FMT, game_id, len(data)))
             f.write(data)
+            written += 1
+        # Patch actual count
+        f.seek(count_pos)
+        f.write(struct.pack(_HEADER_FMT, written))
+    if skipped > 0:
+        import sys
+        print(f"  Warning: {skipped} games skipped (payload > 65535 bytes)",
+              file=sys.stderr)
 
 
 def read_packed_games(path):
@@ -609,3 +641,156 @@ def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
         shard_paths.append(path)
 
     return len(entries), rejected, shard_paths
+
+
+# ---------------------------------------------------------------------------
+# Materialization from binary codec
+# ---------------------------------------------------------------------------
+
+def _game_state_to_vectorize_args(game_state):
+    """Extract raw variables from GameState for _vectorize_state."""
+    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
+    eggs = [0, 0]
+    food_count = [0, 0]
+
+    for t in range(2):
+        ts = game_state.teams[t]
+        eggs[t] = ts.eggs
+        food_count[t] = sum(ts.food_deposited)
+        for wi in range(4):
+            ws = ts.workers[wi]
+            w[t][wi] = [ws.is_bot, ws.has_food, ws.has_speed, ws.has_wings]
+
+    maiden_map = {
+        ContestableState.NEUTRAL: 0,
+        ContestableState.BLUE: 1,
+        ContestableState.GOLD: -1,
+    }
+    maiden_states = [maiden_map[m] for m in game_state.maiden_states]
+    map_idx = MAP_INDEX[game_state.map_info.map_id.value]
+    gold_sym = 1.0 if game_state.map_info.gold_on_left else -1.0
+
+    return (w, eggs, food_count, maiden_states, map_idx,
+            game_state.snail_state.snail_x,
+            game_state.snail_state.snail_velocity,
+            game_state.snail_state.last_touch_timestamp,
+            game_state.berries_available, gold_sym)
+
+
+def materialize_entries(entries, drop_state_probability=0.0):
+    """Materialize features from an iterable of (game_id, encoded_bytes).
+
+    This is the shared materialization core used by both
+    fast_materialize_from_codec (file-backed) and callers that pre-load
+    entries into memory.
+
+    Args:
+        entries: iterable of (game_id, encoded_bytes) tuples.
+        drop_state_probability: Probability of dropping each eligible state.
+
+    Returns:
+        (states, labels, game_ids, timestamps): numpy arrays.
+    """
+    import random
+    import numpy as np
+
+    capacity = 100_000
+    output_buf = np.empty((capacity, NUM_FEATURES), dtype=np.float32)
+    label_buf = np.empty(capacity, dtype=np.int8)
+    game_id_buf = np.empty(capacity, dtype=np.int64)
+    timestamp_buf = np.empty(capacity, dtype=np.float32)
+    write_idx = 0
+
+    rng = random.Random(42)
+    no_drop = (drop_state_probability == 0.0)
+    n_failures = 0
+
+    def _grow_buffers(needed):
+        """Grow buffers by 50% (not 2x) to limit peak memory overhead."""
+        nonlocal capacity, output_buf, label_buf, game_id_buf, timestamp_buf
+        new_cap = max(capacity + capacity // 2, needed)
+        new_out = np.empty((new_cap, NUM_FEATURES), dtype=np.float32)
+        new_out[:write_idx] = output_buf[:write_idx]
+        output_buf = new_out
+        new_lbl = np.empty(new_cap, dtype=np.int8)
+        new_lbl[:write_idx] = label_buf[:write_idx]
+        label_buf = new_lbl
+        new_gid = np.empty(new_cap, dtype=np.int64)
+        new_gid[:write_idx] = game_id_buf[:write_idx]
+        game_id_buf = new_gid
+        new_ts = np.empty(new_cap, dtype=np.float32)
+        new_ts[:write_idx] = timestamp_buf[:write_idx]
+        timestamp_buf = new_ts
+        capacity = new_cap
+
+    for game_id, encoded in entries:
+        start_idx = write_idx
+        game_state = None
+
+        try:
+            for rel_ts, game_state in walk_game_states(encoded):
+                if rel_ts > 5.0 and (no_drop or rng.random() > drop_state_probability):
+                    if write_idx >= capacity:
+                        _grow_buffers(write_idx + 1)
+                    args = _game_state_to_vectorize_args(game_state)
+                    (w, eggs, food_count, maiden_states, map_idx,
+                     snail_x, snail_vel, snail_last_ts,
+                     berries_avail, gold_sym) = args
+                    _vectorize_state(output_buf, write_idx, w, eggs, food_count,
+                                     maiden_states, map_idx, snail_x,
+                                     snail_vel, snail_last_ts,
+                                     rel_ts, berries_avail, gold_sym)
+                    timestamp_buf[write_idx] = rel_ts
+                    write_idx += 1
+        except Exception as e:
+            import sys
+            print(f"  Warning: game {game_id} failed: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            n_failures += 1
+            write_idx = start_idx
+            continue
+
+        # Set labels from final game state
+        if game_state is None or game_state.winning_team is None:
+            write_idx = start_idx
+            continue
+
+        label = 1 if game_state.winning_team == Team.BLUE else 0
+        label_buf[start_idx:write_idx] = label
+        game_id_buf[start_idx:write_idx] = game_id
+
+    if n_failures > 0:
+        import sys
+        print(f"  Warning: {n_failures} games failed during materialization",
+              file=sys.stderr)
+
+    return (output_buf[:write_idx], label_buf[:write_idx],
+            game_id_buf[:write_idx], timestamp_buf[:write_idx])
+
+
+def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
+                                max_games=None, exclude_game_ids=None):
+    """Materialize features from a packed binary file.
+
+    Args:
+        bin_path: Path to a packed binary file (from encode_csv_to_packed).
+        drop_state_probability: Probability of dropping each eligible state.
+        max_games: If set, only process this many games from the file.
+            Excluded games do not count toward this limit.
+        exclude_game_ids: Set of game IDs to skip entirely.
+
+    Returns:
+        (states, labels, game_ids, timestamps): numpy arrays matching
+        fast_materialize() output format.
+    """
+    def _iter_entries():
+        games_processed = 0
+        for game_id, encoded in read_packed_games(bin_path):
+            if exclude_game_ids and game_id in exclude_game_ids:
+                continue
+            if max_games is not None and games_processed >= max_games:
+                break
+            games_processed += 1
+            yield game_id, encoded
+
+    return materialize_entries(_iter_entries(), drop_state_probability)

@@ -1,0 +1,1041 @@
+{
+  "mode": "ranking",
+  "pool_factor": 1.5,
+  "equal_states": true,
+  "k_sweep": [
+    1000,
+    2000,
+    5000,
+    10000,
+    20000,
+    30000
+  ],
+  "n_random": 5,
+  "merged_from": [
+    "ranking_equal_states_results.json (50L/50T, K=1K/2K/5K)",
+    "ranking_equal_states_large_results.json (100L/100T, K=10K)",
+    "/tmp/ranking_eq_20k_30k.json (100L/100T, K=20K/30K)"
+  ],
+  "runs": [
+    {
+      "dataset": "quality_filtered",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.617296323094963,
+        "brier_score": 0.21083794954611354,
+        "auc_roc": 0.7393727811417365,
+        "accuracy": 0.6678938977562452,
+        "egg_inversion_rate": 0.1756,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.14452562339573968,
+        "n_states": 194677,
+        "n_games": 653
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.6210879562126425,
+        "brier_score": 0.2148888905340386,
+        "auc_roc": 0.7254819602176735,
+        "accuracy": 0.6567030390253283,
+        "egg_inversion_rate": 0.1046,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.13698259666890497,
+        "n_states": 194725,
+        "n_games": 988
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.6274230274926356,
+        "brier_score": 0.2144031042355537,
+        "auc_roc": 0.7297398823540464,
+        "accuracy": 0.6645440841671681,
+        "egg_inversion_rate": 0.2132,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.15563582304452414,
+        "n_states": 195714,
+        "n_games": 650
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.6104417746947984,
+        "brier_score": 0.21112850838471783,
+        "auc_roc": 0.7318424145571543,
+        "accuracy": 0.6607910522757021,
+        "egg_inversion_rate": 0.0984,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.12624101859798306,
+        "n_states": 195772,
+        "n_games": 983
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.6174327720584618,
+        "brier_score": 0.2118874513046436,
+        "auc_roc": 0.7326398150532423,
+        "accuracy": 0.6642866447894891,
+        "egg_inversion_rate": 0.2216,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.1569945614778485,
+        "n_states": 194741,
+        "n_games": 633
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.6177541053523424,
+        "brier_score": 0.21416306326429124,
+        "auc_roc": 0.7240285396006472,
+        "accuracy": 0.65535380855195,
+        "egg_inversion_rate": 0.1284,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.134710063850133,
+        "n_states": 194749,
+        "n_games": 985
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.6192335049590898,
+        "brier_score": 0.21108865448058103,
+        "auc_roc": 0.7371478127559578,
+        "accuracy": 0.6714856423267557,
+        "egg_inversion_rate": 0.1884,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.15935318498164192,
+        "n_states": 197489,
+        "n_games": 643
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.6056260344306851,
+        "brier_score": 0.20987412776858078,
+        "auc_roc": 0.7327053709412225,
+        "accuracy": 0.6605087994640298,
+        "egg_inversion_rate": 0.1238,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.12397333661491124,
+        "n_states": 197522,
+        "n_games": 985
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.6264339626408749,
+        "brier_score": 0.21498430914139227,
+        "auc_roc": 0.7291034091060525,
+        "accuracy": 0.6613617612575449,
+        "egg_inversion_rate": 0.2228,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.15256667417563996,
+        "n_states": 190769,
+        "n_games": 651
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 1000,
+      "pool_size": 1500,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.6067874076558063,
+        "brier_score": 0.2093490063884319,
+        "auc_roc": 0.7394414973550105,
+        "accuracy": 0.6700495648344014,
+        "egg_inversion_rate": 0.1066,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.12565320481118203,
+        "n_states": 190780,
+        "n_games": 984
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5968145362477494,
+        "brier_score": 0.20506906938609007,
+        "auc_roc": 0.7456661440404506,
+        "accuracy": 0.6738336135183588,
+        "egg_inversion_rate": 0.1194,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.1298957118452881,
+        "n_states": 375217,
+        "n_games": 1322
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5887882801163119,
+        "brier_score": 0.20295948233277084,
+        "auc_roc": 0.7485700423898103,
+        "accuracy": 0.6732287860647754,
+        "egg_inversion_rate": 0.0778,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.09162733345547931,
+        "n_states": 375219,
+        "n_games": 1977
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5955222263826375,
+        "brier_score": 0.20485472478275477,
+        "auc_roc": 0.7451194859785744,
+        "accuracy": 0.6704465797782919,
+        "egg_inversion_rate": 0.174,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.11068806714462634,
+        "n_states": 363297,
+        "n_games": 1268
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5934893694440623,
+        "brier_score": 0.2047864171024112,
+        "auc_roc": 0.7454058262156128,
+        "accuracy": 0.6728720929511237,
+        "egg_inversion_rate": 0.086,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.08902773948408249,
+        "n_states": 363303,
+        "n_games": 1972
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5929175360857482,
+        "brier_score": 0.20359078209119105,
+        "auc_roc": 0.7494708356126569,
+        "accuracy": 0.6781294392784254,
+        "egg_inversion_rate": 0.1144,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.10430987372798706,
+        "n_states": 372784,
+        "n_games": 1305
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.589883739598453,
+        "brier_score": 0.20316797191186267,
+        "auc_roc": 0.7509825283866542,
+        "accuracy": 0.6751332171237509,
+        "egg_inversion_rate": 0.0968,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.09788754959049786,
+        "n_states": 372792,
+        "n_games": 1973
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5959296630159879,
+        "brier_score": 0.20541512771695086,
+        "auc_roc": 0.7451070934805499,
+        "accuracy": 0.6709955770053907,
+        "egg_inversion_rate": 0.1246,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.11197401234340025,
+        "n_states": 366798,
+        "n_games": 1320
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5851820900671169,
+        "brier_score": 0.20120796603044475,
+        "auc_roc": 0.7540791765247674,
+        "accuracy": 0.6811163563953524,
+        "egg_inversion_rate": 0.0626,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.09706683754986437,
+        "n_states": 366814,
+        "n_games": 1973
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.6057001495870634,
+        "brier_score": 0.2087971052433658,
+        "auc_roc": 0.736258798460361,
+        "accuracy": 0.6647146765258711,
+        "egg_inversion_rate": 0.2128,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.13221179800306407,
+        "n_states": 372937,
+        "n_games": 1334
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 2000,
+      "pool_size": 3000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5867290298319402,
+        "brier_score": 0.20194717686354474,
+        "auc_roc": 0.7519696881080302,
+        "accuracy": 0.6794042294498241,
+        "egg_inversion_rate": 0.0714,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.08865945971938474,
+        "n_states": 372942,
+        "n_games": 1979
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5799278104262208,
+        "brier_score": 0.19950370010032414,
+        "auc_roc": 0.7570241883297657,
+        "accuracy": 0.6780581006556949,
+        "egg_inversion_rate": 0.0734,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0796834371908917,
+        "n_states": 933576,
+        "n_games": 3602
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5813846414484212,
+        "brier_score": 0.2000520092393984,
+        "auc_roc": 0.7558366861386467,
+        "accuracy": 0.6792212303741245,
+        "egg_inversion_rate": 0.0296,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06714754413344957,
+        "n_states": 933579,
+        "n_games": 4931
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5791509825957577,
+        "brier_score": 0.19929046642220008,
+        "auc_roc": 0.7566464023233725,
+        "accuracy": 0.6793018740346023,
+        "egg_inversion_rate": 0.0796,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06859918882277036,
+        "n_states": 930971,
+        "n_games": 3561
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5778570695668438,
+        "brier_score": 0.1984810781606178,
+        "auc_roc": 0.7596547748879695,
+        "accuracy": 0.6834829376624505,
+        "egg_inversion_rate": 0.0344,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06266202960271194,
+        "n_states": 930972,
+        "n_games": 4931
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.57951608924174,
+        "brier_score": 0.19930412764831965,
+        "auc_roc": 0.7584853351206484,
+        "accuracy": 0.6816064217167175,
+        "egg_inversion_rate": 0.0576,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.07832571018176633,
+        "n_states": 937890,
+        "n_games": 3580
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5757378374878934,
+        "brier_score": 0.19781438541314933,
+        "auc_roc": 0.7607716298562833,
+        "accuracy": 0.6823198079440209,
+        "egg_inversion_rate": 0.0454,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.05967556468207633,
+        "n_states": 937893,
+        "n_games": 4931
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5763513989533694,
+        "brier_score": 0.19803600859448642,
+        "auc_roc": 0.7602474760211474,
+        "accuracy": 0.6822546726797888,
+        "egg_inversion_rate": 0.0674,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.062340224356220435,
+        "n_states": 940581,
+        "n_games": 3587
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5793657696579965,
+        "brier_score": 0.19941656118129508,
+        "auc_roc": 0.7571163099909384,
+        "accuracy": 0.6802261744508477,
+        "egg_inversion_rate": 0.0368,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06453257951682613,
+        "n_states": 940582,
+        "n_games": 4930
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5815396314806776,
+        "brier_score": 0.20016741944685867,
+        "auc_roc": 0.7552630178404436,
+        "accuracy": 0.6785326575808143,
+        "egg_inversion_rate": 0.0958,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.08198248641685595,
+        "n_states": 929411,
+        "n_games": 3561
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 5000,
+      "pool_size": 7500,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5770879675040652,
+        "brier_score": 0.19829836897940561,
+        "auc_roc": 0.7602992760252485,
+        "accuracy": 0.6828191783031333,
+        "egg_inversion_rate": 0.0244,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0644371345723516,
+        "n_states": 929412,
+        "n_games": 4933
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5766817195417945,
+        "brier_score": 0.19836278824917847,
+        "auc_roc": 0.7602913219245397,
+        "accuracy": 0.683836529096853,
+        "egg_inversion_rate": 0.0674,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.07399376886195387,
+        "n_states": 1849705,
+        "n_games": 7690
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5796972657465366,
+        "brier_score": 0.1990957219065473,
+        "auc_roc": 0.7599485900328871,
+        "accuracy": 0.6838892576440885,
+        "egg_inversion_rate": 0.043,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0679965047349803,
+        "n_states": 1849708,
+        "n_games": 9868
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5790834548786676,
+        "brier_score": 0.1991359023737592,
+        "auc_roc": 0.7582836523155632,
+        "accuracy": 0.6822639777175363,
+        "egg_inversion_rate": 0.0658,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0684539064866784,
+        "n_states": 1829546,
+        "n_games": 7546
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5808557722948486,
+        "brier_score": 0.1997922792853923,
+        "auc_roc": 0.7577611953098369,
+        "accuracy": 0.6821957407740551,
+        "egg_inversion_rate": 0.033,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0637153840937991,
+        "n_states": 1829547,
+        "n_games": 9857
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5751051652495106,
+        "brier_score": 0.19768511978962727,
+        "auc_roc": 0.7616363401380577,
+        "accuracy": 0.6844227464749415,
+        "egg_inversion_rate": 0.071,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.07594225231061384,
+        "n_states": 1826091,
+        "n_games": 7577
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5779909228321979,
+        "brier_score": 0.19832443116611234,
+        "auc_roc": 0.761969179819605,
+        "accuracy": 0.6862186187601967,
+        "egg_inversion_rate": 0.0342,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06372889229530293,
+        "n_states": 1826103,
+        "n_games": 9857
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5803949385874078,
+        "brier_score": 0.1999089631091445,
+        "auc_roc": 0.7562810755037145,
+        "accuracy": 0.6795624150915306,
+        "egg_inversion_rate": 0.065,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.07724759384120299,
+        "n_states": 1833334,
+        "n_games": 7575
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5828151380789117,
+        "brier_score": 0.20074671547017806,
+        "auc_roc": 0.7560300177508081,
+        "accuracy": 0.6799377182806772,
+        "egg_inversion_rate": 0.031,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06437505393171533,
+        "n_states": 1833336,
+        "n_games": 9856
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5837290059490068,
+        "brier_score": 0.20099694797585274,
+        "auc_roc": 0.7543220384351979,
+        "accuracy": 0.6810077976216323,
+        "egg_inversion_rate": 0.0752,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.07333444221259267,
+        "n_states": 1838320,
+        "n_games": 7594
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 10000,
+      "pool_size": 15000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5751793512753123,
+        "brier_score": 0.19759971244551966,
+        "auc_roc": 0.7629493970653032,
+        "accuracy": 0.6857254517595827,
+        "egg_inversion_rate": 0.0394,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.06198390516916333,
+        "n_states": 1838326,
+        "n_games": 9854
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5761744828590085,
+        "brier_score": 0.1983058083049207,
+        "auc_roc": 0.7606280903908237,
+        "accuracy": 0.6832782268320069,
+        "egg_inversion_rate": 0.0214,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.049583237027065595,
+        "n_states": 3562266,
+        "n_games": 19790
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5740977090571961,
+        "brier_score": 0.19733743252928068,
+        "auc_roc": 0.7626188351322545,
+        "accuracy": 0.6863612960056574,
+        "egg_inversion_rate": 0.0428,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.051711867642251184,
+        "n_states": 3562266,
+        "n_games": 16174
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5726276833632273,
+        "brier_score": 0.19677181178830244,
+        "auc_roc": 0.7642987620128308,
+        "accuracy": 0.6860077045712549,
+        "egg_inversion_rate": 0.0292,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.046884652300564815,
+        "n_states": 3566020,
+        "n_games": 19785
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5720368234558352,
+        "brier_score": 0.19652465149284234,
+        "auc_roc": 0.7645124803023708,
+        "accuracy": 0.6869506150629952,
+        "egg_inversion_rate": 0.032,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.054203500022540985,
+        "n_states": 3566006,
+        "n_games": 16183
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5726237467542693,
+        "brier_score": 0.19672899147221737,
+        "auc_roc": 0.764370360887005,
+        "accuracy": 0.68598909449576,
+        "egg_inversion_rate": 0.026,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04819374779178552,
+        "n_states": 3571177,
+        "n_games": 19786
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5747994036493798,
+        "brier_score": 0.1977400216918337,
+        "auc_roc": 0.761381529115251,
+        "accuracy": 0.6839357828328257,
+        "egg_inversion_rate": 0.0318,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.05434715573721207,
+        "n_states": 3571177,
+        "n_games": 16254
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5725867532883414,
+        "brier_score": 0.19686012273056347,
+        "auc_roc": 0.76360605128698,
+        "accuracy": 0.6848352698150779,
+        "egg_inversion_rate": 0.0294,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04592483818089685,
+        "n_states": 3547353,
+        "n_games": 19783
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5720965129479251,
+        "brier_score": 0.19660834016485043,
+        "auc_roc": 0.7637986503046027,
+        "accuracy": 0.6855052325328933,
+        "egg_inversion_rate": 0.0364,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.05205280001196938,
+        "n_states": 3547346,
+        "n_games": 16092
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5740506628944371,
+        "brier_score": 0.19732796671529193,
+        "auc_roc": 0.7629707060517877,
+        "accuracy": 0.6855145375706407,
+        "egg_inversion_rate": 0.0216,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.046274117995038395,
+        "n_states": 3567509,
+        "n_games": 19783
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 20000,
+      "pool_size": 30000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5746183549217143,
+        "brier_score": 0.19757500225125474,
+        "auc_roc": 0.7619451324014693,
+        "accuracy": 0.6860635347977395,
+        "egg_inversion_rate": 0.0372,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.05291652389799716,
+        "n_states": 3567509,
+        "n_games": 16153
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.571688228921076,
+        "brier_score": 0.19640444522226227,
+        "auc_roc": 0.7650765922006453,
+        "accuracy": 0.6880237960831994,
+        "egg_inversion_rate": 0.0222,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0432060634710774,
+        "n_states": 5188249,
+        "n_games": 29728
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed0",
+      "metrics": {
+        "log_loss": 0.5719271921768017,
+        "brier_score": 0.1965294895978482,
+        "auc_roc": 0.7641033514484092,
+        "accuracy": 0.6869661234592408,
+        "egg_inversion_rate": 0.0264,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.042385176842128114,
+        "n_states": 5188246,
+        "n_games": 24844
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5728883859056786,
+        "brier_score": 0.19697359210518123,
+        "auc_roc": 0.7630419106236672,
+        "accuracy": 0.6842025272482523,
+        "egg_inversion_rate": 0.0186,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04163145197776794,
+        "n_states": 5206218,
+        "n_games": 29736
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed1",
+      "metrics": {
+        "log_loss": 0.5731539000681797,
+        "brier_score": 0.1969466030720468,
+        "auc_roc": 0.7635520189234946,
+        "accuracy": 0.6863581943264083,
+        "egg_inversion_rate": 0.0242,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04697624252111276,
+        "n_states": 5206215,
+        "n_games": 24939
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.569798787301987,
+        "brier_score": 0.19560353291254956,
+        "auc_roc": 0.7666418281593086,
+        "accuracy": 0.6876826113657935,
+        "egg_inversion_rate": 0.0248,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.0394856733445588,
+        "n_states": 5196876,
+        "n_games": 29730
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed2",
+      "metrics": {
+        "log_loss": 0.5714508612389795,
+        "brier_score": 0.1963581043497027,
+        "auc_roc": 0.764723021681023,
+        "accuracy": 0.6863550926471592,
+        "egg_inversion_rate": 0.0368,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04459169359747431,
+        "n_states": 5196868,
+        "n_games": 24862
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.5714394319571409,
+        "brier_score": 0.19629061609900078,
+        "auc_roc": 0.7651276269970038,
+        "accuracy": 0.6870498687989678,
+        "egg_inversion_rate": 0.0184,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04064631895293503,
+        "n_states": 5194560,
+        "n_games": 29743
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed3",
+      "metrics": {
+        "log_loss": 0.571685001022436,
+        "brier_score": 0.1964573734046384,
+        "auc_roc": 0.7639842472577025,
+        "accuracy": 0.6856013845896168,
+        "egg_inversion_rate": 0.0378,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04708343386004734,
+        "n_states": 5194559,
+        "n_games": 24899
+      }
+    },
+    {
+      "dataset": "logged_in_games",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5702686134294809,
+        "brier_score": 0.1959528389686435,
+        "auc_roc": 0.7657891060487921,
+        "accuracy": 0.687139817497193,
+        "egg_inversion_rate": 0.023,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.043689393527998985,
+        "n_states": 5203862,
+        "n_games": 29738
+      }
+    },
+    {
+      "dataset": "quality_filtered",
+      "k": 30000,
+      "pool_size": 45000,
+      "strategy": "jitter_seed4",
+      "metrics": {
+        "log_loss": 0.5705496339849916,
+        "brier_score": 0.19604580000934907,
+        "auc_roc": 0.7653590686869468,
+        "accuracy": 0.6870126486479781,
+        "egg_inversion_rate": 0.024,
+        "egg_inversion_n": 5000,
+        "symmetry_deviation": 0.04634727966146187,
+        "n_states": 5203858,
+        "n_games": 25034
+      }
+    }
+  ]
+}
