@@ -200,7 +200,7 @@ def sample_mix_entries(qf_entries, li_entries, n_games, qf_ratio, seed,
 
 def run_single_point(sampled_entries, num_leaves, num_trees,
                      holdout_X, holdout_y, holdout_ts, drop_prob=0.0,
-                     seed=42):
+                     seed=42, sym_aug=False):
     """Materialize, train, evaluate a single (scale_point, seed) run."""
     run_start = time.time()
     train_X, train_y, train_gids, train_ts = materialize_entries(
@@ -211,6 +211,13 @@ def run_single_point(sampled_entries, num_leaves, num_trees,
     n_games = len(np.unique(train_gids))
     print(f"  Materialized {n_states:,} states from {n_games:,} games "
           f"in {mat_elapsed:.1f}s")
+
+    if sym_aug:
+        sw_X, sw_y = swap_teams(train_X, train_y)
+        train_X = np.concatenate([train_X, sw_X])
+        train_y = np.concatenate([train_y, sw_y])
+        del sw_X, sw_y
+        print(f"  Sym-augmented: {len(train_y):,} training states")
 
     model = train_model(train_X, train_y, num_leaves, num_trees)
 
@@ -233,7 +240,7 @@ def _worker_run(args):
     Returns the result dict for this (scale_point, seed) run.
     """
     (mode, max_games, num_leaves, num_trees, seed,
-     qf_ratio, holdout_path, drop_prob, source) = args
+     qf_ratio, holdout_path, drop_prob, source, sym_aug) = args
 
     # Re-load data in worker
     qf_entries = load_all_entries(SOURCES['quality_filtered'])
@@ -251,6 +258,11 @@ def _worker_run(args):
         elif source == 'unfiltered':
             pool = load_all_entries(SOURCES['unfiltered'])
             random.Random(0).shuffle(pool)
+        elif source == 'unfiltered-oldest':
+            pool = load_all_entries(SOURCES['unfiltered'])
+        elif source == 'unfiltered-newest':
+            pool = load_all_entries(SOURCES['unfiltered'])
+            pool.reverse()
         else:
             pool, _, _, _ = build_deduplicated_pool(qf_entries, li_entries)
         sampled = sample_entries(pool, max_games, seed, exclude_gids)
@@ -261,7 +273,7 @@ def _worker_run(args):
     n_games, n_states, metrics, elapsed = run_single_point(
         sampled, num_leaves, num_trees,
         holdout_X, holdout_y, holdout_ts, drop_prob=drop_prob,
-        seed=seed)
+        seed=seed, sym_aug=sym_aug)
 
     result = {
         'max_games': max_games,
@@ -296,7 +308,7 @@ def load_holdout_for_worker(holdout_path):
 
 def run_union(pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
               schedule, n_seeds, output_path, workers, drop_prob=0.0,
-              source='union'):
+              source='union', sym_aug=False):
     """Run union-mode scaling experiment."""
     exclude_gids = set(holdout_gids)
     all_runs = []
@@ -307,7 +319,7 @@ def run_union(pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
             for seed in range(n_seeds):
                 tasks.append((
                     'union', max_games, num_leaves, num_trees, seed,
-                    None, HOLDOUT_PATH, drop_prob, source,
+                    None, HOLDOUT_PATH, drop_prob, source, sym_aug,
                 ))
 
         print(f"\nRunning {len(tasks)} tasks with {workers} workers...")
@@ -336,7 +348,7 @@ def run_union(pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
                 n_games, n_states, metrics, elapsed = run_single_point(
                     sampled, num_leaves, num_trees,
                     holdout_X, holdout_y, holdout_ts,
-                    drop_prob=drop_prob, seed=seed)
+                    drop_prob=drop_prob, seed=seed, sym_aug=sym_aug)
 
                 run_result = {
                     'max_games': max_games,
@@ -360,7 +372,7 @@ def run_union(pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
 
 def run_mix_ratio(qf_entries, li_entries, holdout_X, holdout_y, holdout_gids,
                   holdout_ts, max_games, num_leaves, num_trees, ratios,
-                  n_seeds, output_path, workers, drop_prob=0.0):
+                  n_seeds, output_path, workers, drop_prob=0.0, sym_aug=False):
     """Run mix-ratio experiment at a fixed game budget."""
     exclude_gids = set(holdout_gids)
     schedule = [(max_games, num_leaves, num_trees)]
@@ -372,7 +384,7 @@ def run_mix_ratio(qf_entries, li_entries, holdout_X, holdout_y, holdout_gids,
             for seed in range(n_seeds):
                 tasks.append((
                     'mix-ratio', max_games, num_leaves, num_trees, seed,
-                    qf_ratio, HOLDOUT_PATH, drop_prob, 'union',
+                    qf_ratio, HOLDOUT_PATH, drop_prob, 'union', sym_aug,
                 ))
 
         print(f"\nRunning {len(tasks)} tasks with {workers} workers...")
@@ -403,7 +415,7 @@ def run_mix_ratio(qf_entries, li_entries, holdout_X, holdout_y, holdout_gids,
                 n_games, n_states, metrics, elapsed = run_single_point(
                     sampled, num_leaves, num_trees,
                     holdout_X, holdout_y, holdout_ts,
-                    drop_prob=drop_prob, seed=seed)
+                    drop_prob=drop_prob, seed=seed, sym_aug=sym_aug)
 
                 run_result = {
                     'max_games': max_games,
@@ -427,7 +439,7 @@ def run_mix_ratio(qf_entries, li_entries, holdout_X, holdout_y, holdout_gids,
 
 
 def _save_results(output_path, mode, schedule, ratios, runs,
-                  data_stats=None, drop_prob=None):
+                  data_stats=None, drop_prob=None, sym_aug=None):
     """Save results JSON incrementally."""
     result = {
         'mode': mode,
@@ -436,6 +448,8 @@ def _save_results(output_path, mode, schedule, ratios, runs,
     }
     if drop_prob is not None:
         result['drop_prob'] = drop_prob
+    if sym_aug is not None:
+        result['sym_aug'] = sym_aug
     if ratios is not None:
         result['ratios'] = ratios
     if data_stats is not None:
@@ -537,11 +551,13 @@ def main():
     parser.add_argument('--mode', choices=['union', 'mix-ratio'],
                         default='union',
                         help='Experiment mode (default: union)')
-    parser.add_argument('--source', choices=['union', 'qf', 'li', 'unfiltered'],
+    parser.add_argument('--source', choices=['union', 'qf', 'li', 'unfiltered',
+                                             'unfiltered-oldest', 'unfiltered-newest'],
                         default='union',
                         help='Data source for union mode: union (interleaved '
                              'QF+LI), qf (QF only), li (LI only), '
-                             'unfiltered (all games, no quality filter)')
+                             'unfiltered (shuffled), unfiltered-oldest '
+                             '(chronological), unfiltered-newest (reverse chrono)')
     parser.add_argument('--max-games', type=int, default=None,
                         help='Override max games (single scale point). '
                              'For union mode, overrides the full schedule.')
@@ -559,6 +575,8 @@ def main():
     parser.add_argument('--drop-prob', type=float, default=0.9,
                         help='Probability of dropping each state during '
                              'materialization (default: 0.9)')
+    parser.add_argument('--sym-aug', action='store_true',
+                        help='Symmetry-augment training data (2x states)')
     parser.add_argument('--output', type=str, default=None,
                         help='Save results to JSON file')
     args = parser.parse_args()
@@ -576,12 +594,17 @@ def main():
     print(f"  {len(li_entries):,} LI games loaded")
 
     unfiltered_entries = None
-    if args.source == 'unfiltered':
+    if args.source in ('unfiltered', 'unfiltered-oldest', 'unfiltered-newest'):
         print("Loading unfiltered entries...")
         unfiltered_entries = load_all_entries(SOURCES['unfiltered'])
-        # Shuffle: partition order is chronological, not quality-ranked
-        random.Random(0).shuffle(unfiltered_entries)
-        print(f"  {len(unfiltered_entries):,} unfiltered games loaded (shuffled)")
+        if args.source == 'unfiltered':
+            random.Random(0).shuffle(unfiltered_entries)
+            print(f"  {len(unfiltered_entries):,} unfiltered games loaded (shuffled)")
+        elif args.source == 'unfiltered-newest':
+            unfiltered_entries.reverse()
+            print(f"  {len(unfiltered_entries):,} unfiltered games loaded (newest first)")
+        else:
+            print(f"  {len(unfiltered_entries):,} unfiltered games loaded (oldest first)")
 
     pool, qf_ids, li_ids, data_stats = build_deduplicated_pool(
         qf_entries, li_entries)
@@ -602,9 +625,11 @@ def main():
         elif args.source == 'li':
             active_pool = li_entries
             source_label = 'LI-only'
-        elif args.source == 'unfiltered':
+        elif args.source in ('unfiltered', 'unfiltered-oldest', 'unfiltered-newest'):
             active_pool = unfiltered_entries
-            source_label = 'Unfiltered'
+            source_label = {'unfiltered': 'Unfiltered',
+                           'unfiltered-oldest': 'Unfiltered-Oldest',
+                           'unfiltered-newest': 'Unfiltered-Newest'}[args.source]
         else:
             active_pool = pool
             source_label = 'Union'
@@ -627,14 +652,16 @@ def main():
         all_runs = run_union(
             active_pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
             schedule, args.n_seeds, args.output, args.workers,
-            drop_prob=args.drop_prob, source=args.source)
+            drop_prob=args.drop_prob, source=args.source,
+            sym_aug=args.sym_aug)
 
         # Final save with data_stats
         if args.output:
             data_stats['source'] = args.source
             _save_results(args.output, 'union', schedule, None,
                           all_runs, data_stats=data_stats,
-                          drop_prob=args.drop_prob)
+                          drop_prob=args.drop_prob,
+                          sym_aug=args.sym_aug)
 
         print_summary_table(all_runs, 'union')
 
@@ -656,13 +683,14 @@ def main():
             holdout_X, holdout_y, holdout_gids, holdout_ts,
             args.max_games, num_leaves, num_trees, args.ratios,
             args.n_seeds, args.output, args.workers,
-            drop_prob=args.drop_prob)
+            drop_prob=args.drop_prob, sym_aug=args.sym_aug)
 
         schedule = [(args.max_games, num_leaves, num_trees)]
         if args.output:
             _save_results(args.output, 'mix-ratio', schedule,
                           args.ratios, all_runs, data_stats=data_stats,
-                          drop_prob=args.drop_prob)
+                          drop_prob=args.drop_prob,
+                          sym_aug=args.sym_aug)
 
         print_summary_table(all_runs, 'mix-ratio')
 
