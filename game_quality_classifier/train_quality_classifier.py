@@ -119,6 +119,9 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
     log_loss = sklearn.metrics.log_loss(y_val, val_preds)
 
     # Tournament-anchored thresholds.
+    # Logged-in pass rates use the full logged-in set (intentionally — we want
+    # to see what fraction passes the quality bar, not generalization error).
+    # Unfiltered pass rates use separate eval shards to avoid train leakage.
     X_tournament = df_tournament[features].values
     X_unf_all = df_unfiltered_all[features].values
     X_log_all = df_logged_in_all[features].values
@@ -141,6 +144,140 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
         results[f'threshold_{pct}'] = threshold
 
     return results
+
+
+def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
+                     df_logged_in_clean, df_tournament, features):
+    """Self-distillation pipeline: curate positives, train bagged ensemble.
+
+    Uses the existing saved model to prune low-quality >=9-login games and
+    cherry-pick high-scoring 8-login games, then trains an ensemble of bagged
+    models. See Experiments 8-10 in rating_based_quality_experiments.md.
+    """
+    if not os.path.exists(MODEL_PATH):
+        print(f'ERROR: Self-distillation requires an existing model at {MODEL_PATH}')
+        print('Run a single training first: python -m game_quality_classifier.train_quality_classifier')
+        return
+
+    from compute_ratings import load_usergame
+    usergame = load_usergame(
+        os.path.join(REPO_ROOT, 'unfiltered_partitioned/usergame.csv'))
+
+    # Base: logged-in games with >=9 logins (Experiment 5: sweet spot threshold)
+    game_ids = df_logged_in_clean['game_id'].values
+    keep_9 = np.array([len(usergame.get(gid, {})) >= 9 for gid in game_ids])
+    df_base = df_logged_in_clean[keep_9].reset_index(drop=True)
+    print(f'\n=== Base: {len(df_base)} games with >=9 logins ===')
+
+    # Score base games with existing quality model, remove bottom 10%
+    # (Experiment 8: pruning mislabeled positives)
+    existing_model = lgb.Booster(model_file=MODEL_PATH)
+    base_scores = existing_model.predict(df_base[features].values)
+    p10_threshold = np.percentile(base_scores, 10)
+    keep_top90 = base_scores >= p10_threshold
+    df_base_pruned = df_base[keep_top90].reset_index(drop=True)
+    print(f'Quality scores on >=9 base: mean={base_scores.mean():.4f}, '
+          f'p10={p10_threshold:.4f}, p50={np.percentile(base_scores, 50):.4f}')
+    print(f'After removing bottom 10%: {len(df_base_pruned)} games '
+          f'(removed {(~keep_top90).sum()})')
+
+    # Get 8-login games, score them, sort by score desc
+    # (Experiment 9: +2000 is the sweet spot before quality degrades)
+    keep_8 = np.array([len(usergame.get(gid, {})) == 8 for gid in game_ids])
+    df_login8 = df_logged_in_clean[keep_8].reset_index(drop=True)
+    login8_scores = existing_model.predict(df_login8[features].values)
+    sort_idx = np.argsort(-login8_scores)
+    df_login8 = df_login8.iloc[sort_idx].reset_index(drop=True)
+    login8_scores = login8_scores[sort_idx]
+    print(f'\n=== 8-login games: {len(df_login8)} total ===')
+    print(f'Quality scores: mean={login8_scores.mean():.4f}, '
+          f'p10={np.percentile(login8_scores, 10):.4f}, '
+          f'p50={np.percentile(login8_scores, 50):.4f}, '
+          f'p90={np.percentile(login8_scores, 90):.4f}')
+
+    # Best positive set: pruned >=9 + top 2000 login8
+    n_login8_add = 2000
+    df_best = pd.concat([df_base_pruned, df_login8.iloc[:n_login8_add]], ignore_index=True)
+    print(f'\nPositive set: {len(df_best)} games (pruned >=9 + top {n_login8_add} login8)')
+
+    # Train N models with bagging, collect per-seed and ensemble results
+    # (Experiment 10: bagged ensemble beats every individual model)
+    n_seeds = 10
+    all_results = {m: [] for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']}
+    all_tournament_scores = []
+    all_unfiltered_scores = []
+    all_logged_in_scores = []
+
+    print(f'\n=== Training {n_seeds} bagged models ===')
+    print(f'{"Seed":>5} {"AUC":>7} {"LogLoss":>8} {"Unf@99%":>8} {"Unf@95%":>8}')
+    print('-' * 42)
+    for seed in range(n_seeds):
+        r = train_and_evaluate(
+            df_unfiltered_clean.iloc[:DEFAULT_SIZE], df_best,
+            df_unfiltered_eval, df_logged_in, df_tournament,
+            features, verbose=False, random_state=seed,
+            bag_fraction=0.8,
+        )
+        for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
+            all_results[m].append(r[m])
+        all_tournament_scores.append(r['tournament_scores'])
+        all_unfiltered_scores.append(r['unfiltered_scores'])
+        all_logged_in_scores.append(r['logged_in_scores'])
+        print(f'{seed:>5} {r["auc"]:>7.4f} {r["log_loss"]:>8.4f} '
+              f'{r["unf_pass_99"]:>7.1%} {r["unf_pass_95"]:>7.1%}')
+
+    # Individual model summary
+    print(f'\n=== Individual models (mean +/- std over {n_seeds} seeds) ===')
+    for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
+        vals = np.array(all_results[m])
+        print(f'  {m:<15} {vals.mean():.4f} +/- {vals.std():.4f}')
+
+    # Ensemble: average all N models' predictions
+    ens_tournament = np.mean(all_tournament_scores, axis=0)
+    ens_unfiltered = np.mean(all_unfiltered_scores, axis=0)
+    ens_logged_in = np.mean(all_logged_in_scores, axis=0)
+
+    print(f'\n=== Ensemble of {n_seeds} bagged models ===')
+    for recall_target in [0.99, 0.95]:
+        threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
+        pct = int(recall_target * 100)
+        unf_pass = (ens_unfiltered >= threshold).mean()
+        log_pass = (ens_logged_in >= threshold).mean()
+        print(f'  @{pct}% recall: threshold={threshold:.4f}, '
+              f'unf_pass={unf_pass:.1%}, log_pass={log_pass:.1%}')
+
+    # Plot: individual models + ensemble point
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    ens_metrics = {}
+    for recall_target in [0.99, 0.95]:
+        threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
+        pct = int(recall_target * 100)
+        ens_metrics[f'unf_pass_{pct}'] = (ens_unfiltered >= threshold).mean()
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    for ax, pct, label in zip(axes, [99, 95], ['Unf pass @99%', 'Unf pass @95%']):
+        metric = f'unf_pass_{pct}'
+        vals = np.array(all_results[metric]) * 100
+        ens_val = ens_metrics[metric] * 100
+        ax.scatter(range(n_seeds), vals, color='#3498db', s=60, zorder=3,
+                   label=f'Individual models (mean={vals.mean():.1f}%)')
+        ax.axhline(vals.mean(), color='#3498db', linestyle='--', alpha=0.5)
+        ax.axhline(ens_val, color='#e74c3c', linewidth=2,
+                   label=f'Ensemble of {n_seeds} ({ens_val:.1f}%)')
+        ax.set_xlabel('Seed')
+        ax.set_ylabel(label)
+        ax.set_title(label)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+    fig.suptitle(f'Bagged Ensemble: {n_seeds} models, bag=0.8 ({len(df_best)} positives)', fontsize=13)
+    fig.tight_layout()
+    plot_path = os.path.join(REPO_ROOT, 'model_experiments', 'quality_positive_sweep.png')
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    print(f'\nPlot saved to {plot_path}')
 
 
 def main():
@@ -181,129 +318,10 @@ def main():
     features = FEATURE_COLUMNS
 
     if args.self_distill:
-        if not os.path.exists(MODEL_PATH):
-            print(f'ERROR: Self-distillation requires an existing model at {MODEL_PATH}')
-            print('Run a single training first: python -m game_quality_classifier.train_quality_classifier')
-            return
-        from compute_ratings import load_usergame
-        usergame = load_usergame(
-            os.path.join(REPO_ROOT, 'unfiltered_partitioned/usergame.csv'))
-
-        # Base: logged-in games with >=9 logins
-        game_ids = df_logged_in_clean['game_id'].values
-        keep_9 = np.array([len(usergame.get(gid, {})) >= 9 for gid in game_ids])
-        df_base = df_logged_in_clean[keep_9].reset_index(drop=True)
-        base_game_ids = set(df_base['game_id'])
-        print(f'\n=== Base: {len(df_base)} games with >=9 logins ===')
-
-        # Score base games with existing quality model, remove bottom 10%
-        existing_model = lgb.Booster(model_file=MODEL_PATH)
-        base_scores = existing_model.predict(df_base[features].values)
-        p10_threshold = np.percentile(base_scores, 10)
-        keep_top90 = base_scores >= p10_threshold
-        df_base_pruned = df_base[keep_top90].reset_index(drop=True)
-        print(f'Quality scores on >=9 base: mean={base_scores.mean():.4f}, '
-              f'p10={p10_threshold:.4f}, p50={np.percentile(base_scores, 50):.4f}')
-        print(f'After removing bottom 10%: {len(df_base_pruned)} games '
-              f'(removed {(~keep_top90).sum()})')
-
-        # Get 8-login games, score them, sort by score desc
-        keep_8 = np.array([len(usergame.get(gid, {})) == 8 for gid in game_ids])
-        df_login8 = df_logged_in_clean[keep_8].reset_index(drop=True)
-        login8_scores = existing_model.predict(df_login8[features].values)
-        sort_idx = np.argsort(-login8_scores)
-        df_login8 = df_login8.iloc[sort_idx].reset_index(drop=True)
-        login8_scores = login8_scores[sort_idx]
-        print(f'\n=== 8-login games: {len(df_login8)} total ===')
-        print(f'Quality scores: mean={login8_scores.mean():.4f}, '
-              f'p10={np.percentile(login8_scores, 10):.4f}, '
-              f'p50={np.percentile(login8_scores, 50):.4f}, '
-              f'p90={np.percentile(login8_scores, 90):.4f}')
-
-        # Best positive set: pruned >=9 + top 2000 login8
-        df_best = pd.concat([df_base_pruned, df_login8.iloc[:2000]], ignore_index=True)
-        print(f'\nPositive set: {len(df_best)} games (pruned >=9 + top 2K login8)')
-
-        # Train N models with bagging, collect per-seed and ensemble results
-        N_SEEDS = 10
-        all_results = {m: [] for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']}
-        all_tournament_scores = []
-        all_unfiltered_scores = []
-        all_logged_in_scores = []
-
-        print(f'\n=== Training {N_SEEDS} bagged models ===')
-        print(f'{"Seed":>5} {"AUC":>7} {"LogLoss":>8} {"Unf@99%":>8} {"Unf@95%":>8}')
-        print('-' * 42)
-        for seed in range(N_SEEDS):
-            r = train_and_evaluate(
-                df_unfiltered_clean.iloc[:DEFAULT_SIZE], df_best,
-                df_unfiltered_eval, df_logged_in, df_tournament,
-                features, verbose=False, random_state=seed,
-                bag_fraction=0.8,
-            )
-            for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
-                all_results[m].append(r[m])
-            all_tournament_scores.append(r['tournament_scores'])
-            all_unfiltered_scores.append(r['unfiltered_scores'])
-            all_logged_in_scores.append(r['logged_in_scores'])
-            print(f'{seed:>5} {r["auc"]:>7.4f} {r["log_loss"]:>8.4f} '
-                  f'{r["unf_pass_99"]:>7.1%} {r["unf_pass_95"]:>7.1%}')
-
-        # Individual model summary
-        print(f'\n=== Individual models (mean +/- std over {N_SEEDS} seeds) ===')
-        for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
-            vals = np.array(all_results[m])
-            print(f'  {m:<15} {vals.mean():.4f} +/- {vals.std():.4f}')
-
-        # Ensemble: average all N models' predictions
-        ens_tournament = np.mean(all_tournament_scores, axis=0)
-        ens_unfiltered = np.mean(all_unfiltered_scores, axis=0)
-        ens_logged_in = np.mean(all_logged_in_scores, axis=0)
-
-        print(f'\n=== Ensemble of {N_SEEDS} bagged models ===')
-        for recall_target in [0.99, 0.95]:
-            threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
-            pct = int(recall_target * 100)
-            unf_pass = (ens_unfiltered >= threshold).mean()
-            log_pass = (ens_logged_in >= threshold).mean()
-            print(f'  @{pct}% recall: threshold={threshold:.4f}, '
-                  f'unf_pass={unf_pass:.1%}, log_pass={log_pass:.1%}')
-
-        # Plot: individual models + ensemble point
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-
-        # Compute ensemble metrics for the plot
-        ens_metrics = {}
-        for recall_target in [0.99, 0.95]:
-            threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
-            pct = int(recall_target * 100)
-            ens_metrics[f'unf_pass_{pct}'] = (ens_unfiltered >= threshold).mean()
-
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-        for ax, pct, label in zip(axes, [99, 95], ['Unf pass @99%', 'Unf pass @95%']):
-            metric = f'unf_pass_{pct}'
-            vals = np.array(all_results[metric]) * 100
-            ens_val = ens_metrics[metric] * 100
-            # Individual models as scatter
-            ax.scatter(range(N_SEEDS), vals, color='#3498db', s=60, zorder=3,
-                       label=f'Individual models (mean={vals.mean():.1f}%)')
-            ax.axhline(vals.mean(), color='#3498db', linestyle='--', alpha=0.5)
-            # Ensemble as horizontal line
-            ax.axhline(ens_val, color='#e74c3c', linewidth=2,
-                       label=f'Ensemble of {N_SEEDS} ({ens_val:.1f}%)')
-            ax.set_xlabel('Seed')
-            ax.set_ylabel(label)
-            ax.set_title(label)
-            ax.legend(fontsize=9)
-            ax.grid(True, alpha=0.3)
-        fig.suptitle(f'Bagged Ensemble: {N_SEEDS} models, bag=0.8 ({len(df_best)} positives)', fontsize=13)
-        fig.tight_layout()
-        plot_path = os.path.join(REPO_ROOT, 'quality_positive_sweep.png')
-        fig.savefig(plot_path, dpi=150)
-        plt.close(fig)
-        print(f'\nPlot saved to {plot_path}')
+        run_self_distill(
+            df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
+            df_logged_in_clean, df_tournament, features,
+        )
         return
 
     if args.sweep:
