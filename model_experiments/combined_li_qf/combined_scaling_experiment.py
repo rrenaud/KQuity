@@ -30,6 +30,7 @@ from eval_metrics import (
     compute_temporal_metrics, compute_kq_metrics,
 )
 from symmetry import swap_teams
+from data_pool import interleave_dedup, build_union_pool
 
 SOURCES = {
     'quality_filtered': 'quality_filtered/encoded/all_games.bin',
@@ -56,49 +57,14 @@ def load_all_entries(bin_path):
 
 
 def build_deduplicated_pool(qf_entries, li_entries):
-    """Build deduplicated union by interleaving QF and LI entries.
-
-    Both input lists are pre-sorted by quality (QF by quality score desc,
-    LI by login count desc). Interleaving ensures top-N sampling gets a
-    balanced mix of both sources at every scale point.
-
-    Walks both lists with two pointers, alternating QF/LI, skipping
-    duplicates. When one source exhausts, drains the other.
+    """Build deduplicated union pool with overlap statistics.
 
     Returns:
         (pool, qf_ids, li_ids, stats)
     """
-    seen = set()
-    pool = []
-    qf_ids = set()
-    li_ids = set()
-
-    qi, li = 0, 0
-    while qi < len(qf_entries) or li < len(li_entries):
-        # QF turn
-        if qi < len(qf_entries):
-            gid, data = qf_entries[qi]
-            qf_ids.add(gid)
-            qi += 1
-            if gid not in seen:
-                seen.add(gid)
-                pool.append((gid, data))
-        # LI turn
-        if li < len(li_entries):
-            gid, data = li_entries[li]
-            li_ids.add(gid)
-            li += 1
-            if gid not in seen:
-                seen.add(gid)
-                pool.append((gid, data))
-
-    overlap = qf_ids & li_ids
-    stats = {
-        'qf_total': len(qf_entries),
-        'li_total': len(li_entries),
-        'overlap': len(overlap),
-        'union_total': len(pool),
-    }
+    pool, stats = build_union_pool(qf_entries, li_entries)
+    qf_ids = {gid for gid, _ in qf_entries}
+    li_ids = {gid for gid, _ in li_entries}
     return pool, qf_ids, li_ids, stats
 
 
@@ -157,13 +123,12 @@ def evaluate_model(model, holdout_X, holdout_y, holdout_ts):
     }
 
 
-def sample_entries(pool, n_games, seed, exclude_gids):
+def sample_entries(pool, n_games, exclude_gids):
     """Take top n_games entries from pool, excluding holdout game IDs.
 
     Pool is pre-sorted by interleaved quality ranking, so top-N gives
-    the best available data at each scale point. The seed parameter is
-    unused here (variance comes from drop_state_probability RNG) but
-    kept for API compatibility.
+    the best available data at each scale point. Variance across seeds
+    comes from drop_state_probability RNG in materialization, not here.
     """
     eligible = [(gid, data) for gid, data in pool if gid not in exclude_gids]
     return eligible[:n_games]
@@ -242,7 +207,9 @@ def _worker_run(args):
     (mode, max_games, num_leaves, num_trees, seed,
      qf_ratio, holdout_path, drop_prob, source, sym_aug) = args
 
-    # Re-load data in worker
+    # Re-load data in worker — ProcessPoolExecutor can't share state across
+    # processes, so each worker reads from disk. Data loading (~2-3s per source)
+    # is small relative to materialization + training time per run.
     qf_entries = load_all_entries(SOURCES['quality_filtered'])
     li_entries = load_all_entries(SOURCES['logged_in_games'])
 
@@ -265,7 +232,7 @@ def _worker_run(args):
             pool.reverse()
         else:
             pool, _, _, _ = build_deduplicated_pool(qf_entries, li_entries)
-        sampled = sample_entries(pool, max_games, seed, exclude_gids)
+        sampled = sample_entries(pool, max_games, exclude_gids)
     else:
         sampled = sample_mix_entries(
             qf_entries, li_entries, max_games, qf_ratio, seed, exclude_gids)
@@ -344,7 +311,7 @@ def run_union(pool, holdout_X, holdout_y, holdout_gids, holdout_ts,
                       f"seed={seed}")
                 print(f"{'=' * 60}")
 
-                sampled = sample_entries(pool, max_games, seed, exclude_gids)
+                sampled = sample_entries(pool, max_games, exclude_gids)
                 n_games, n_states, metrics, elapsed = run_single_point(
                     sampled, num_leaves, num_trees,
                     holdout_X, holdout_y, holdout_ts,

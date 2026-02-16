@@ -27,6 +27,7 @@ from eval_metrics import (
     compute_temporal_metrics, compute_kq_metrics,
 )
 from symmetry import swap_teams
+from data_pool import interleave_dedup
 
 SOURCES = {
     'qf': 'quality_filtered/encoded/all_games.bin',
@@ -43,42 +44,6 @@ def load_entries(name):
     return entries
 
 
-def interleave_2(qf, li):
-    """Interleave QF and LI, dedup on the fly."""
-    seen = set()
-    pool = []
-    qi, li_i = 0, 0
-    while qi < len(qf) or li_i < len(li):
-        if qi < len(qf):
-            gid, data = qf[qi]; qi += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-        if li_i < len(li):
-            gid, data = li[li_i]; li_i += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-    return pool
-
-
-def interleave_3(qf, li, unf):
-    """Interleave QF, LI, Unfiltered (3-way round-robin), dedup on the fly."""
-    seen = set()
-    pool = []
-    qi, li_i, ui = 0, 0, 0
-    while qi < len(qf) or li_i < len(li) or ui < len(unf):
-        if qi < len(qf):
-            gid, data = qf[qi]; qi += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-        if li_i < len(li):
-            gid, data = li[li_i]; li_i += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-        if ui < len(unf):
-            gid, data = unf[ui]; ui += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-    return pool
 
 
 def load_holdout():
@@ -180,9 +145,9 @@ def main():
     random.Random(0).shuffle(unf)
 
     print("\nBuilding pools...")
-    pool_2way = interleave_2(qf, li)
+    pool_2way = interleave_dedup(qf, li)
     print(f"  QF+LI union: {len(pool_2way):,} games")
-    pool_3way = interleave_3(qf, li, unf)
+    pool_3way = interleave_dedup(qf, li, unf)
     print(f"  QF+LI+Unfiltered union: {len(pool_3way):,} games")
 
     ho_X, ho_y, ho_gids, ho_ts = load_holdout()

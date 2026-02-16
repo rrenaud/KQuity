@@ -22,6 +22,7 @@ from eval_metrics import (
     compute_temporal_metrics, compute_kq_metrics,
 )
 from symmetry import swap_teams
+from data_pool import interleave_dedup
 
 SOURCES = {
     'quality_filtered': 'quality_filtered/encoded/all_games.bin',
@@ -48,19 +49,7 @@ def build_interleaved_pool():
     li = list(read_packed_games(SOURCES['logged_in_games']))
     print(f"  {len(li):,} LI games")
 
-    seen = set()
-    pool = []
-    qi, li_i = 0, 0
-    while qi < len(qf) or li_i < len(li):
-        if qi < len(qf):
-            gid, data = qf[qi]; qi += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-        if li_i < len(li):
-            gid, data = li[li_i]; li_i += 1
-            if gid not in seen:
-                seen.add(gid); pool.append((gid, data))
-
+    pool = interleave_dedup(qf, li)
     print(f"  Union pool: {len(pool):,} games")
     return pool
 
