@@ -6,9 +6,11 @@ Labels: logged_in=1 (high quality), unfiltered=0 (mixed quality).
 Validation: tournament games should almost all score as high quality.
 
 Usage (from repo root):
-    python -m game_quality_classifier.train_quality_classifier              # uses cached features
-    python -m game_quality_classifier.train_quality_classifier --recompute  # recomputes features from CSVs
-    python -m game_quality_classifier.train_quality_classifier --sweep      # data size sweep 1K-32K
+    python -m game_quality_classifier.train_quality_classifier                  # single run, saves model
+    python -m game_quality_classifier.train_quality_classifier --recompute      # recompute features from CSVs
+    python -m game_quality_classifier.train_quality_classifier --sweep          # data size sweep 1K-32K
+    python -m game_quality_classifier.train_quality_classifier --param-sweep    # hyperparameter sweep
+    python -m game_quality_classifier.train_quality_classifier --self-distill   # self-distillation + ensemble
 """
 
 import argparse
@@ -36,8 +38,9 @@ THRESHOLD_PATH = os.path.join(CACHE_DIR, 'threshold.json')
 UNFILTERED_PATH = os.path.join(REPO_ROOT, 'unfiltered_partitioned/gameevents_[0-9]0[01].csv.gz')
 UNFILTERED_EVAL_PATH = os.path.join(REPO_ROOT, 'unfiltered_partitioned/gameevents_[0-9]0[23].csv.gz')
 # Logged-in shards are sorted by login count (highest quality first).
-LOGGED_IN_PATH = os.path.join(REPO_ROOT, 'logged_in_games/gameevents_0[0-1][0-9].csv.gz')
+LOGGED_IN_PATH = os.path.join(REPO_ROOT, 'logged_in_games/gameevents_0[0-3][0-9].csv.gz')
 TOURNAMENT_PATH = os.path.join(REPO_ROOT, 'late_tournament_games/late_tournament_game_events.csv.gz')
+DEFAULT_SIZE = 16000  # Max training examples per class
 
 
 def load_or_compute(name, csv_path, recompute=False):
@@ -68,16 +71,31 @@ DEFAULT_PARAMS = {
 
 def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
                        df_unfiltered_all, df_logged_in_all, df_tournament,
-                       features, verbose=True, params_override=None):
-    """Train model and return metrics dict."""
+                       features, verbose=True, params_override=None,
+                       random_state=42, bag_fraction=1.0):
+    """Train model and return metrics dict.
+
+    Args:
+        bag_fraction: Fraction of training data to bootstrap sample
+            (with replacement) before training. 1.0 = no bagging.
+    """
     X_unf_train = df_unfiltered_train[features].values
     X_log_train = df_logged_in_train[features].values
     X = np.vstack([X_unf_train, X_log_train])
     y = np.concatenate([np.zeros(len(X_unf_train)), np.ones(len(X_log_train))])
 
     X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=random_state, stratify=y
     )
+
+    # External bagging: bootstrap sample from training data.
+    # Use a derived seed so bagging is independent of the train/val split.
+    if bag_fraction < 1.0:
+        rng = np.random.RandomState(random_state + 1_000_000)
+        n_sample = int(len(X_train) * bag_fraction)
+        bag_idx = rng.choice(len(X_train), size=n_sample, replace=True)
+        X_train = X_train[bag_idx]
+        y_train = y_train[bag_idx]
 
     train_data = lgb.Dataset(X_train, y_train, feature_name=features)
     val_data = lgb.Dataset(X_val, y_val, feature_name=features, reference=train_data)
@@ -101,9 +119,6 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
     log_loss = sklearn.metrics.log_loss(y_val, val_preds)
 
     # Tournament-anchored thresholds.
-    # Note: logged-in pass rates are computed on training data (intentionally —
-    # we want to see what fraction of logged-in games pass the quality bar,
-    # not generalization error). Unfiltered uses separate eval shards.
     X_tournament = df_tournament[features].values
     X_unf_all = df_unfiltered_all[features].values
     X_log_all = df_logged_in_all[features].values
@@ -114,6 +129,9 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
     results = {
         'auc': auc, 'log_loss': log_loss,
         'model': model, 'importance': model.feature_importance(importance_type='gain'),
+        'tournament_scores': tournament_scores,
+        'unfiltered_scores': unfiltered_scores,
+        'logged_in_scores': logged_in_scores,
     }
     for recall_target in [0.99, 0.95]:
         threshold = np.percentile(tournament_scores, 100 * (1 - recall_target))
@@ -133,6 +151,9 @@ def main():
                         help='Run data size sweep from 1K to 32K')
     parser.add_argument('--param-sweep', action='store_true',
                         help='Sweep LightGBM hyperparameters one-at-a-time')
+    parser.add_argument('--self-distill', action='store_true',
+                        help='Self-distillation: prune >=9-login positives with existing model, '
+                             'add top-scoring 8-login games, train bagged ensemble')
     args = parser.parse_args()
 
     if args.recompute and os.path.exists(CACHE_DIR):
@@ -158,6 +179,132 @@ def main():
     print(f'Removed from logged-in:  {len(df_logged_in) - len(df_logged_in_clean)}/{len(df_logged_in)}')
 
     features = FEATURE_COLUMNS
+
+    if args.self_distill:
+        if not os.path.exists(MODEL_PATH):
+            print(f'ERROR: Self-distillation requires an existing model at {MODEL_PATH}')
+            print('Run a single training first: python -m game_quality_classifier.train_quality_classifier')
+            return
+        from compute_ratings import load_usergame
+        usergame = load_usergame(
+            os.path.join(REPO_ROOT, 'unfiltered_partitioned/usergame.csv'))
+
+        # Base: logged-in games with >=9 logins
+        game_ids = df_logged_in_clean['game_id'].values
+        keep_9 = np.array([len(usergame.get(gid, {})) >= 9 for gid in game_ids])
+        df_base = df_logged_in_clean[keep_9].reset_index(drop=True)
+        base_game_ids = set(df_base['game_id'])
+        print(f'\n=== Base: {len(df_base)} games with >=9 logins ===')
+
+        # Score base games with existing quality model, remove bottom 10%
+        existing_model = lgb.Booster(model_file=MODEL_PATH)
+        base_scores = existing_model.predict(df_base[features].values)
+        p10_threshold = np.percentile(base_scores, 10)
+        keep_top90 = base_scores >= p10_threshold
+        df_base_pruned = df_base[keep_top90].reset_index(drop=True)
+        print(f'Quality scores on >=9 base: mean={base_scores.mean():.4f}, '
+              f'p10={p10_threshold:.4f}, p50={np.percentile(base_scores, 50):.4f}')
+        print(f'After removing bottom 10%: {len(df_base_pruned)} games '
+              f'(removed {(~keep_top90).sum()})')
+
+        # Get 8-login games, score them, sort by score desc
+        keep_8 = np.array([len(usergame.get(gid, {})) == 8 for gid in game_ids])
+        df_login8 = df_logged_in_clean[keep_8].reset_index(drop=True)
+        login8_scores = existing_model.predict(df_login8[features].values)
+        sort_idx = np.argsort(-login8_scores)
+        df_login8 = df_login8.iloc[sort_idx].reset_index(drop=True)
+        login8_scores = login8_scores[sort_idx]
+        print(f'\n=== 8-login games: {len(df_login8)} total ===')
+        print(f'Quality scores: mean={login8_scores.mean():.4f}, '
+              f'p10={np.percentile(login8_scores, 10):.4f}, '
+              f'p50={np.percentile(login8_scores, 50):.4f}, '
+              f'p90={np.percentile(login8_scores, 90):.4f}')
+
+        # Best positive set: pruned >=9 + top 2000 login8
+        df_best = pd.concat([df_base_pruned, df_login8.iloc[:2000]], ignore_index=True)
+        print(f'\nPositive set: {len(df_best)} games (pruned >=9 + top 2K login8)')
+
+        # Train N models with bagging, collect per-seed and ensemble results
+        N_SEEDS = 10
+        all_results = {m: [] for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']}
+        all_tournament_scores = []
+        all_unfiltered_scores = []
+        all_logged_in_scores = []
+
+        print(f'\n=== Training {N_SEEDS} bagged models ===')
+        print(f'{"Seed":>5} {"AUC":>7} {"LogLoss":>8} {"Unf@99%":>8} {"Unf@95%":>8}')
+        print('-' * 42)
+        for seed in range(N_SEEDS):
+            r = train_and_evaluate(
+                df_unfiltered_clean.iloc[:DEFAULT_SIZE], df_best,
+                df_unfiltered_eval, df_logged_in, df_tournament,
+                features, verbose=False, random_state=seed,
+                bag_fraction=0.8,
+            )
+            for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
+                all_results[m].append(r[m])
+            all_tournament_scores.append(r['tournament_scores'])
+            all_unfiltered_scores.append(r['unfiltered_scores'])
+            all_logged_in_scores.append(r['logged_in_scores'])
+            print(f'{seed:>5} {r["auc"]:>7.4f} {r["log_loss"]:>8.4f} '
+                  f'{r["unf_pass_99"]:>7.1%} {r["unf_pass_95"]:>7.1%}')
+
+        # Individual model summary
+        print(f'\n=== Individual models (mean +/- std over {N_SEEDS} seeds) ===')
+        for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']:
+            vals = np.array(all_results[m])
+            print(f'  {m:<15} {vals.mean():.4f} +/- {vals.std():.4f}')
+
+        # Ensemble: average all N models' predictions
+        ens_tournament = np.mean(all_tournament_scores, axis=0)
+        ens_unfiltered = np.mean(all_unfiltered_scores, axis=0)
+        ens_logged_in = np.mean(all_logged_in_scores, axis=0)
+
+        print(f'\n=== Ensemble of {N_SEEDS} bagged models ===')
+        for recall_target in [0.99, 0.95]:
+            threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
+            pct = int(recall_target * 100)
+            unf_pass = (ens_unfiltered >= threshold).mean()
+            log_pass = (ens_logged_in >= threshold).mean()
+            print(f'  @{pct}% recall: threshold={threshold:.4f}, '
+                  f'unf_pass={unf_pass:.1%}, log_pass={log_pass:.1%}')
+
+        # Plot: individual models + ensemble point
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        # Compute ensemble metrics for the plot
+        ens_metrics = {}
+        for recall_target in [0.99, 0.95]:
+            threshold = np.percentile(ens_tournament, 100 * (1 - recall_target))
+            pct = int(recall_target * 100)
+            ens_metrics[f'unf_pass_{pct}'] = (ens_unfiltered >= threshold).mean()
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        for ax, pct, label in zip(axes, [99, 95], ['Unf pass @99%', 'Unf pass @95%']):
+            metric = f'unf_pass_{pct}'
+            vals = np.array(all_results[metric]) * 100
+            ens_val = ens_metrics[metric] * 100
+            # Individual models as scatter
+            ax.scatter(range(N_SEEDS), vals, color='#3498db', s=60, zorder=3,
+                       label=f'Individual models (mean={vals.mean():.1f}%)')
+            ax.axhline(vals.mean(), color='#3498db', linestyle='--', alpha=0.5)
+            # Ensemble as horizontal line
+            ax.axhline(ens_val, color='#e74c3c', linewidth=2,
+                       label=f'Ensemble of {N_SEEDS} ({ens_val:.1f}%)')
+            ax.set_xlabel('Seed')
+            ax.set_ylabel(label)
+            ax.set_title(label)
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+        fig.suptitle(f'Bagged Ensemble: {N_SEEDS} models, bag=0.8 ({len(df_best)} positives)', fontsize=13)
+        fig.tight_layout()
+        plot_path = os.path.join(REPO_ROOT, 'quality_positive_sweep.png')
+        fig.savefig(plot_path, dpi=150)
+        plt.close(fig)
+        print(f'\nPlot saved to {plot_path}')
+        return
 
     if args.sweep:
         # === Data Size Sweep ===
@@ -187,7 +334,6 @@ def main():
 
     if args.param_sweep:
         # === Hyperparameter Sweep (one-at-a-time) ===
-        DEFAULT_SIZE = 16000
         df_unf_train = df_unfiltered_clean.iloc[:DEFAULT_SIZE]
         df_log_train = df_logged_in_clean.iloc[:DEFAULT_SIZE]
 
@@ -232,7 +378,6 @@ def main():
         return
 
     # === Single Run ===
-    DEFAULT_SIZE = 16000
     df_unfiltered_train = df_unfiltered_clean.iloc[:DEFAULT_SIZE]
     df_logged_in_train = df_logged_in_clean.iloc[:DEFAULT_SIZE]
     print(f'Training sets: Unfiltered={len(df_unfiltered_train)}, Logged-in={len(df_logged_in_train)}')
