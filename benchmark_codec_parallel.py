@@ -75,8 +75,8 @@ def main():
     # Step 3: Binary sequential
     print('\n--- Binary sequential ---')
     t0 = time.perf_counter()
-    seq_states, seq_labels, seq_game_ids = sequential_materialize_bins(
-        SHARD_GLOB, drop_prob=0.0, base_seed=0, max_games=MAX_GAMES)
+    seq_states, seq_labels, seq_game_ids, seq_ts = sequential_materialize_bins(
+        SHARD_GLOB, drop_prob=0.0, max_games=MAX_GAMES)
     seq_time = time.perf_counter() - t0
     seq_n_games = np.unique(seq_game_ids).shape[0]
     print(f'  Games: {seq_n_games:,}')
@@ -89,8 +89,8 @@ def main():
     for nw in worker_counts:
         print(f'\n--- Binary parallel ({nw} workers) ---')
         t0 = time.perf_counter()
-        par_states, par_labels, par_game_ids = parallel_materialize_bins(
-            SHARD_GLOB, drop_prob=0.0, num_workers=nw, base_seed=0,
+        par_states, par_labels, par_game_ids, par_ts = parallel_materialize_bins(
+            SHARD_GLOB, drop_prob=0.0, num_workers=nw,
             max_games=MAX_GAMES)
         par_time = time.perf_counter() - t0
         par_n_games = np.unique(par_game_ids).shape[0]

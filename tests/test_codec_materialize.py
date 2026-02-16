@@ -8,7 +8,6 @@ import unittest
 import numpy as np
 
 from codec_materialize import (
-    _materialize_one_game_from_binary,
     _materialize_shard,
     parallel_materialize_bins,
     sequential_materialize_bins,
@@ -16,13 +15,13 @@ from codec_materialize import (
 from event_codec import (
     encode_csv_to_sharded_bins,
     encode_game,
+    materialize_entries,
     read_packed_games,
     reshard_packed_games,
-    walk_game_states,
     write_packed_games,
 )
 from fast_materialize import (
-    NUM_FEATURES, _process_game, _vectorize_state,
+    NUM_FEATURES, _process_game,
 )
 from tests.test_event_codec import _read_benchmark_games
 
@@ -53,18 +52,16 @@ class TestSingleGameMatchesFastPath(unittest.TestCase):
                 continue
             ref_features = ref_buf[:ref_idx]
 
-            # Binary codec path
+            # Binary codec path via materialize_entries
             codec_events = [tuple(e) for e in raw_events]
             encoded = encode_game(codec_events)
             if encoded is None:
                 continue
 
-            rows, label = _materialize_one_game_from_binary(
-                game_id, encoded, drop_prob=0.0, rng_seed=42)
-            if not rows:
+            codec_features, codec_labels, codec_gids, codec_ts = materialize_entries(
+                [(game_id, encoded)], drop_state_probability=0.0)
+            if codec_features.shape[0] == 0:
                 continue
-
-            codec_features = np.array(rows, dtype=np.float32)
 
             # Centisecond rounding can shift timestamps across the rel_ts > 5.0
             # boundary, causing +-1 row difference. Align by tail.
@@ -116,10 +113,11 @@ class TestShardRoundTrip(unittest.TestCase):
             self.assertGreater(len(shard_paths), 0)
 
             shard_glob = os.path.join(tmpdir, 'shard_*.bin')
-            seq_features, seq_labels, seq_game_ids = sequential_materialize_bins(
-                shard_glob, drop_prob=0.0, base_seed=0)
+            seq_features, seq_labels, seq_game_ids, seq_ts = \
+                sequential_materialize_bins(shard_glob, drop_prob=0.0)
 
             self.assertGreater(seq_features.shape[0], 0)
+            self.assertEqual(seq_features.shape[0], seq_ts.shape[0])
             print(f'\nShard round-trip: {seq_features.shape[0]} states from '
                   f'{len(shard_paths)} shards')
 
@@ -135,15 +133,16 @@ class TestParallelMatchesSequential(unittest.TestCase):
             encode_csv_to_sharded_bins(csv_glob, tmpdir, num_shards=4)
             shard_glob = os.path.join(tmpdir, 'shard_*.bin')
 
-            seq_features, seq_labels, seq_game_ids = sequential_materialize_bins(
-                shard_glob, drop_prob=0.0, base_seed=0)
-            par_features, par_labels, par_game_ids = parallel_materialize_bins(
-                shard_glob, drop_prob=0.0, num_workers=2, base_seed=0)
+            seq_features, seq_labels, seq_game_ids, seq_ts = \
+                sequential_materialize_bins(shard_glob, drop_prob=0.0)
+            par_features, par_labels, par_game_ids, par_ts = \
+                parallel_materialize_bins(shard_glob, drop_prob=0.0, num_workers=2)
 
             self.assertEqual(seq_features.shape, par_features.shape)
             np.testing.assert_array_equal(seq_features, par_features)
             np.testing.assert_array_equal(seq_labels, par_labels)
             np.testing.assert_array_equal(seq_game_ids, par_game_ids)
+            np.testing.assert_array_equal(seq_ts, par_ts)
             print(f'\nParallel matches sequential: {seq_features.shape[0]} states')
 
 
