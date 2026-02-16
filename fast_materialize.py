@@ -408,7 +408,8 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
 
 # --- Main entry point ---
 
-def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None):
+def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None,
+                     max_games=None):
     """Fast path: CSV events -> (feature_matrix, labels, game_ids, timestamps).
 
     Args:
@@ -417,6 +418,7 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
         ratings_by_game: Optional dict {game_id: np.array(10)} of pre-game mu values.
             When provided, output has 62 features (with rating features).
             When None, output has 52 features (original layout).
+        max_games: Optional limit on number of games to process.
 
     Returns:
         (states, labels, game_ids, timestamps): numpy arrays of shape
@@ -428,7 +430,7 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
     games = {}
     game_order = []
 
-    for filename in glob.glob(csv_path):
+    for filename in sorted(glob.glob(csv_path)):
         opener = gzip.open if filename.endswith('.gz') else open
         with opener(filename, 'rt') as f:
             reader = csv.reader(f)
@@ -439,9 +441,13 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None)
                     continue
                 game_id = int(row[COL_GAME_ID])
                 if game_id not in games:
+                    if max_games is not None and len(game_order) >= max_games:
+                        break
                     games[game_id] = []
                     game_order.append(game_id)
                 games[game_id].append((_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+        if max_games is not None and len(game_order) >= max_games:
+            break
 
     # Phase 2: Pre-allocate output buffers (total_events is the absolute max rows)
     total_events = sum(len(evts) for evts in games.values())

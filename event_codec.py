@@ -24,6 +24,7 @@ Opcode+payload packing:
   3-byte: [opcode:4][payload_hi:4][mid:8][lo:8]   (20 bits payload)
 """
 
+import glob
 import json
 import os
 from typing import Iterator, Tuple
@@ -481,7 +482,6 @@ def encode_csv_to_packed(csv_path, out_path):
     Returns (encoded_count, rejected_count).
     """
     import csv as csv_mod
-    import glob
     import gzip
 
     games = {}
@@ -513,3 +513,99 @@ def encode_csv_to_packed(csv_path, out_path):
 
     write_packed_games(entries, out_path)
     return len(entries), rejected
+
+
+def reshard_packed_games(input_path, output_dir, num_shards):
+    """Split a packed .bin file into N shard files using partial prefix reads.
+
+    Scans entry headers to build an offset table, then copies byte ranges
+    directly without buffering all payloads in memory. Preserves input order,
+    so sortedness of the original file is maintained within and across shards.
+
+    Each shard is written as shard_NNN.bin in output_dir.
+    Returns list of shard paths.
+    """
+    # Phase 1: scan headers to get game count and byte offsets of each entry
+    entry_offsets = []  # (file_offset, entry_total_bytes) for each game
+    with open(input_path, 'rb') as f:
+        (num_games,) = struct.unpack(_HEADER_FMT, f.read(4))
+        for _ in range(num_games):
+            entry_start = f.tell()
+            _game_id, length = struct.unpack(_ENTRY_FMT, f.read(_ENTRY_SIZE))
+            f.seek(length, 1)  # skip payload
+            entry_offsets.append((entry_start, _ENTRY_SIZE + length))
+
+    os.makedirs(output_dir, exist_ok=True)
+    # Round-robin (striped) assignment so each shard gets an even slice of
+    # the input ordering.
+    shard_buckets = [[] for _ in range(num_shards)]
+    for idx, offset_entry in enumerate(entry_offsets):
+        shard_buckets[idx % num_shards].append(offset_entry)
+    shard_paths = []
+
+    # Phase 2: copy byte ranges into shard files
+    with open(input_path, 'rb') as f:
+        for i in range(num_shards):
+            if not shard_buckets[i]:
+                continue
+            path = os.path.join(output_dir, f'shard_{i:03d}.bin')
+            with open(path, 'wb') as out:
+                out.write(struct.pack(_HEADER_FMT, len(shard_buckets[i])))
+                for file_offset, entry_bytes in shard_buckets[i]:
+                    f.seek(file_offset)
+                    out.write(f.read(entry_bytes))
+            shard_paths.append(path)
+
+    return shard_paths
+
+
+def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
+    """Encode all CSV partition files into N binary shards directly.
+
+    Returns (total_encoded, total_rejected, shard_paths).
+    """
+    import csv as csv_mod
+    import gzip
+
+    games = {}
+    game_order = []
+    for filename in sorted(glob.glob(csv_glob)):
+        opener = gzip.open if filename.endswith('.gz') else open
+        with opener(filename, 'rt') as f:
+            reader = csv_mod.reader(f)
+            next(reader)
+            for row in reader:
+                event_type = row[COL_TYPE]
+                if event_type in SKIP_EVENTS:
+                    continue
+                game_id = int(row[COL_GAME_ID])
+                if game_id not in games:
+                    games[game_id] = []
+                    game_order.append(game_id)
+                games[game_id].append(
+                    (_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+
+    entries = []
+    rejected = 0
+    for game_id in game_order:
+        encoded = encode_game(list(games[game_id]))
+        if encoded is None:
+            rejected += 1
+            continue
+        entries.append((game_id, encoded))
+
+    os.makedirs(output_dir, exist_ok=True)
+    # Round-robin (striped) assignment so each shard gets an even slice of
+    # the quality ordering.  Game 0 → shard 0, game 1 → shard 1, etc.
+    shard_buckets = [[] for _ in range(num_shards)]
+    for idx, entry in enumerate(entries):
+        shard_buckets[idx % num_shards].append(entry)
+    shard_paths = []
+    for i in range(num_shards):
+        if not shard_buckets[i]:
+            continue
+        path = os.path.join(output_dir, f'shard_{i:03d}.bin')
+        write_packed_games(shard_buckets[i], path)
+        shard_paths.append(path)
+
+    return len(entries), rejected, shard_paths
