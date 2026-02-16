@@ -8,6 +8,7 @@ import unittest
 
 import numpy as np
 
+from event_codec import _game_state_to_vectorize_args
 from constants import ContestableState, Team
 from fast_materialize import (
     _MAP_LOOKUPS, _parse_ts, _process_game, _vectorize_state,
@@ -38,36 +39,6 @@ def _read_benchmark_games():
                     game_order.append(game_id)
                 games[game_id].append((_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
     return games, game_order
-
-
-def _game_state_to_vectorize_args(game_state):
-    """Extract the raw variables from GameState for _vectorize_state."""
-    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
-    eggs = [0, 0]
-    food_count = [0, 0]
-
-    for t in range(2):
-        ts = game_state.teams[t]
-        eggs[t] = ts.eggs
-        food_count[t] = sum(ts.food_deposited)
-        for wi in range(4):
-            ws = ts.workers[wi]
-            w[t][wi] = [ws.is_bot, ws.has_food, ws.has_speed, ws.has_wings]
-
-    maiden_map = {
-        ContestableState.NEUTRAL: 0,
-        ContestableState.BLUE: 1,
-        ContestableState.GOLD: -1,
-    }
-    maiden_states = [maiden_map[m] for m in game_state.maiden_states]
-    map_idx = MAP_INDEX[game_state.map_info.map_id.value]
-    gold_sym = 1.0 if game_state.map_info.gold_on_left else -1.0
-
-    return (w, eggs, food_count, maiden_states, map_idx,
-            game_state.snail_state.snail_x,
-            game_state.snail_state.snail_velocity,
-            game_state.snail_state.last_touch_timestamp,
-            game_state.berries_available, gold_sym)
 
 
 class TestEventCodecCorrectness(unittest.TestCase):
