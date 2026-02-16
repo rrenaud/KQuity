@@ -4,7 +4,8 @@ Provides per-shard, sequential, and parallel materialization from the
 binary-encoded game format produced by event_codec.
 """
 
-import glob as glob_mod
+import glob
+import math
 import multiprocessing
 
 import numpy as np
@@ -30,6 +31,22 @@ def _materialize_shard(shard_path, drop_prob, max_games=None):
     return materialize_entries(_iter_entries(), drop_prob)
 
 
+def _resolve_shards(shard_glob, max_games):
+    """Resolve shard paths and compute per-shard game limit.
+
+    Returns (shard_paths, per_shard) where per_shard is None if no limit.
+    Uses ceiling division so total across shards is at most
+    max_games + num_shards - 1 (each shard gets ceil(max_games / num_shards)).
+    """
+    shard_paths = sorted(glob.glob(shard_glob))
+    if not shard_paths:
+        raise ValueError(f'No shards found matching {shard_glob}')
+    per_shard = None
+    if max_games is not None:
+        per_shard = max(1, math.ceil(max_games / len(shard_paths)))
+    return shard_paths, per_shard
+
+
 def _collect_results(results):
     """Concatenate per-shard results, handling the all-empty case."""
     non_empty = [r for r in results if r[0].shape[0] > 0]
@@ -50,22 +67,14 @@ def parallel_materialize_bins(shard_glob, drop_prob=0.0, num_workers=4,
     """Materialize binary shards in parallel using multiprocessing.
 
     Args:
-        max_games: Optional total game limit, distributed evenly across shards.
-            With striped (round-robin) sharding, this gives each worker an equal
-            slice and each shard stops early via per-shard limit.
-            Note: may slightly overshoot if max_games < num_shards (clamped to
-            1 per shard minimum).
+        max_games: Optional total game limit, distributed across shards via
+            ceiling division. Each shard processes at most
+            ceil(max_games / num_shards) games, so the total may exceed
+            max_games by up to num_shards - 1.
 
     Returns (features, labels, game_ids, timestamps) as numpy arrays.
     """
-    shard_paths = sorted(glob_mod.glob(shard_glob))
-    if not shard_paths:
-        raise ValueError(f'No shards found matching {shard_glob}')
-
-    per_shard = None
-    if max_games is not None:
-        per_shard = max(1, max_games // len(shard_paths))
-
+    shard_paths, per_shard = _resolve_shards(shard_glob, max_games)
     args = [(path, drop_prob, per_shard) for path in shard_paths]
 
     with multiprocessing.Pool(num_workers) as pool:
@@ -78,19 +87,14 @@ def sequential_materialize_bins(shard_glob, drop_prob=0.0, max_games=None):
     """Materialize binary shards sequentially (single-process baseline).
 
     Args:
-        max_games: Optional total game limit, distributed evenly across shards.
-            Note: may slightly overshoot if max_games < num_shards (clamped to
-            1 per shard minimum).
+        max_games: Optional total game limit, distributed across shards via
+            ceiling division. Each shard processes at most
+            ceil(max_games / num_shards) games, so the total may exceed
+            max_games by up to num_shards - 1.
 
     Returns (features, labels, game_ids, timestamps) as numpy arrays.
     """
-    shard_paths = sorted(glob_mod.glob(shard_glob))
-    if not shard_paths:
-        raise ValueError(f'No shards found matching {shard_glob}')
-
-    per_shard = None
-    if max_games is not None:
-        per_shard = max(1, max_games // len(shard_paths))
+    shard_paths, per_shard = _resolve_shards(shard_glob, max_games)
 
     results = []
     for path in shard_paths:
