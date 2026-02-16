@@ -4,7 +4,7 @@ Win-probability model for Killer Queen (arcade), trained on game event streams.
 
 Two classifiers:
 - **Win-probability model**: Partial game state → P(gold wins). Uses 52 in-game features (berry counts, snail position, kills, etc.) extracted at each event during a game.
-- **Game quality classifier**: Full game event stream → is this a competitive game? Uses 69 hand-crafted heuristic features over the entire game. Trained on a small set of tournament games as positive examples. Used to filter training data for the win-probability model.
+- **Game quality classifier**: Full game event stream → is this a competitive game? Uses 69 hand-crafted heuristic features over the entire game. Trained on logged-in games as positives, unfiltered games as negatives. Tournament games anchor the threshold. Used to filter training data for the win-probability model.
 
 ## Data
 
@@ -25,6 +25,14 @@ To re-encode from CSV: `python encode_datasets.py`
 - `preprocess.py` — Slow OO path with GameEvent classes. Used for verification and event-level operations.
 - `train_model.py` — Training pipeline: partition data, materialize features, train LightGBM.
 - `symmetry.py` — Blue/Gold team swap for data augmentation.
+
+## Quality classifier lessons (from `model_experiments/rating_based_quality_experiments.md`)
+
+- **Login count is the dominant positive signal.** >=9 logins is the sweet spot. Player skill ratings add nothing beyond what login count already captures.
+- **Self-distillation works.** Use the existing classifier to prune bottom 10% of positives and cherry-pick high-scoring 8-login games. Both improve training signal.
+- **More data only helps if it's clean.** Adding 2K cherry-picked 8-login games helps; adding 4K (dipping into lower quality) hurts. Adding quality-filtered games (circular) doesn't help.
+- **Bagged ensembles are free.** Train multiple models with 80% bootstrap bagging + different seeds, average predictions. Strictly better than any single model at no extra cost.
+- **Always validate with multiple seeds.** Seed variance on unf@95% is +/- 0.4-0.6%. Any claimed improvement under ~1pp needs multi-seed confirmation.
 
 ## Running tests
 
