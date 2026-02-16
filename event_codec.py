@@ -476,7 +476,7 @@ def write_packed_games(entries, path):
 
     Games with payloads exceeding uint16 max (65535 bytes) are skipped.
     """
-    skipped = 0
+    skipped_ids = []
     with open(path, 'wb') as f:
         # Write placeholder count, patch after
         count_pos = f.tell()
@@ -484,7 +484,7 @@ def write_packed_games(entries, path):
         written = 0
         for game_id, data in entries:
             if len(data) > 65535:
-                skipped += 1
+                skipped_ids.append(game_id)
                 continue
             f.write(struct.pack(_ENTRY_FMT, game_id, len(data)))
             f.write(data)
@@ -492,10 +492,10 @@ def write_packed_games(entries, path):
         # Patch actual count
         f.seek(count_pos)
         f.write(struct.pack(_HEADER_FMT, written))
-    if skipped > 0:
+    if skipped_ids:
         import sys
-        print(f"  Warning: {skipped} games skipped (payload > 65535 bytes)",
-              file=sys.stderr)
+        print(f"  Warning: {len(skipped_ids)} games skipped (payload > 65535 bytes): "
+              f"{skipped_ids}", file=sys.stderr)
 
 
 def read_packed_games(path):
@@ -567,6 +567,9 @@ def encode_csv_to_packed(csv_path, out_path):
 
 def reshard_packed_games(input_path, output_dir, num_shards):
     """Split a packed .bin file into N shard files using partial prefix reads.
+
+    Intended for migrating existing single .bin files into the sharded format.
+    For new data, prefer encode_csv_to_sharded_bins() which shards directly.
 
     Scans entry headers to build an offset table, then copies byte ranges
     directly without buffering all payloads in memory. Preserves input order,

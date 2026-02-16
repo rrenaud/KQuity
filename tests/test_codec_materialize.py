@@ -8,7 +8,6 @@ import unittest
 import numpy as np
 
 from codec_materialize import (
-    _materialize_shard,
     parallel_materialize_bins,
     sequential_materialize_bins,
 )
