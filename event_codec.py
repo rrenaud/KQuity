@@ -508,17 +508,19 @@ def read_packed_games(path):
             yield game_id, data
 
 
-def encode_csv_to_packed(csv_path, out_path):
-    """Encode all games from CSV/gzip files into a packed binary file.
+def _read_csv_games(csv_glob):
+    """Read games from CSV/gzip files into a dict keyed by game_id.
 
-    Returns (encoded_count, rejected_count).
+    Returns:
+        games: dict {game_id: [(timestamp, event_type, values_str), ...]}.
+        game_order: list of game_ids in first-seen order.
     """
     import csv as csv_mod
     import gzip
 
     games = {}
     game_order = []
-    for filename in sorted(glob.glob(csv_path)):
+    for filename in sorted(glob.glob(csv_glob)):
         opener = gzip.open if filename.endswith('.gz') else open
         with opener(filename, 'rt') as f:
             reader = csv_mod.reader(f)
@@ -533,7 +535,14 @@ def encode_csv_to_packed(csv_path, out_path):
                     game_order.append(game_id)
                 games[game_id].append(
                     (_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+    return games, game_order
 
+
+def _encode_games(games, game_order):
+    """Encode parsed games into binary, returning (entries, rejected_count).
+
+    entries is a list of (game_id, encoded_bytes) for successfully encoded games.
+    """
     entries = []
     rejected = 0
     for game_id in game_order:
@@ -542,7 +551,16 @@ def encode_csv_to_packed(csv_path, out_path):
             rejected += 1
             continue
         entries.append((game_id, encoded))
+    return entries, rejected
 
+
+def encode_csv_to_packed(csv_path, out_path):
+    """Encode all games from CSV/gzip files into a packed binary file.
+
+    Returns (encoded_count, rejected_count).
+    """
+    games, game_order = _read_csv_games(csv_path)
+    entries, rejected = _encode_games(games, game_order)
     write_packed_games(entries, out_path)
     return len(entries), rejected
 
@@ -596,35 +614,8 @@ def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
 
     Returns (total_encoded, total_rejected, shard_paths).
     """
-    import csv as csv_mod
-    import gzip
-
-    games = {}
-    game_order = []
-    for filename in sorted(glob.glob(csv_glob)):
-        opener = gzip.open if filename.endswith('.gz') else open
-        with opener(filename, 'rt') as f:
-            reader = csv_mod.reader(f)
-            next(reader)
-            for row in reader:
-                event_type = row[COL_TYPE]
-                if event_type in SKIP_EVENTS:
-                    continue
-                game_id = int(row[COL_GAME_ID])
-                if game_id not in games:
-                    games[game_id] = []
-                    game_order.append(game_id)
-                games[game_id].append(
-                    (_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
-
-    entries = []
-    rejected = 0
-    for game_id in game_order:
-        encoded = encode_game(list(games[game_id]))
-        if encoded is None:
-            rejected += 1
-            continue
-        entries.append((game_id, encoded))
+    games, game_order = _read_csv_games(csv_glob)
+    entries, rejected = _encode_games(games, game_order)
 
     os.makedirs(output_dir, exist_ok=True)
     # Round-robin (striped) assignment so each shard gets an even slice of
