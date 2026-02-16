@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import lightgbm as lgb
-import sklearn.metrics
 
 import random
 
@@ -55,13 +54,14 @@ GRID = [
 ]
 
 
-def load_and_materialize(bin_path, drop_state_probability=0.0, max_games=None):
+def load_and_materialize(bin_path, drop_state_probability=0.0, max_games=None,
+                         exclude_game_ids=None):
     """Load binary-encoded games and materialize features."""
     print(f"  Materializing {bin_path} (max_games={max_games})...")
     start = time.time()
     states, labels, game_ids, timestamps = fast_materialize_from_codec(
         bin_path, drop_state_probability=drop_state_probability,
-        max_games=max_games)
+        max_games=max_games, exclude_game_ids=exclude_game_ids)
     elapsed = time.time() - start
     n_games = len(np.unique(game_ids))
     print(f"  {len(labels):,} states from {n_games:,} games in {elapsed:.1f}s")
@@ -73,19 +73,6 @@ def load_all_entries(bin_path):
     return list(read_packed_games(bin_path))
 
 
-def remove_leakage(train_states, train_labels, train_game_ids, train_timestamps,
-                   holdout_game_ids):
-    """Remove holdout game_ids from training data."""
-    holdout_set = set(holdout_game_ids)
-    mask = np.array([gid not in holdout_set for gid in train_game_ids])
-    removed = (~mask).sum()
-    if removed > 0:
-        print(f"  Removed {removed:,} states from {len(np.unique(train_game_ids[~mask])):,} "
-              f"overlapping games")
-    return (train_states[mask], train_labels[mask],
-            train_game_ids[mask], train_timestamps[mask])
-
-
 def train_model(train_X, train_y, num_leaves, num_trees):
     """Train a LightGBM binary classifier."""
     param = {
@@ -95,7 +82,7 @@ def train_model(train_X, train_y, num_leaves, num_trees):
         'boosting': 'gbdt',
         'verbose': -1,
     }
-    train_data = lgb.Dataset(train_X, train_y)
+    train_data = lgb.Dataset(train_X, train_y, free_raw_data=True)
     start = time.time()
     model = lgb.train(param, train_data, num_boost_round=num_trees)
     elapsed = time.time() - start
@@ -114,18 +101,17 @@ def evaluate_model(model, test_X, test_y):
     return {**std, **kq}
 
 
-def run_single(holdout_X, holdout_y, holdout_gids, holdout_ts,
-               max_games, num_leaves, num_trees):
+def run_single(holdout_X, holdout_y, holdout_gids,
+               max_games, num_leaves, num_trees, exclusive_gids=()):
     """Run one grid point: train both sources, return metrics dicts."""
     row = {}
+    holdout_set = set(holdout_gids)
+    exclude = holdout_set | set(exclusive_gids) if exclusive_gids else holdout_set
     for name, bin_path in SOURCES.items():
         print(f"\n--- {name} | {max_games} games, {num_leaves}L/{num_trees}T ---")
 
         train_X, train_y, train_gids, train_ts = load_and_materialize(
-            bin_path, max_games=max_games)
-
-        train_X, train_y, train_gids, train_ts = remove_leakage(
-            train_X, train_y, train_gids, train_ts, holdout_gids)
+            bin_path, max_games=max_games, exclude_game_ids=exclude)
 
         n_states = len(train_y)
         n_games = len(np.unique(train_gids))
@@ -177,6 +163,246 @@ def print_grid_results(all_results):
         ))
 
 
+def truncate_to_target(train_X, train_y, train_gids, train_ts,
+                       target_states, seed):
+    """Keep random whole games until the next would exceed target_states."""
+    np_rng = np.random.RandomState(seed)
+    unique_gids, counts = np.unique(train_gids, return_counts=True)
+    order = np_rng.permutation(len(unique_gids))
+    keep_gids = []
+    kept = 0
+    for idx in order:
+        game_count = counts[idx]
+        if kept + game_count > target_states:
+            break
+        keep_gids.append(unique_gids[idx])
+        kept += game_count
+    mask = np.isin(train_gids, keep_gids)
+    return train_X[mask], train_y[mask], train_gids[mask], train_ts[mask]
+
+
+def run_ranking(holdout_X, holdout_y, holdout_gids,
+                k_sweep, num_leaves, num_trees, n_random, pool_factor,
+                output_path=None, equal_states=False, exclusive=False,
+                drop_prob=0.0):
+    """Run ranked jitter experiment: sample K from top K*P games."""
+    holdout_set = set(holdout_gids)
+
+    # Load all entries from both sources
+    all_entries = {}
+    for name, bin_path in SOURCES.items():
+        print(f"  Loading all entries from {bin_path}...")
+        all_entries[name] = load_all_entries(bin_path)
+        print(f"  {len(all_entries[name]):,} games loaded")
+
+    if exclusive:
+        qf_ids = {gid for gid, _ in all_entries['quality_filtered']}
+        li_ids = {gid for gid, _ in all_entries['logged_in_games']}
+        overlap = qf_ids & li_ids
+        print(f"  Overlap: {len(overlap):,} games")
+        for name in all_entries:
+            before = len(all_entries[name])
+            all_entries[name] = [(gid, data) for gid, data in all_entries[name]
+                                 if gid not in overlap]
+            print(f"  {name}: {before:,} -> {len(all_entries[name]):,} "
+                  f"(removed {before - len(all_entries[name]):,} overlapping)")
+
+    # Determine processing order by states-per-game (smaller SPG first)
+    if equal_states:
+        spg = {}
+        cal_rng = random.Random(42)
+        for name in SOURCES:
+            entries = all_entries[name]
+            cal_sample = cal_rng.sample(entries, min(200, len(entries)))
+            _, cal_y, _, _ = materialize_entries(cal_sample)
+            spg[name] = len(cal_y) / len(cal_sample)
+            print(f"  {name}: ~{spg[name]:.1f} states/game "
+                  f"(calibrated on {len(cal_sample)} games)")
+            del cal_y
+        ordered_names = sorted(SOURCES.keys(), key=lambda n: spg[n])
+        print(f"  Processing order: {ordered_names[0]} (smaller) first")
+
+    all_runs = []
+
+    for k in k_sweep:
+        pools = {}
+        for name in SOURCES:
+            entries = all_entries[name]
+            pool_size = min(int(k * pool_factor), len(entries))
+            pools[name] = (entries[:pool_size], pool_size)
+
+        print(f"\n{'=' * 70}")
+        print(f"K={k}, pool_factor={pool_factor}, "
+              f"{n_random} seeds, {num_leaves}L/{num_trees}T")
+        print(f"{'=' * 70}")
+
+        for seed_idx in range(n_random):
+            seed = seed_idx
+
+            if equal_states:
+                # Sequential path: process smaller-SPG dataset first to get
+                # target state count, then truncate larger-SPG to match.
+                # Peak memory: one materialized dataset at a time.
+                target_states = None
+                for name in ordered_names:
+                    pool, pool_size = pools[name]
+                    rng = random.Random(seed)
+                    sampled = rng.sample(pool, min(k, len(pool)))
+                    sampled = [(gid, data) for gid, data in sampled
+                               if gid not in holdout_set]
+
+                    start = time.time()
+                    train_X, train_y, train_gids, train_ts = (
+                        materialize_entries(sampled,
+                                           drop_state_probability=drop_prob))
+                    elapsed = time.time() - start
+
+                    n_states = len(train_y)
+                    n_games = len(np.unique(train_gids))
+                    print(f"  {name} seed={seed}: {n_states:,} states from "
+                          f"{n_games:,} games in {elapsed:.1f}s")
+
+                    if target_states is not None:
+                        # Truncate larger-SPG dataset to match
+                        orig_states = n_states
+                        train_X, train_y, train_gids, train_ts = (
+                            truncate_to_target(
+                                train_X, train_y, train_gids, train_ts,
+                                target_states, seed))
+                        n_states = len(train_y)
+                        n_games = len(np.unique(train_gids))
+                        print(f"    {name}: truncated {orig_states:,} -> "
+                              f"{n_states:,} states ({n_games:,} games)")
+                    else:
+                        target_states = n_states
+
+                    model = train_model(train_X, train_y, num_leaves, num_trees)
+                    metrics = evaluate_model(model, holdout_X, holdout_y)
+                    metrics['n_states'] = n_states
+                    metrics['n_games'] = n_games
+
+                    all_runs.append({
+                        'dataset': name,
+                        'k': k,
+                        'pool_size': pool_size,
+                        'strategy': f'jitter_seed{seed}',
+                        'metrics': metrics,
+                    })
+
+                    del train_X, train_y, train_gids, train_ts, model
+                    gc.collect()
+            else:
+                # Original path: materialize both, then train both
+                materialized = {}
+
+                for name in SOURCES:
+                    pool, pool_size = pools[name]
+                    rng = random.Random(seed)
+                    sampled = rng.sample(pool, min(k, len(pool)))
+                    sampled = [(gid, data) for gid, data in sampled
+                               if gid not in holdout_set]
+
+                    start = time.time()
+                    train_X, train_y, train_gids, train_ts = (
+                        materialize_entries(sampled,
+                                           drop_state_probability=drop_prob))
+                    elapsed = time.time() - start
+
+                    materialized[name] = (
+                        train_X, train_y, train_gids, train_ts, pool_size)
+                    n_states = len(train_y)
+                    n_games = len(np.unique(train_gids))
+                    print(f"  {name} seed={seed}: {n_states:,} states from "
+                          f"{n_games:,} games in {elapsed:.1f}s")
+
+                # Train and evaluate both datasets
+                for name in SOURCES:
+                    train_X, train_y, train_gids, train_ts, pool_size = (
+                        materialized[name])
+                    n_states = len(train_y)
+                    n_games = len(np.unique(train_gids))
+
+                    model = train_model(train_X, train_y, num_leaves, num_trees)
+                    metrics = evaluate_model(model, holdout_X, holdout_y)
+                    metrics['n_states'] = n_states
+                    metrics['n_games'] = n_games
+
+                    all_runs.append({
+                        'dataset': name,
+                        'k': k,
+                        'pool_size': pool_size,
+                        'strategy': f'jitter_seed{seed}',
+                        'metrics': metrics,
+                    })
+
+                    del model
+                    gc.collect()
+
+                del materialized
+                gc.collect()
+
+        # Save incrementally after each K
+        if output_path:
+            with open(output_path, 'w') as f:
+                json.dump({
+                    'mode': 'ranking',
+                    'pool_factor': pool_factor,
+                    'equal_states': equal_states,
+                    'exclusive': exclusive,
+                    'drop_prob': drop_prob,
+                    'num_leaves': num_leaves,
+                    'num_trees': num_trees,
+                    'k_sweep': k_sweep,
+                    'n_random': n_random,
+                    'runs': all_runs,
+                }, f, indent=2)
+                f.write('\n')
+            print(f"  (saved to {output_path})")
+
+    return all_runs
+
+
+def print_ranking_results(all_runs, n_random):
+    """Print summary table grouped by (dataset, K) with mean +/- std."""
+    print(f"\n{'=' * 110}")
+    print("RANKING RESULTS (mean +/- std across seeds)")
+    print('=' * 110)
+
+    header = '{:<20} {:>5} {:>6} {:>5}  {:>10}  {:>15} {:>15} {:>15} {:>15}'
+    print(header.format(
+        'Dataset', 'K', 'Pool', 'Seeds', 'States',
+        'Loss', 'AUC', 'Egg', 'Sym'))
+    print('-' * 110)
+
+    # Group runs by (dataset, k)
+    groups = {}
+    for run in all_runs:
+        key = (run['dataset'], run['k'])
+        groups.setdefault(key, []).append(run)
+
+    for (dataset, k), runs in groups.items():
+        pool_size = runs[0]['pool_size']
+        n_seeds = len(runs)
+
+        states_vals = [r['metrics']['n_states'] for r in runs]
+        loss_vals = [r['metrics']['log_loss'] for r in runs]
+        auc_vals = [r['metrics']['auc_roc'] for r in runs]
+        egg_vals = [r['metrics']['egg_inversion_rate'] for r in runs]
+        sym_vals = [r['metrics']['symmetry_deviation'] for r in runs]
+
+        def fmt_mean_std(vals):
+            return '{:.4f}+/-{:.4f}'.format(np.mean(vals), np.std(vals))
+
+        print(header.format(
+            dataset, k, pool_size, n_seeds,
+            '{:.0f}+/-{:.0f}'.format(np.mean(states_vals), np.std(states_vals)),
+            fmt_mean_std(loss_vals),
+            fmt_mean_std(auc_vals),
+            fmt_mean_std(egg_vals),
+            fmt_mean_std(sym_vals),
+        ))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Compare models trained on different data sources')
@@ -187,26 +413,33 @@ def main():
                              'Use 0 for all games.')
     parser.add_argument('--grid', action='store_true',
                         help='Run full scaling grid instead of single point')
-    parser.add_argument('--variance', type=int, default=0, metavar='N',
-                        help='Run N times with different random game samples')
+    parser.add_argument('--ranking', action='store_true',
+                        help='Ranked jitter mode: sample K from top K*P games')
+    parser.add_argument('--k-sweep', type=int, nargs='+',
+                        default=[2000, 5000, 10000, 20000],
+                        help='K values to test in --ranking mode')
+    parser.add_argument('--n-random', type=int, default=5,
+                        help='Number of random seeds in --ranking mode')
+    parser.add_argument('--pool-factor', type=float, default=1.5,
+                        help='Pool size multiplier P in --ranking mode (pool=K*P)')
     parser.add_argument('--exclusive', action='store_true',
-                        help='Train only on games exclusive to each dataset '
-                             '(not in the other). Combines with --variance.')
+                        help='Remove overlapping games between quality_filtered '
+                             'and logged_in_games before training.')
     parser.add_argument('--equal-states', action='store_true',
-                        help='With --exclusive, subsample the larger source '
-                             'to match the smaller source\'s state count.')
+                        help='With --ranking, equalize state counts between '
+                             'datasets by truncating the larger one.')
+    parser.add_argument('--drop-prob', type=float, default=0.0,
+                        help='Probability of dropping each state during '
+                             'materialization (0.0 = keep all)')
     parser.add_argument('--output', type=str, default=None,
                         help='Save results to JSON file')
     args = parser.parse_args()
 
-    if args.equal_states and not args.exclusive:
-        parser.error('--equal-states requires --exclusive')
+    if args.equal_states and not args.ranking:
+        parser.error('--equal-states requires --ranking')
 
-    # Mutual exclusivity: --grid, --exclusive, and --variance are distinct modes
-    mode_count = sum([args.grid, args.exclusive, args.variance > 0])
-    if mode_count > 1 and not (args.exclusive and args.variance > 0):
-        parser.error('--grid, --exclusive, and --variance are mutually exclusive '
-                     '(except --exclusive may combine with --variance)')
+    if args.grid and args.ranking:
+        parser.error('--grid cannot be combined with --ranking')
 
     # Load tournament holdout (shared across all grid points)
     print("--- Loading tournament holdout ---")
@@ -222,264 +455,44 @@ def main():
     print(f"  Symmetry-augmented holdout: {len(holdout_y):,} states")
     del swapped_X, swapped_y
 
-    if args.exclusive:
-        max_games = args.max_games if args.max_games > 0 else None
+    overlap_gids = set()
+    if args.exclusive and not args.ranking:
+        # For ranking mode, run_ranking computes overlap from its in-memory entries.
+        qf_ids = {gid for gid, _ in read_packed_games(SOURCES['quality_filtered'])}
+        li_ids = {gid for gid, _ in read_packed_games(SOURCES['logged_in_games'])}
+        overlap_gids = qf_ids & li_ids
+        print(f"  Exclusive: {len(overlap_gids):,} overlapping games to remove "
+              f"(QF: {len(qf_ids):,}, LI: {len(li_ids):,})")
+
+    if args.ranking:
         num_leaves = args.num_leaves
         num_trees = args.num_trees
-        n_runs = max(args.variance, 1)
 
-        # Load all entries from both sources
-        all_entries = {}
-        for name, bin_path in SOURCES.items():
-            print(f"  Loading all entries from {bin_path}...")
-            all_entries[name] = load_all_entries(bin_path)
-            print(f"  {len(all_entries[name]):,} games loaded")
-
-        # Compute exclusive sets
-        qf_ids = {gid for gid, _ in all_entries['quality_filtered']}
-        li_ids = {gid for gid, _ in all_entries['logged_in_games']}
-        qf_only_ids = qf_ids - li_ids
-        li_only_ids = li_ids - qf_ids
-        print(f"\n  Overlap: {len(qf_ids & li_ids):,} games")
-        print(f"  QF-exclusive: {len(qf_only_ids):,} games")
-        print(f"  LI-exclusive: {len(li_only_ids):,} games")
-
-        exclusive_entries = {
-            'qf_exclusive': [(gid, data) for gid, data in all_entries['quality_filtered']
-                             if gid in qf_only_ids],
-            'li_exclusive': [(gid, data) for gid, data in all_entries['logged_in_games']
-                             if gid in li_only_ids],
-        }
-        del all_entries
-        for name, entries in exclusive_entries.items():
-            print(f"  {name}: {len(entries):,} entries retained")
-
-        print(f"\n{'=' * 90}")
-        mode = f"EXCLUSIVE VARIANCE: {n_runs} runs" if n_runs > 1 else "EXCLUSIVE"
+        mode_label = "RANKED JITTER"
+        if args.exclusive:
+            mode_label += " (exclusive)"
         if args.equal_states:
-            mode += " (equal-states)"
-        print(f"{mode}, {max_games} games, {num_leaves}L/{num_trees}T")
-        print(f"{'=' * 90}")
+            mode_label += " (equal-states)"
+        print(f"\n{'=' * 70}")
+        drop_str = f", drop_prob={args.drop_prob}" if args.drop_prob > 0 else ""
+        print(f"{mode_label}: K={args.k_sweep}, pool_factor={args.pool_factor}, "
+              f"{args.n_random} seeds, {num_leaves}L/{num_trees}T{drop_str}")
+        print(f"{'=' * 70}")
 
-        holdout_set = set(holdout_gids)
-        all_runs = []
+        all_runs = run_ranking(
+            holdout_X, holdout_y, holdout_gids,
+            k_sweep=args.k_sweep,
+            num_leaves=num_leaves,
+            num_trees=num_trees,
+            n_random=args.n_random,
+            pool_factor=args.pool_factor,
+            output_path=args.output,
+            equal_states=args.equal_states,
+            exclusive=args.exclusive,
+            drop_prob=args.drop_prob,
+        )
 
-        for run_idx in range(n_runs):
-            seed = run_idx
-            print(f"\n--- Run {run_idx + 1}/{n_runs} (seed={seed}) ---")
-            row = {'seed': seed}
-
-            # Phase 1: sample, filter holdout, materialize for all sources
-            materialized = {}
-            for name, entries in exclusive_entries.items():
-                rng = random.Random(seed)
-                n_sample = min(max_games, len(entries)) if max_games else len(entries)
-                sampled = rng.sample(entries, n_sample)
-
-                # Filter holdout games before materialization to avoid wasted work
-                sampled = [(gid, data) for gid, data in sampled
-                           if gid not in holdout_set]
-
-                start = time.time()
-                train_X, train_y, train_gids, train_ts = materialize_entries(
-                    sampled)
-                elapsed = time.time() - start
-
-                print(f"  {name}: {len(train_y):,} states in {elapsed:.1f}s")
-                materialized[name] = (train_X, train_y, train_gids, train_ts)
-
-            # Phase 2: equalize state counts by dropping whole games
-            if args.equal_states:
-                counts = {n: len(d[1]) for n, d in materialized.items()}
-                min_states = min(counts.values())
-                for name in materialized:
-                    if counts[name] > min_states:
-                        train_X, train_y, train_gids, train_ts = materialized[name]
-                        # Drop random games until at or below target
-                        np_rng = np.random.RandomState(seed)
-                        unique_gids = np.unique(train_gids)
-                        np_rng.shuffle(unique_gids)
-                        keep_gids = set()
-                        kept = 0
-                        for gid in unique_gids:
-                            game_count = (train_gids == gid).sum()
-                            if kept + game_count > min_states:
-                                continue
-                            keep_gids.add(gid)
-                            kept += game_count
-                        mask = np.array([gid in keep_gids for gid in train_gids])
-                        materialized[name] = (
-                            train_X[mask], train_y[mask],
-                            train_gids[mask], train_ts[mask])
-                        print(f"  {name}: subsampled {counts[name]:,} -> {kept:,} states "
-                              f"({len(keep_gids):,} games)")
-
-            # Phase 3: train and evaluate
-            for name in materialized:
-                train_X, train_y, train_gids, train_ts = materialized[name]
-                n_states = len(train_y)
-                n_games = len(np.unique(train_gids))
-                print(f"  {name}: training on {n_states:,} states from {n_games:,} games")
-
-                model = train_model(train_X, train_y, num_leaves, num_trees)
-                metrics = evaluate_model(model, holdout_X, holdout_y)
-                metrics['n_states'] = n_states
-                metrics['n_games'] = n_games
-                row[name] = metrics
-
-                del model
-                gc.collect()
-
-            del materialized
-            gc.collect()
-
-            all_runs.append(row)
-
-        # Print per-run table
-        print(f"\n{'=' * 90}")
-        header = '{:>4}  {:>8} {:>8} {:>7} {:>7} {:>7}  {:>8} {:>8} {:>7} {:>7} {:>7}'
-        print(header.format(
-            'Seed', 'QFx_Los', 'QFx_AUC', 'QFx_Acc', 'QFx_Egg', 'QFx_Sym',
-            'LIx_Los', 'LIx_AUC', 'LIx_Acc', 'LIx_Egg', 'LIx_Sym'))
-        print('-' * 90)
-        for r in all_runs:
-            qf, li = r['qf_exclusive'], r['li_exclusive']
-            print(header.format(
-                r['seed'],
-                '{:.4f}'.format(qf['log_loss']),
-                '{:.4f}'.format(qf['auc_roc']),
-                '{:.4f}'.format(qf['accuracy']),
-                '{:.4f}'.format(qf['egg_inversion_rate']),
-                '{:.4f}'.format(qf['symmetry_deviation']),
-                '{:.4f}'.format(li['log_loss']),
-                '{:.4f}'.format(li['auc_roc']),
-                '{:.4f}'.format(li['accuracy']),
-                '{:.4f}'.format(li['egg_inversion_rate']),
-                '{:.4f}'.format(li['symmetry_deviation']),
-            ))
-
-        if n_runs > 1:
-            # Print summary stats
-            print(f"\n{'=' * 90}")
-            print("SUMMARY (mean +/- std)")
-            print('-' * 90)
-            summary_header = '{:<25} {:>18} {:>18}'
-            print(summary_header.format('Metric', 'qf_exclusive', 'li_exclusive'))
-            print('-' * 65)
-            for key in METRIC_KEYS:
-                qf_vals = [r['qf_exclusive'][key] for r in all_runs]
-                li_vals = [r['li_exclusive'][key] for r in all_runs]
-                print(summary_header.format(
-                    key,
-                    '{:.4f} +/- {:.4f}'.format(np.mean(qf_vals), np.std(qf_vals)),
-                    '{:.4f} +/- {:.4f}'.format(np.mean(li_vals), np.std(li_vals)),
-                ))
-
-        if args.output:
-            with open(args.output, 'w') as f:
-                json.dump(all_runs, f, indent=2)
-                f.write('\n')
-            print(f"\nSaved to {args.output}")
-
-    elif args.variance > 0:
-        max_games = args.max_games if args.max_games > 0 else None
-        num_leaves = args.num_leaves
-        num_trees = args.num_trees
-        n_runs = args.variance
-
-        print(f"\n{'=' * 90}")
-        print(f"VARIANCE TEST: {n_runs} runs, {max_games} games, "
-              f"{num_leaves}L/{num_trees}T")
-        print(f"{'=' * 90}")
-
-        # Load all entries once per source
-        all_entries = {}
-        for name, bin_path in SOURCES.items():
-            print(f"  Loading all entries from {bin_path}...")
-            all_entries[name] = load_all_entries(bin_path)
-            print(f"  {len(all_entries[name]):,} games loaded")
-
-        holdout_set = set(holdout_gids)
-        all_runs = []
-
-        for run_idx in range(n_runs):
-            seed = run_idx
-            print(f"\n--- Run {run_idx + 1}/{n_runs} (seed={seed}) ---")
-            row = {'seed': seed}
-
-            for name in SOURCES:
-                entries = all_entries[name]
-                rng = random.Random(seed)
-                n_sample = min(max_games, len(entries)) if max_games else len(entries)
-                sampled = rng.sample(entries, n_sample)
-
-                start = time.time()
-                train_X, train_y, train_gids, train_ts = materialize_entries(
-                    sampled)
-                elapsed = time.time() - start
-
-                # Remove holdout leakage
-                mask = np.array([gid not in holdout_set for gid in train_gids])
-                train_X = train_X[mask]
-                train_y = train_y[mask]
-
-                n_states = len(train_y)
-                print(f"  {name}: {n_states:,} states in {elapsed:.1f}s")
-
-                model = train_model(train_X, train_y, num_leaves, num_trees)
-                metrics = evaluate_model(model, holdout_X, holdout_y)
-                metrics['n_states'] = n_states
-                row[name] = metrics
-
-                del train_X, train_y, train_gids, train_ts, model
-                gc.collect()
-
-            all_runs.append(row)
-
-        # Print per-run table
-        print(f"\n{'=' * 90}")
-        header = '{:>4}  {:>8} {:>8} {:>7} {:>7} {:>7}  {:>8} {:>8} {:>7} {:>7} {:>7}'
-        print(header.format(
-            'Seed', 'QF_Loss', 'QF_AUC', 'QF_Acc', 'QF_Egg', 'QF_Sym',
-            'LI_Loss', 'LI_AUC', 'LI_Acc', 'LI_Egg', 'LI_Sym'))
-        print('-' * 90)
-        for r in all_runs:
-            qf, li = r['quality_filtered'], r['logged_in_games']
-            print(header.format(
-                r['seed'],
-                '{:.4f}'.format(qf['log_loss']),
-                '{:.4f}'.format(qf['auc_roc']),
-                '{:.4f}'.format(qf['accuracy']),
-                '{:.4f}'.format(qf['egg_inversion_rate']),
-                '{:.4f}'.format(qf['symmetry_deviation']),
-                '{:.4f}'.format(li['log_loss']),
-                '{:.4f}'.format(li['auc_roc']),
-                '{:.4f}'.format(li['accuracy']),
-                '{:.4f}'.format(li['egg_inversion_rate']),
-                '{:.4f}'.format(li['symmetry_deviation']),
-            ))
-
-        # Print summary stats
-        print(f"\n{'=' * 90}")
-        print("SUMMARY (mean +/- std)")
-        print('-' * 90)
-        summary_header = '{:<25} {:>18} {:>18}'
-        print(summary_header.format('Metric', 'quality_filtered', 'logged_in_games'))
-        print('-' * 65)
-        for key in METRIC_KEYS:
-            qf_vals = [r['quality_filtered'][key] for r in all_runs]
-            li_vals = [r['logged_in_games'][key] for r in all_runs]
-            print(summary_header.format(
-                key,
-                '{:.4f} +/- {:.4f}'.format(np.mean(qf_vals), np.std(qf_vals)),
-                '{:.4f} +/- {:.4f}'.format(np.mean(li_vals), np.std(li_vals)),
-            ))
-
-        if args.output:
-            with open(args.output, 'w') as f:
-                json.dump(all_runs, f, indent=2)
-                f.write('\n')
-            print(f"\nSaved to {args.output}")
+        print_ranking_results(all_runs, args.n_random)
 
     elif args.grid:
         print("\n" + "=" * 130)
@@ -488,8 +501,9 @@ def main():
 
         all_results = []
         for max_games, num_leaves, num_trees in GRID:
-            row = run_single(holdout_X, holdout_y, holdout_gids, holdout_ts,
-                             max_games, num_leaves, num_trees)
+            row = run_single(holdout_X, holdout_y, holdout_gids,
+                             max_games, num_leaves, num_trees,
+                             exclusive_gids=overlap_gids)
             row['max_games'] = max_games
             row['num_leaves'] = num_leaves
             row['num_trees'] = num_trees
@@ -516,8 +530,9 @@ def main():
         print(f"Max games per source: {max_games or 'all'}")
         print("=" * 60)
 
-        row = run_single(holdout_X, holdout_y, holdout_gids, holdout_ts,
-                         max_games, args.num_leaves, args.num_trees)
+        row = run_single(holdout_X, holdout_y, holdout_gids,
+                         max_games, args.num_leaves, args.num_trees,
+                         exclusive_gids=overlap_gids)
 
         # Print comparison
         print("\n" + "=" * 60)

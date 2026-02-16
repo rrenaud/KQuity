@@ -673,13 +673,15 @@ def materialize_entries(entries, drop_state_probability=0.0):
 
 
 def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
-                                max_games=None):
+                                max_games=None, exclude_game_ids=None):
     """Materialize features from a packed binary file.
 
     Args:
         bin_path: Path to a packed binary file (from encode_csv_to_packed).
         drop_state_probability: Probability of dropping each eligible state.
         max_games: If set, only process this many games from the file.
+            Excluded games do not count toward this limit.
+        exclude_game_ids: Set of game IDs to skip entirely.
 
     Returns:
         (states, labels, game_ids, timestamps): numpy arrays matching
@@ -687,10 +689,12 @@ def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
     """
     def _iter_entries():
         games_processed = 0
-        for entry in read_packed_games(bin_path):
+        for game_id, encoded in read_packed_games(bin_path):
+            if exclude_game_ids and game_id in exclude_game_ids:
+                continue
             if max_games is not None and games_processed >= max_games:
                 break
             games_processed += 1
-            yield entry
+            yield game_id, encoded
 
     return materialize_entries(_iter_entries(), drop_state_probability)
