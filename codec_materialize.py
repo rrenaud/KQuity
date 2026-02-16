@@ -10,42 +10,13 @@ import random
 
 import numpy as np
 
-from constants import ContestableState, Team
-from event_codec import read_packed_games, walk_game_states
-from fast_materialize import (
-    MAP_INDEX, NUM_FEATURES, SCREEN_WIDTH,
-    _vectorize_state,
+from constants import Team
+from event_codec import (
+    _game_state_to_vectorize_args, read_packed_games, walk_game_states,
 )
-
-
-def _game_state_to_vectorize_args(game_state):
-    """Extract the raw variables from GameState for _vectorize_state."""
-    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
-    eggs = [0, 0]
-    food_count = [0, 0]
-
-    for t in range(2):
-        ts = game_state.teams[t]
-        eggs[t] = ts.eggs
-        food_count[t] = sum(ts.food_deposited)
-        for wi in range(4):
-            ws = ts.workers[wi]
-            w[t][wi] = [ws.is_bot, ws.has_food, ws.has_speed, ws.has_wings]
-
-    maiden_map = {
-        ContestableState.NEUTRAL: 0,
-        ContestableState.BLUE: 1,
-        ContestableState.GOLD: -1,
-    }
-    maiden_states = [maiden_map[m] for m in game_state.maiden_states]
-    map_idx = MAP_INDEX[game_state.map_info.map_id.value]
-    gold_sym = 1.0 if game_state.map_info.gold_on_left else -1.0
-
-    return (w, eggs, food_count, maiden_states, map_idx,
-            game_state.snail_state.snail_x,
-            game_state.snail_state.snail_velocity,
-            game_state.snail_state.last_touch_timestamp,
-            game_state.berries_available, gold_sym)
+from fast_materialize import (
+    NUM_FEATURES, _vectorize_state,
+)
 
 
 def _materialize_one_game_from_binary(game_id, encoded_bytes, drop_prob, rng_seed):

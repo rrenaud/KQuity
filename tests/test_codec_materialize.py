@@ -8,7 +8,6 @@ import unittest
 import numpy as np
 
 from codec_materialize import (
-    _game_state_to_vectorize_args,
     _materialize_one_game_from_binary,
     _materialize_shard,
     parallel_materialize_bins,

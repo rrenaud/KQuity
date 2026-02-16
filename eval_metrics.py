@@ -166,7 +166,8 @@ def compute_kq_metrics(model, states, labels, *, sample_size=5000):
     eligible = states[mask]
     n_sample = min(sample_size, len(eligible))
     if n_sample > 0:
-        indices = np.random.choice(len(eligible), n_sample, replace=False)
+        rng = np.random.RandomState(42)
+        indices = rng.choice(len(eligible), n_sample, replace=False)
         sample = eligible[indices]
         orig_preds = model.predict(sample)
         modified = sample.copy()

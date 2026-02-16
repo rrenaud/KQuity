@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from codec_materialize import _game_state_to_vectorize_args
+from event_codec import _game_state_to_vectorize_args
 from constants import ContestableState, Team
 from fast_materialize import (
     _MAP_LOOKUPS, _parse_ts, _process_game, _vectorize_state,
