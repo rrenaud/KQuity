@@ -27,6 +27,7 @@ from preprocess import (
 )
 import map_structure
 from fast_materialize import fast_materialize
+from symmetry import swap_teams
 
 
 def validate_and_partition_data(
@@ -279,7 +280,7 @@ def materialize_partition_range(
 
         if use_fast_path:
             try:
-                states, labels = fast_materialize(csv_path, drop_prob)
+                states, labels, _, _ = fast_materialize(csv_path, drop_prob)
                 if len(labels) > 0:
                     all_states.append(states)
                     all_labels.append(labels)
@@ -291,7 +292,7 @@ def materialize_partition_range(
             game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
             try:
-                states, labels = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
+                states, labels, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
                 all_states.append(states)
                 all_labels.append(labels)
             except Exception as e:
@@ -363,10 +364,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--slow-and-verify', action='store_true',
                         help='Run both slow and fast paths, assert identical output')
+    parser.add_argument('--symmetry-augment', action='store_true',
+                        help='Double training data via Blue/Gold symmetry swap')
     args = parser.parse_args()
 
     new_export_csv = 'export_20260115_210621/gameevent.csv'
-    new_partitioned_dir = 'new_data_partitioned'
+    new_partitioned_dir = 'unfiltered_partitioned'
     new_expt_name = 'new_data_model'
 
     # DEBUG: Limit number of games for testing (set to None for full run)
@@ -457,6 +460,14 @@ def main():
         test_X = np.load(f'{expt_dir}/test_states.npy')
         test_y = np.load(f'{expt_dir}/test_labels.npy')
         print(f"  Test samples: {len(test_y):,}")
+
+    # Symmetry augmentation (applied after loading, before training)
+    if args.symmetry_augment:
+        print("\nApplying symmetry augmentation...")
+        swap_X, swap_y = swap_teams(train_X, train_y)
+        train_X = np.vstack([train_X, swap_X])
+        train_y = np.concatenate([train_y, swap_y])
+        print(f"  Augmented training samples: {len(train_y):,} (2x original)")
 
     # Step 3: Train new model
     print("\n" + "=" * 60)

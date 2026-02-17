@@ -1,0 +1,232 @@
+[
+  {
+    "seed": 0,
+    "quality_filtered": {
+      "log_loss": 0.5664750424649831,
+      "brier_score": 0.1943446050463107,
+      "auc_roc": 0.7696669586772655,
+      "accuracy": 0.689825871726953,
+      "egg_inversion_rate": 0.0182,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.04673207594973467,
+      "n_states": 3278638
+    },
+    "logged_in_games": {
+      "log_loss": 0.5764257630827806,
+      "brier_score": 0.1982356958174525,
+      "auc_roc": 0.7603984018866761,
+      "accuracy": 0.6843079843427231,
+      "egg_inversion_rate": 0.0284,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05013836124128341,
+      "n_states": 2948751
+    }
+  },
+  {
+    "seed": 1,
+    "quality_filtered": {
+      "log_loss": 0.5689687344749249,
+      "brier_score": 0.19524617950788709,
+      "auc_roc": 0.7672483168660101,
+      "accuracy": 0.6876484928940528,
+      "egg_inversion_rate": 0.0362,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.049170183119388276,
+      "n_states": 3293010
+    },
+    "logged_in_games": {
+      "log_loss": 0.5741869176524004,
+      "brier_score": 0.19716226322964833,
+      "auc_roc": 0.7633392260793154,
+      "accuracy": 0.6873228165728925,
+      "egg_inversion_rate": 0.0252,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05038222557546523,
+      "n_states": 2958581
+    }
+  },
+  {
+    "seed": 2,
+    "quality_filtered": {
+      "log_loss": 0.5721257957845266,
+      "brier_score": 0.19639829338313528,
+      "auc_roc": 0.765303312903227,
+      "accuracy": 0.6877849667810152,
+      "egg_inversion_rate": 0.0268,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.048978125648969174,
+      "n_states": 3286159
+    },
+    "logged_in_games": {
+      "log_loss": 0.5753371321640075,
+      "brier_score": 0.1978928602508172,
+      "auc_roc": 0.7614551161442165,
+      "accuracy": 0.682961855548594,
+      "egg_inversion_rate": 0.0256,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05174140983116462,
+      "n_states": 2934372
+    }
+  },
+  {
+    "seed": 3,
+    "quality_filtered": {
+      "log_loss": 0.5707094804435199,
+      "brier_score": 0.1958944195079757,
+      "auc_roc": 0.7659794190636013,
+      "accuracy": 0.6872731897049063,
+      "egg_inversion_rate": 0.0234,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.04951188147536401,
+      "n_states": 3280511
+    },
+    "logged_in_games": {
+      "log_loss": 0.5735600398495253,
+      "brier_score": 0.19713427403038006,
+      "auc_roc": 0.7630998439496515,
+      "accuracy": 0.685412182155419,
+      "egg_inversion_rate": 0.0202,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.046694147393660235,
+      "n_states": 2934328
+    }
+  },
+  {
+    "seed": 4,
+    "quality_filtered": {
+      "log_loss": 0.5693883991123186,
+      "brier_score": 0.19541160153729364,
+      "auc_roc": 0.767066754252831,
+      "accuracy": 0.6878283902905032,
+      "egg_inversion_rate": 0.0358,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.045543960529333904,
+      "n_states": 3286579
+    },
+    "logged_in_games": {
+      "log_loss": 0.5746202951056799,
+      "brier_score": 0.1975392712164714,
+      "auc_roc": 0.7619377270491844,
+      "accuracy": 0.684156002059515,
+      "egg_inversion_rate": 0.0318,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.049570156108075365,
+      "n_states": 2936784
+    }
+  },
+  {
+    "seed": 5,
+    "quality_filtered": {
+      "log_loss": 0.5747246192816601,
+      "brier_score": 0.19780241746089877,
+      "auc_roc": 0.7611794647645398,
+      "accuracy": 0.6829463471523483,
+      "egg_inversion_rate": 0.0272,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.049272297385267116,
+      "n_states": 3294055
+    },
+    "logged_in_games": {
+      "log_loss": 0.5735190471664048,
+      "brier_score": 0.19721735613402538,
+      "auc_roc": 0.7625541788684437,
+      "accuracy": 0.6848973034000608,
+      "egg_inversion_rate": 0.0262,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.0497146794762112,
+      "n_states": 2939659
+    }
+  },
+  {
+    "seed": 6,
+    "quality_filtered": {
+      "log_loss": 0.5724257822249653,
+      "brier_score": 0.19664505721377726,
+      "auc_roc": 0.7640377074181945,
+      "accuracy": 0.6856355030613575,
+      "egg_inversion_rate": 0.0254,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.050550851183252546,
+      "n_states": 3286711
+    },
+    "logged_in_games": {
+      "log_loss": 0.5733679390329935,
+      "brier_score": 0.19713501662439173,
+      "auc_roc": 0.7625712061164368,
+      "accuracy": 0.684475475022177,
+      "egg_inversion_rate": 0.031,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05086437350204395,
+      "n_states": 2946152
+    }
+  },
+  {
+    "seed": 7,
+    "quality_filtered": {
+      "log_loss": 0.5700399558841694,
+      "brier_score": 0.19559324206452341,
+      "auc_roc": 0.7668180764557032,
+      "accuracy": 0.6889480964994448,
+      "egg_inversion_rate": 0.0306,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.0483574586297327,
+      "n_states": 3283515
+    },
+    "logged_in_games": {
+      "log_loss": 0.5747646875411725,
+      "brier_score": 0.1974862397180461,
+      "auc_roc": 0.7631782684691939,
+      "accuracy": 0.6854835207781493,
+      "egg_inversion_rate": 0.02,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05547957091767701,
+      "n_states": 2918200
+    }
+  },
+  {
+    "seed": 8,
+    "quality_filtered": {
+      "log_loss": 0.5697175591551612,
+      "brier_score": 0.19537543445692945,
+      "auc_roc": 0.7679102665677003,
+      "accuracy": 0.6902477001048367,
+      "egg_inversion_rate": 0.0294,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.0506700502801186,
+      "n_states": 3295733
+    },
+    "logged_in_games": {
+      "log_loss": 0.5756918853435177,
+      "brier_score": 0.19782267734937956,
+      "auc_roc": 0.7614099928614723,
+      "accuracy": 0.6851051159097535,
+      "egg_inversion_rate": 0.0256,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.051949035376475904,
+      "n_states": 2953793
+    }
+  },
+  {
+    "seed": 9,
+    "quality_filtered": {
+      "log_loss": 0.5739681514851287,
+      "brier_score": 0.19724931374359625,
+      "auc_roc": 0.7625757395249628,
+      "accuracy": 0.6858650273257941,
+      "egg_inversion_rate": 0.0378,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.04675167094411988,
+      "n_states": 3303315
+    },
+    "logged_in_games": {
+      "log_loss": 0.5696789494725242,
+      "brier_score": 0.19547320263182683,
+      "auc_roc": 0.7675580761349716,
+      "accuracy": 0.6895622289907756,
+      "egg_inversion_rate": 0.0296,
+      "egg_inversion_n": 5000,
+      "symmetry_deviation": 0.05280710895848394,
+      "n_states": 2944078
+    }
+  }
+]

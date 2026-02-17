@@ -25,6 +25,7 @@ MAP_NAMES = ['map_day', 'map_night', 'map_dusk', 'map_twilight']
 MAP_INDEX = {name: i for i, name in enumerate(MAP_NAMES)}
 
 NUM_FEATURES = 52
+NUM_FEATURES_WITH_RATINGS = 62
 
 SKIP_EVENTS = frozenset({
     'gameend', 'playernames',
@@ -138,8 +139,12 @@ _MAP_ONE_HOT = [[1.0, 0.0, 0.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0]]
 
 
-def _vectorize_team(tw, eggs, fc):
-    """Vectorize one team into a 20-element list. Returns list of floats."""
+def _vectorize_team(tw, eggs, fc, queen_mu=0.0, worker_mus=None):
+    """Vectorize one team into a 20 or 25-element list. Returns list of floats.
+
+    When worker_mus is provided, produces 25 features (with queen_mu and per-worker mu).
+    Otherwise produces 20 features (original layout).
+    """
     # Compute powers and sort indices
     w0, w1, w2, w3 = tw[0], tw[1], tw[2], tw[3]
     pw = [
@@ -162,25 +167,51 @@ def _vectorize_team(tw, eggs, fc):
     if w3[3]:
         ns += w3[2]; nv += (not w3[2])
 
-    a, b, c, d = pw[0][2], pw[1][2], pw[2][2], pw[3][2]
-    return [float(eggs), float(fc), float(nv), float(ns),
-            float(a[0]), float(a[1]), float(a[2]), float(a[3]),
-            float(b[0]), float(b[1]), float(b[2]), float(b[3]),
-            float(c[0]), float(c[1]), float(c[2]), float(c[3]),
-            float(d[0]), float(d[1]), float(d[2]), float(d[3])]
+    if worker_mus is not None:
+        a_w, a_i, a = pw[0]; b_w, b_i, b = pw[1]; c_w, c_i, c = pw[2]; d_w, d_i, d = pw[3]
+        return [float(eggs), float(fc), float(nv), float(ns), queen_mu,
+                float(a[0]), float(a[1]), float(a[2]), float(a[3]), worker_mus[a_i],
+                float(b[0]), float(b[1]), float(b[2]), float(b[3]), worker_mus[b_i],
+                float(c[0]), float(c[1]), float(c[2]), float(c[3]), worker_mus[c_i],
+                float(d[0]), float(d[1]), float(d[2]), float(d[3]), worker_mus[d_i]]
+    else:
+        a, b, c, d = pw[0][2], pw[1][2], pw[2][2], pw[3][2]
+        return [float(eggs), float(fc), float(nv), float(ns),
+                float(a[0]), float(a[1]), float(a[2]), float(a[3]),
+                float(b[0]), float(b[1]), float(b[2]), float(b[3]),
+                float(c[0]), float(c[1]), float(c[2]), float(c[3]),
+                float(d[0]), float(d[1]), float(d[2]), float(d[3])]
 
 
 def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
                      map_idx, snail_x, snail_vel, snail_last_ts,
-                     event_ts, berries_avail, gold_sym):
-    """Write 52 features directly into buf[idx] via list assignment."""
+                     event_ts, berries_avail, gold_sym, game_ratings=None):
+    """Write features directly into buf[idx] via list assignment.
+
+    52 features when game_ratings is None, 62 when provided.
+    """
     inferred_pos = snail_x + (event_ts - snail_last_ts) * snail_vel
     snail_pos = (inferred_pos / SCREEN_WIDTH - 0.5) * gold_sym
     snail_spd = (snail_vel / SPEED_SNAIL_PPS) * gold_sym
 
+    if game_ratings is not None:
+        # Blue: queen=ratings[1], workers widx 0-3=ratings[3,5,7,9]
+        blue_queen_mu = float(game_ratings[1])
+        blue_worker_mus = [float(game_ratings[3]), float(game_ratings[5]),
+                           float(game_ratings[7]), float(game_ratings[9])]
+        # Gold: queen=ratings[0], workers widx 0-3=ratings[2,4,6,8]
+        gold_queen_mu = float(game_ratings[0])
+        gold_worker_mus = [float(game_ratings[2]), float(game_ratings[4]),
+                           float(game_ratings[6]), float(game_ratings[8])]
+        blue_team = _vectorize_team(w[0], eggs[0], food_count[0], blue_queen_mu, blue_worker_mus)
+        gold_team = _vectorize_team(w[1], eggs[1], food_count[1], gold_queen_mu, gold_worker_mus)
+    else:
+        blue_team = _vectorize_team(w[0], eggs[0], food_count[0])
+        gold_team = _vectorize_team(w[1], eggs[1], food_count[1])
+
     buf[idx] = (
-        _vectorize_team(w[0], eggs[0], food_count[0])
-        + _vectorize_team(w[1], eggs[1], food_count[1])
+        blue_team
+        + gold_team
         + [float(maiden_states[0]), float(maiden_states[1]),
            float(maiden_states[2]), float(maiden_states[3]),
            float(maiden_states[4])]
@@ -191,10 +222,12 @@ def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
 
 # --- Per-game processing ---
 
-def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
+def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
+                   drop_prob, rng, game_ratings=None):
     """Process one game's events, write feature vectors into output_buf.
 
     raw_events: list of (datetime, event_type, values_str)
+    game_ratings: optional 10-element array of pre-game mu values (positions 1-10)
     Returns: new write_idx, or -1 if buffer needs growth.
     """
     # Sort by timestamp
@@ -263,8 +296,9 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
             _vectorize_state(output_buf, write_idx,
                              w, eggs, food_count, maiden_states,
                              map_idx, snail_x, snail_vel, snail_last_ts,
-                             rel_ts, berries_avail, gold_sym)
+                             rel_ts, berries_avail, gold_sym, game_ratings)
             label_buf[write_idx] = label
+            timestamp_buf[write_idx] = rel_ts
             write_idx += 1
 
         # Apply state mutation
@@ -374,21 +408,29 @@ def _process_game(raw_events, output_buf, label_buf, write_idx, drop_prob, rng):
 
 # --- Main entry point ---
 
-def fast_materialize(csv_path, drop_state_probability=0.0):
-    """Fast path: CSV events -> (feature_matrix, labels).
+def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None,
+                     max_games=None):
+    """Fast path: CSV events -> (feature_matrix, labels, game_ids, timestamps).
 
     Args:
         csv_path: Glob pattern for CSV/gzip files (e.g. 'data/gameevents_*.csv.gz')
         drop_state_probability: Probability of dropping each eligible state (0.0 = keep all)
+        ratings_by_game: Optional dict {game_id: np.array(10)} of pre-game mu values.
+            When provided, output has 62 features (with rating features).
+            When None, output has 52 features (original layout).
+        max_games: Optional limit on number of games to process.
 
     Returns:
-        (states, labels): numpy arrays of shape (N, 52) and (N,)
+        (states, labels, game_ids, timestamps): numpy arrays of shape
+        (N, num_features), (N,), (N,), (N,). timestamps are seconds since gamestart.
     """
+    num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game is not None else NUM_FEATURES
+
     # Phase 1: Read all CSV rows, group by game_id
     games = {}
     game_order = []
 
-    for filename in glob.glob(csv_path):
+    for filename in sorted(glob.glob(csv_path)):
         opener = gzip.open if filename.endswith('.gz') else open
         with opener(filename, 'rt') as f:
             reader = csv.reader(f)
@@ -399,14 +441,20 @@ def fast_materialize(csv_path, drop_state_probability=0.0):
                     continue
                 game_id = int(row[COL_GAME_ID])
                 if game_id not in games:
+                    if max_games is not None and len(game_order) >= max_games:
+                        break
                     games[game_id] = []
                     game_order.append(game_id)
                 games[game_id].append((_parse_ts(row[COL_TS]), event_type, row[COL_VALUES]))
+        if max_games is not None and len(game_order) >= max_games:
+            break
 
     # Phase 2: Pre-allocate output buffers (total_events is the absolute max rows)
     total_events = sum(len(evts) for evts in games.values())
-    output_buf = np.empty((total_events, NUM_FEATURES), dtype=np.float32)
+    output_buf = np.empty((total_events, num_features), dtype=np.float32)
     label_buf = np.empty(total_events, dtype=np.int8)
+    game_id_buf = np.empty(total_events, dtype=np.int64)
+    timestamp_buf = np.empty(total_events, dtype=np.float32)
     write_idx = 0
 
     # Phase 3: Process each game
@@ -414,11 +462,18 @@ def fast_materialize(csv_path, drop_state_probability=0.0):
 
     for game_id in game_order:
         raw_events = games[game_id]
+        game_ratings = None
+        if ratings_by_game is not None:
+            game_ratings = ratings_by_game.get(game_id)
+        start_idx = write_idx
         try:
-            write_idx = _process_game(raw_events, output_buf, label_buf, write_idx,
-                                      drop_state_probability, rng)
+            write_idx = _process_game(raw_events, output_buf, label_buf,
+                                      timestamp_buf, write_idx,
+                                      drop_state_probability, rng, game_ratings)
         except Exception:
             continue
+        game_id_buf[start_idx:write_idx] = game_id
 
     # Phase 4: Trim to actual size
-    return output_buf[:write_idx], label_buf[:write_idx]
+    return (output_buf[:write_idx], label_buf[:write_idx],
+            game_id_buf[:write_idx], timestamp_buf[:write_idx])

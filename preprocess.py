@@ -26,6 +26,15 @@ def opposing_team(team: Team) -> Team:
     return Team.GOLD if team == Team.BLUE else Team.BLUE
 
 
+def swap_pid(pid: int) -> int:
+    """Swap a position ID between Blue and Gold teams.
+
+    Pairs: (1,2), (3,4), (5,6), (7,8), (9,10) — queens then workers.
+    Even PIDs (Blue) swap to pid-1 (Gold), odd PIDs (Gold) swap to pid+1 (Blue).
+    """
+    return pid - 1 if pid % 2 == 0 else pid + 1
+
+
 class WorkerState:
     def __init__(self):
         self.has_speed = False
@@ -104,6 +113,8 @@ class GameState:
         self.berries_available = map_info.total_berries
         self.maiden_states = [ContestableState.NEUTRAL for _ in range(5)]
         self.snail_state = InferredSnailState(self)
+        self.winning_team = None          # Team or None
+        self.victory_condition = None     # VictoryCondition or None
 
     def get_team(self, team: Team) -> TeamState:
         return self.teams[team.value]
@@ -124,6 +135,11 @@ class GameEvent:
 
     def modify_game_state(self, game_state: GameState):
         pass
+
+    def swap_teams(self) -> 'GameEvent':
+        """Return a copy with Blue/Gold teams swapped. Default: unchanged copy."""
+        result = copy.copy(self)
+        return result
 
 
 GameEventsList = List[GameEvent]
@@ -155,6 +171,11 @@ class GameStartEvent(GameEvent):
         self.gold_on_left = payload_values[1] == 'True'
         self.game_version = payload_values[4]
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.gold_on_left = not self.gold_on_left
+        return result
+
 
 class GameEndEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -169,6 +190,11 @@ class MapStartEvent(GameEvent):
         self.gold_on_left = payload_values[1] == 'True'
         self.game_version = payload_values[4]
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.gold_on_left = not self.gold_on_left
+        return result
+
 
 class SpawnEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -178,6 +204,11 @@ class SpawnEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.get_worker_by_position_id(self.position_id).is_bot = self.is_bot
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class BerryDepositEvent(GameEvent):
@@ -199,6 +230,11 @@ class BerryDepositEvent(GameEvent):
 
         team_state.food_deposited[berry_index] = True
         game_state.berries_available -= 1
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class BerryKickInEvent(GameEvent):
@@ -222,6 +258,11 @@ class BerryKickInEvent(GameEvent):
         game_state.get_team(team).food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class BlessMaidenEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -237,6 +278,15 @@ class BlessMaidenEvent(GameEvent):
         except ValueError:
             raise GameValidationError('Invalid maiden event: {} {}'.format(self.maiden_x, self.maiden_y))
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.maiden_x = constants.SCREEN_WIDTH - self.maiden_x
+        if self.gate_color == ContestableState.BLUE:
+            result.gate_color = ContestableState.GOLD
+        else:
+            result.gate_color = ContestableState.BLUE
+        return result
+
 
 class CarryFoodEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -245,6 +295,11 @@ class CarryFoodEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.get_worker_by_position_id(self.position_id).has_food = True
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
 
 
 class GetOnSnailEvent(GameEvent):
@@ -255,6 +310,11 @@ class GetOnSnailEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.start_snail(self)
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.rider_position_id = swap_pid(self.rider_position_id)
+        return result
 
 
 class SnailEatEvent(GameEvent):
@@ -267,6 +327,12 @@ class SnailEatEvent(GameEvent):
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.start_snail(self)
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.rider_position_id = swap_pid(self.rider_position_id)
+        result.eaten_position_id = swap_pid(self.eaten_position_id)
+        return result
+
 
 class GetOffSnailEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -277,6 +343,11 @@ class GetOffSnailEvent(GameEvent):
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.stop_snail(self)
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class SnailEscapeEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
@@ -286,6 +357,11 @@ class SnailEscapeEvent(GameEvent):
 
     def modify_game_state(self, game_state: GameState):
         game_state.snail_state.stop_snail(self)
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.escaped_position_id = swap_pid(self.escaped_position_id)
+        return result
 
 
 class GlanceEvent(GameEvent):
@@ -320,6 +396,12 @@ class PlayerKillEvent(GameEvent):
                                'Worker has wings but is not a soldier')
             killed_worker.has_speed = killed_worker.has_food = killed_worker.has_wings = False
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.killer_position_id = swap_pid(self.killer_position_id)
+        result.killed_position_id = swap_pid(self.killed_position_id)
+        return result
+
 
 class GameValidationError(ValueError):
     def __init__(self, message: str):
@@ -352,12 +434,22 @@ class UseMaidenEvent(GameEvent):
 
         worker_state.has_food = False
 
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.position_id = swap_pid(self.position_id)
+        return result
+
 
 class VictoryEvent(GameEvent):
     def __init__(self, payload_values: List[str]):
         super().__init__()
         self.winning_team = Team.BLUE if payload_values[0] == 'Blue' else Team.GOLD
         self.victory_condition = VictoryCondition[payload_values[1]]
+
+    def swap_teams(self):
+        result = copy.copy(self)
+        result.winning_team = opposing_team(self.winning_team)
+        return result
 
     def modify_game_state(self, game_state: GameState):
         if self.victory_condition == VictoryCondition.economic:
@@ -375,6 +467,9 @@ class VictoryEvent(GameEvent):
 
             # This condition failed one in 65 games in a sample of otherwise validated snail victories.
             validate_condition(abs(distance_from_goal) < 100, 'inferred snail position far from goal')
+
+        game_state.winning_team = self.winning_team
+        game_state.victory_condition = self.victory_condition
 
 
 def parse_event(raw_event_row) -> Optional[GameEvent]:
@@ -486,7 +581,7 @@ def is_valid_game(events: GameEventsList,
 
 
 def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
-    for filename in glob.glob(csv_path):
+    for filename in sorted(glob.glob(csv_path)):
         if filename.endswith('.gz'):
             f = gzip.open(filename, 'rt')
         else:
@@ -592,21 +687,30 @@ def compute_kill_matrix():
 GameStateVector: Type = npt.NDArray[np.float64]
 
 
-def vectorize_worker(worker: WorkerState) -> GameStateVector:
-    return np.array([worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings], np.float32)
+def vectorize_worker(worker: WorkerState, mu: float | None = None) -> GameStateVector:
+    base = [worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings]
+    if mu is not None:
+        base.append(mu)
+    return np.array(base, np.float32)
 
 
-def vectorize_team(team_state: TeamState) -> GameStateVector:
+def vectorize_team(team_state: TeamState, queen_mu: float | None = None,
+                   worker_mus: list | None = None) -> GameStateVector:
     eggs = float(team_state.eggs)
     num_food_deposits = float(sum(team_state.food_deposited))
     num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
     num_speed_warriors = float(sum(w.has_wings and w.has_speed for w in team_state.workers))
 
-    parts = [[eggs, num_food_deposits, num_vanilla, num_speed_warriors],
-             # np.array(team_state.food_deposited, float)  # expt with no direct food dep features.
-             ]
-    for worker in sorted(team_state.workers, key=WorkerState.power):
-        parts.append(vectorize_worker(worker))
+    team_stats = [eggs, num_food_deposits, num_vanilla, num_speed_warriors]
+    if queen_mu is not None:
+        team_stats.append(queen_mu)
+
+    parts = [team_stats]
+    # Sort workers by power, tracking original index for mu lookup
+    sorted_workers = sorted(enumerate(team_state.workers), key=lambda iw: iw[1].power())
+    for orig_idx, worker in sorted_workers:
+        mu = worker_mus[orig_idx] if worker_mus is not None else None
+        parts.append(vectorize_worker(worker, mu))
     return np.concatenate(parts)
 
 
@@ -634,9 +738,22 @@ def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> GameS
     return np.array([snail_pos, snail_speed], np.float32) * gold_on_right_symmetry_mult
 
 
-def vectorize_game_state(game_state: GameState, next_event: GameEvent) -> GameStateVector:
-    blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
-    gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
+def vectorize_game_state(game_state: GameState, next_event: GameEvent,
+                         game_ratings=None) -> GameStateVector:
+    if game_ratings is not None:
+        # Blue: queen=ratings[1], workers widx 0-3=ratings[3,5,7,9]
+        blue_queen_mu = float(game_ratings[1])
+        blue_worker_mus = [float(game_ratings[3]), float(game_ratings[5]),
+                           float(game_ratings[7]), float(game_ratings[9])]
+        # Gold: queen=ratings[0], workers widx 0-3=ratings[2,4,6,8]
+        gold_queen_mu = float(game_ratings[0])
+        gold_worker_mus = [float(game_ratings[2]), float(game_ratings[4]),
+                           float(game_ratings[6]), float(game_ratings[8])]
+        blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE), blue_queen_mu, blue_worker_mus)
+        gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD), gold_queen_mu, gold_worker_mus)
+    else:
+        blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
+        gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
 
     parts = [
         blue_team_vec,
@@ -656,9 +773,11 @@ OutcomesLabelVector: Type = np.ndarray[bool]  # (num_states,)
 
 def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIterable,
                               drop_state_probability: float = 0.0,
-                              noisy: bool = False) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
+                              noisy: bool = False,
+                              ratings_by_game: dict = None) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
     vectorized_states = []
     labels = []
+    game_ids = []
     random.seed(42)
     count = 0
 
@@ -668,10 +787,14 @@ def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIter
             print('create_game_state_matrix', count, len(vectorized_states))
         count += 1
         if event.timestamp > 5.0 and random.random() > drop_state_probability:
-            vectorized_states.append(vectorize_game_state(game_state, event))
+            game_ratings = None
+            if ratings_by_game is not None:
+                game_ratings = ratings_by_game.get(game_id)
+            vectorized_states.append(vectorize_game_state(game_state, event, game_ratings))
             labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
+            game_ids.append(game_id)
 
-    return np.vstack(vectorized_states), np.array(labels)
+    return np.vstack(vectorized_states), np.array(labels), np.array(game_ids, dtype=np.int64)
 
 
 def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name):
@@ -679,7 +802,7 @@ def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name):
     map_structure_infos = map_structure.MapStructureInfos()
     game_states_iterable = iterate_game_events_with_state(iterate_events_from_csv(csv_path), map_structure_infos)
 
-    game_state_matrix, labels = create_game_states_matrix(game_states_iterable, drop_state_probability, noisy=True)
+    game_state_matrix, labels, _ = create_game_states_matrix(game_states_iterable, drop_state_probability, noisy=True)
 
     expt_subdir = f'model_experiments/{expt_name}'
     pathlib.Path(expt_subdir).mkdir(exist_ok=True, parents=True)

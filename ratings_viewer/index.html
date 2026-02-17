@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KQuity Ratings Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a1a; color: #e0e0e0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  display: flex; height: 100vh; overflow: hidden;
+}
+
+/* Left panel - Leaderboard */
+#left-panel {
+  width: 420px; min-width: 420px;
+  border-right: 1px solid #333;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#left-panel h2 { padding: 12px 16px 8px; font-size: 18px; }
+
+.role-tabs {
+  display: flex; padding: 0 16px 8px; gap: 8px;
+}
+.role-tab {
+  padding: 6px 16px; border: 1px solid #555; border-radius: 4px;
+  background: transparent; color: #aaa; cursor: pointer; font-size: 14px;
+}
+.role-tab.active { background: #333; color: #fff; border-color: #777; }
+
+.slider-area {
+  padding: 8px 16px; border-bottom: 1px solid #333;
+}
+.slider-row {
+  display: flex; align-items: center; gap: 8px;
+}
+#game-slider { flex: 1; }
+#play-btn {
+  padding: 4px 12px; background: #444; border: 1px solid #666;
+  color: #ddd; border-radius: 4px; cursor: pointer; font-size: 14px;
+}
+#play-btn:hover { background: #555; }
+#slider-label {
+  font-size: 12px; color: #999; margin-top: 4px;
+}
+
+#leaderboard-table-wrap {
+  flex: 1; overflow-y: auto; padding: 0 8px;
+}
+#leaderboard-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+#leaderboard-table th {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid #444;
+  color: #999; position: sticky; top: 0; background: #1a1a1a;
+}
+#leaderboard-table td {
+  padding: 5px 8px; border-bottom: 1px solid #2a2a2a; cursor: pointer;
+}
+#leaderboard-table tr:hover td { background: #2a2a2a; }
+#leaderboard-table tr.selected td { background: #333; }
+.rank-col { width: 40px; text-align: right; }
+.mu-col { width: 60px; text-align: right; }
+.games-col { width: 60px; text-align: right; }
+
+/* Right panel - Player detail */
+#right-panel {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+#player-header {
+  padding: 12px 16px; border-bottom: 1px solid #333;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+#search-box {
+  padding: 6px 10px; background: #2a2a2a; border: 1px solid #555;
+  color: #e0e0e0; border-radius: 4px; font-size: 14px; width: 240px;
+}
+#search-box::placeholder { color: #666; }
+#search-results {
+  position: absolute; top: 100%; left: 0;
+  background: #2a2a2a; border: 1px solid #555; border-radius: 4px;
+  max-height: 200px; overflow-y: auto; z-index: 10; width: 240px;
+  display: none;
+}
+#search-results div {
+  padding: 6px 10px; cursor: pointer; font-size: 13px;
+}
+#search-results div:hover { background: #3a3a3a; }
+.search-wrap { position: relative; }
+#player-info { font-size: 14px; color: #bbb; }
+#player-info span { margin-right: 16px; }
+.mu-label { font-weight: bold; }
+.queen-color { color: #5ba3ec; }
+.drone-color { color: #f0a040; }
+
+#chart-area {
+  padding: 16px; height: 340px; min-height: 280px;
+}
+#chart-area canvas { width: 100% !important; }
+
+#game-history-wrap {
+  flex: 1; overflow-y: auto; padding: 0 16px 16px;
+}
+#game-history {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+#game-history th {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid #444;
+  color: #999; position: sticky; top: 0; background: #1a1a1a;
+}
+#game-history td { padding: 4px 8px; border-bottom: 1px solid #2a2a2a; }
+.win { color: #5cb85c; }
+.loss { color: #d9534f; }
+.positive { color: #5cb85c; }
+.negative { color: #d9534f; }
+a { color: #5ba3ec; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+#loading {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: #1a1a1a; display: flex; align-items: center;
+  justify-content: center; font-size: 18px; z-index: 100;
+}
+#no-player {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: #666; font-size: 16px;
+}
+</style>
+</head>
+<body>
+
+<div id="loading">Loading ratings data...</div>
+
+<div id="left-panel">
+  <h2>Leaderboard</h2>
+  <div class="role-tabs">
+    <button class="role-tab active" data-role="queen">Queen</button>
+    <button class="role-tab" data-role="drone">Drone</button>
+  </div>
+  <div class="slider-area">
+    <div class="slider-row">
+      <button id="play-btn">Play</button>
+      <input type="range" id="game-slider" min="0" max="0" value="0">
+    </div>
+    <div id="slider-label">Game 0 / 0</div>
+  </div>
+  <div id="leaderboard-table-wrap">
+    <table id="leaderboard-table">
+      <thead><tr>
+        <th class="rank-col">#</th>
+        <th>Player</th>
+        <th class="mu-col">Mu</th>
+        <th class="games-col">Games</th>
+      </tr></thead>
+      <tbody id="leaderboard-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="right-panel">
+  <div id="player-header">
+    <div class="search-wrap">
+      <input type="text" id="search-box" placeholder="Search player...">
+      <div id="search-results"></div>
+    </div>
+    <div id="player-info"></div>
+  </div>
+  <div id="no-player">Select a player from the leaderboard or search above</div>
+  <div id="chart-area" style="display:none;">
+    <canvas id="rating-chart"></canvas>
+  </div>
+  <div id="game-history-wrap" style="display:none;">
+    <table id="game-history">
+      <thead><tr>
+        <th>Date</th>
+        <th>Game</th>
+        <th>Role</th>
+        <th>Team</th>
+        <th>Result</th>
+        <th>Before</th>
+        <th>After</th>
+        <th>Delta</th>
+      </tr></thead>
+      <tbody id="history-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// === State ===
+let DATA = null;
+let selectedRole = 'queen';
+let selectedPlayerId = null;
+let ratingChart = null;
+let animationTimer = null;
+
+// Leaderboard snapshots: precomputed every SNAPSHOT_INTERVAL games
+const SNAPSHOT_INTERVAL = 1000;
+let snapshots = { queen: [], drone: [] }; // [{gameIndex, ratings: {userId: {mu, games}}}]
+
+// Per-player game index for fast lookup
+let playerGameIndex = {}; // {userId: [{gameIdx, role, team, winner, mu_before, mu_after, sigma, game_id, timestamp}]}
+
+// === Data Loading ===
+const dataUrl = new URLSearchParams(location.search).get('data') || 'ratings_history.json';
+fetch(dataUrl)
+  .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+  .then(data => { DATA = data; initialize(); })
+  .catch(err => {
+    document.getElementById('loading').textContent =
+      'Failed to load data: ' + err.message +
+      '\nRun: python ratings_viewer/export_json.py';
+  });
+
+function initialize() {
+  document.getElementById('loading').style.display = 'none';
+  buildPlayerGameIndex();
+  buildSnapshots();
+  setupSlider();
+  setupRoleTabs();
+  setupSearch();
+  updateLeaderboard();
+}
+
+// === Index Building ===
+function buildPlayerGameIndex() {
+  playerGameIndex = {};
+  DATA.games.forEach((game, idx) => {
+    game.participants.forEach(p => {
+      const uid = String(p.user_id);
+      if (!playerGameIndex[uid]) playerGameIndex[uid] = [];
+      playerGameIndex[uid].push({
+        gameIdx: idx,
+        role: p.role,
+        team: p.team,
+        winner: game.winner,
+        mu_before: p.mu_before,
+        mu_after: p.mu_after,
+        sigma: p.sigma,
+        game_id: game.game_id,
+        timestamp: game.timestamp,
+      });
+    });
+  });
+}
+
+function buildSnapshots() {
+  for (const role of ['queen', 'drone']) {
+    const snaps = [];
+    const ratings = {}; // {userId: {mu, games}}
+
+    for (let i = 0; i < DATA.games.length; i++) {
+      const game = DATA.games[i];
+      game.participants.forEach(p => {
+        if (p.role === role) {
+          const uid = String(p.user_id);
+          if (!ratings[uid]) ratings[uid] = { mu: p.mu_after, games: 0, name: p.name };
+          ratings[uid].mu = p.mu_after;
+          ratings[uid].games++;
+        }
+      });
+
+      if (i % SNAPSHOT_INTERVAL === 0 || i === DATA.games.length - 1) {
+        // Deep copy
+        const copy = {};
+        for (const uid in ratings) {
+          copy[uid] = { mu: ratings[uid].mu, games: ratings[uid].games, name: ratings[uid].name };
+        }
+        snaps.push({ gameIndex: i, ratings: copy });
+      }
+    }
+    snapshots[role] = snaps;
+  }
+}
+
+// === Leaderboard ===
+function getLeaderboardAt(role, gameIndex) {
+  const snaps = snapshots[role];
+  // Find nearest snapshot at or before gameIndex
+  let snapIdx = 0;
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    if (snaps[i].gameIndex <= gameIndex) { snapIdx = i; break; }
+  }
+
+  // Start from snapshot and replay forward
+  const ratings = {};
+  const snap = snaps[snapIdx];
+  for (const uid in snap.ratings) {
+    ratings[uid] = { ...snap.ratings[uid] };
+  }
+
+  const startGame = snap.gameIndex + 1;
+  for (let i = startGame; i <= gameIndex && i < DATA.games.length; i++) {
+    const game = DATA.games[i];
+    game.participants.forEach(p => {
+      if (p.role === role) {
+        const uid = String(p.user_id);
+        if (!ratings[uid]) ratings[uid] = { mu: p.mu_after, games: 0, name: p.name };
+        ratings[uid].mu = p.mu_after;
+        ratings[uid].games++;
+      }
+    });
+  }
+
+  // Sort by mu descending, take top 20
+  const sorted = Object.entries(ratings)
+    .sort((a, b) => b[1].mu - a[1].mu)
+    .slice(0, 20);
+
+  return sorted.map(([uid, r], i) => ({
+    rank: i + 1,
+    userId: uid,
+    name: r.name,
+    mu: r.mu,
+    games: r.games,
+  }));
+}
+
+function updateLeaderboard() {
+  const slider = document.getElementById('game-slider');
+  const gameIndex = parseInt(slider.value);
+  const entries = getLeaderboardAt(selectedRole, gameIndex);
+  const tbody = document.getElementById('leaderboard-body');
+
+  tbody.innerHTML = entries.map(e => {
+    const sel = e.userId === selectedPlayerId ? ' class="selected"' : '';
+    return `<tr${sel} data-uid="${e.userId}">
+      <td class="rank-col">${e.rank}</td>
+      <td>${escapeHtml(e.name)}</td>
+      <td class="mu-col">${e.mu.toFixed(1)}</td>
+      <td class="games-col">${e.games}</td>
+    </tr>`;
+  }).join('');
+
+  // Click handlers
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.addEventListener('click', () => selectPlayer(tr.dataset.uid));
+  });
+
+  // Update slider label
+  const game = DATA.games[gameIndex];
+  const dateStr = game ? game.timestamp.slice(0, 10) : '';
+  document.getElementById('slider-label').textContent =
+    `Game ${gameIndex + 1} / ${DATA.games.length}  ${dateStr}`;
+}
+
+// === Slider ===
+function setupSlider() {
+  const slider = document.getElementById('game-slider');
+  slider.max = DATA.games.length - 1;
+  slider.value = DATA.games.length - 1;
+  slider.addEventListener('input', () => {
+    updateLeaderboard();
+  });
+
+  document.getElementById('play-btn').addEventListener('click', toggleAnimation);
+}
+
+function toggleAnimation() {
+  const btn = document.getElementById('play-btn');
+  if (animationTimer) {
+    clearInterval(animationTimer);
+    animationTimer = null;
+    btn.textContent = 'Play';
+    return;
+  }
+
+  btn.textContent = 'Pause';
+  const slider = document.getElementById('game-slider');
+  const totalGames = DATA.games.length;
+  // Animate: step by ~1% of total games per frame, at ~30fps
+  const step = Math.max(1, Math.floor(totalGames / 300));
+
+  animationTimer = setInterval(() => {
+    let val = parseInt(slider.value) + step;
+    if (val >= totalGames - 1) {
+      val = totalGames - 1;
+      clearInterval(animationTimer);
+      animationTimer = null;
+      btn.textContent = 'Play';
+    }
+    slider.value = val;
+    updateLeaderboard();
+  }, 33);
+}
+
+// === Role Tabs ===
+function setupRoleTabs() {
+  document.querySelectorAll('.role-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      selectedRole = tab.dataset.role;
+      updateLeaderboard();
+    });
+  });
+}
+
+// === Search ===
+function setupSearch() {
+  const input = document.getElementById('search-box');
+  const results = document.getElementById('search-results');
+
+  input.addEventListener('input', () => {
+    const query = input.value.trim().toLowerCase();
+    if (query.length < 2) { results.style.display = 'none'; return; }
+
+    const matches = [];
+    for (const uid in DATA.players) {
+      const p = DATA.players[uid];
+      if (p.name.toLowerCase().includes(query)) {
+        matches.push(p);
+        if (matches.length >= 10) break;
+      }
+    }
+
+    if (matches.length === 0) { results.style.display = 'none'; return; }
+
+    results.innerHTML = matches.map(p =>
+      `<div data-uid="${p.user_id}">${escapeHtml(p.name)}</div>`
+    ).join('');
+    results.style.display = 'block';
+
+    results.querySelectorAll('div').forEach(div => {
+      div.addEventListener('click', () => {
+        selectPlayer(String(div.dataset.uid));
+        results.style.display = 'none';
+        input.value = '';
+      });
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrap')) results.style.display = 'none';
+  });
+}
+
+// === Player Detail ===
+function selectPlayer(userId) {
+  selectedPlayerId = userId;
+  const player = DATA.players[userId];
+  if (!player) return;
+
+  document.getElementById('no-player').style.display = 'none';
+  document.getElementById('chart-area').style.display = 'block';
+
+  // Update info
+  const info = document.getElementById('player-info');
+  let parts = [`<strong>${escapeHtml(player.name)}</strong>`];
+  if (!player.is_cabinet) {
+    parts[0] += ` (id: ${player.user_id})`;
+  }
+  if (player.roles.queen) {
+    const gc = player.roles.queen.game_count;
+    const gcStr = gc !== null ? `${gc} games` : 'cabinet';
+    parts.push(`<span class="queen-color">Queen: ${player.roles.queen.final_mu.toFixed(1)} (${gcStr})</span>`);
+  }
+  if (player.roles.drone) {
+    const gc = player.roles.drone.game_count;
+    const gcStr = gc !== null ? `${gc} games` : 'cabinet';
+    parts.push(`<span class="drone-color">Drone: ${player.roles.drone.final_mu.toFixed(1)} (${gcStr})</span>`);
+  }
+  info.innerHTML = parts.join(' &middot; ');
+
+  if (player.is_cabinet) {
+    // Cabinet: render from cabinet_snapshots, hide game history
+    document.getElementById('game-history-wrap').style.display = 'none';
+    renderCabinetChart(userId, player);
+  } else {
+    // Normal player
+    document.getElementById('game-history-wrap').style.display = 'block';
+    renderChart(userId);
+    renderGameHistory(userId);
+  }
+
+  // Update leaderboard selection
+  document.querySelectorAll('#leaderboard-body tr').forEach(tr => {
+    tr.classList.toggle('selected', tr.dataset.uid === userId);
+  });
+}
+
+function renderChart(userId) {
+  const events = playerGameIndex[userId] || [];
+  if (events.length === 0) return;
+
+  const queenEvents = events.filter(e => e.role === 'queen');
+  const droneEvents = events.filter(e => e.role === 'drone');
+
+  const makeDataset = (evts, label, color, dashed) => {
+    return {
+      label: label,
+      data: evts.map(e => ({
+        x: new Date(e.timestamp),
+        y: e.mu_after,
+      })),
+      borderColor: color,
+      backgroundColor: evts.map(e => {
+        const won = (e.team === 'blue' && e.winner === 'Blue') ||
+                    (e.team === 'gold' && e.winner === 'Gold');
+        return won ? '#5cb85c' : '#d9534f';
+      }),
+      pointBackgroundColor: evts.map(e => {
+        const won = (e.team === 'blue' && e.winner === 'Blue') ||
+                    (e.team === 'gold' && e.winner === 'Gold');
+        return won ? '#5cb85c' : '#d9534f';
+      }),
+      pointRadius: evts.length > 200 ? 1.5 : 3,
+      borderWidth: 2,
+      borderDash: dashed ? [5, 3] : [],
+      fill: false,
+      tension: 0,
+    };
+  };
+
+  const datasets = [];
+  if (queenEvents.length > 0) {
+    datasets.push(makeDataset(queenEvents, 'Queen', '#5ba3ec', false));
+  }
+  if (droneEvents.length > 0) {
+    datasets.push(makeDataset(droneEvents, 'Drone', '#f0a040', true));
+  }
+
+  if (ratingChart) ratingChart.destroy();
+
+  const ctx = document.getElementById('rating-chart').getContext('2d');
+  ratingChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month' },
+          ticks: { color: '#999' },
+          grid: { color: '#333' },
+        },
+        y: {
+          title: { display: true, text: 'Mu', color: '#999' },
+          ticks: { color: '#999' },
+          grid: { color: '#333' },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: '#ddd' } },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const item = items[0];
+              const dsIndex = item.datasetIndex;
+              const ptIndex = item.dataIndex;
+              const role = datasets[dsIndex].label.toLowerCase();
+              const evts = role === 'queen' ? queenEvents : droneEvents;
+              const e = evts[ptIndex];
+              return `Game ${e.game_id} - ${e.timestamp.slice(0, 10)}`;
+            },
+            afterLabel: (item) => {
+              const dsIndex = item.datasetIndex;
+              const ptIndex = item.dataIndex;
+              const role = datasets[dsIndex].label.toLowerCase();
+              const evts = role === 'queen' ? queenEvents : droneEvents;
+              const e = evts[ptIndex];
+              const delta = e.mu_after - e.mu_before;
+              return `Delta: ${delta >= 0 ? '+' : ''}${delta.toFixed(2)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderCabinetChart(userId, player) {
+  const snaps = DATA.cabinet_snapshots || [];
+  if (snaps.length === 0) return;
+
+  // Extract cabinet name from userId like "cab_groundkontrol_queen"
+  // The player has roles, so figure out the cabinet prefix
+  const datasets = [];
+  for (const role of ['queen', 'drone']) {
+    if (!player.roles[role]) continue;
+    // The snapshot key is "{cabinet}_{role}"
+    const snapKey = userId.replace(/^cab_/, '').replace(/_(queen|drone)$/, '') + '_' + role;
+
+    const points = [];
+    for (const snap of snaps) {
+      if (snap.ratings[snapKey]) {
+        points.push({
+          x: new Date(snap.timestamp),
+          y: snap.ratings[snapKey].mu,
+        });
+      }
+    }
+
+    if (points.length > 0) {
+      const color = role === 'queen' ? '#5ba3ec' : '#f0a040';
+      datasets.push({
+        label: role.charAt(0).toUpperCase() + role.slice(1),
+        data: points,
+        borderColor: color,
+        pointRadius: 2,
+        borderWidth: 2,
+        borderDash: role === 'drone' ? [5, 3] : [],
+        fill: false,
+        tension: 0,
+      });
+    }
+  }
+
+  if (ratingChart) ratingChart.destroy();
+
+  const ctx = document.getElementById('rating-chart').getContext('2d');
+  ratingChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month' },
+          ticks: { color: '#999' },
+          grid: { color: '#333' },
+        },
+        y: {
+          title: { display: true, text: 'Mu', color: '#999' },
+          ticks: { color: '#999' },
+          grid: { color: '#333' },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: '#ddd' } },
+      },
+    },
+  });
+}
+
+function renderGameHistory(userId) {
+  const events = playerGameIndex[userId] || [];
+  const tbody = document.getElementById('history-body');
+
+  // Show most recent first
+  const reversed = [...events].reverse();
+  tbody.innerHTML = reversed.map(e => {
+    const won = (e.team === 'blue' && e.winner === 'Blue') ||
+                (e.team === 'gold' && e.winner === 'Gold');
+    const delta = e.mu_after - e.mu_before;
+    const deltaStr = (delta >= 0 ? '+' : '') + delta.toFixed(2);
+    const teamColor = e.team === 'blue' ? '#5ba3ec' : '#ffd700';
+    return `<tr>
+      <td>${e.timestamp.slice(0, 10)}</td>
+      <td><a href="https://kqhivemind.com/game/${e.game_id}" target="_blank">${e.game_id}</a></td>
+      <td>${e.role}</td>
+      <td style="color:${teamColor}">${e.team}</td>
+      <td class="${won ? 'win' : 'loss'}">${won ? 'W' : 'L'}</td>
+      <td>${e.mu_before.toFixed(2)}</td>
+      <td>${e.mu_after.toFixed(2)}</td>
+      <td class="${delta >= 0 ? 'positive' : 'negative'}">${deltaStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// === Utility ===
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
