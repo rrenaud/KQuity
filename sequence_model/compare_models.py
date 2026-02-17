@@ -114,7 +114,7 @@ def eval_seq_on_partition(csv_path, seq_model, map_infos, device, block_size,
                 lgb_model=lgb_model_for_features if uses_lgb_preds else None)
             if result is None:
                 continue
-            tokens, blue_wins, features_arr, lgb_preds_arr = result
+            tokens, blue_wins, features_arr, lgb_preds_arr, _, _ = result
         else:
             result = tokenize_single_game(game_events, map_infos)
             if result is None:
@@ -189,7 +189,7 @@ def eval_seq_by_stage(csv_path, seq_model, map_infos, device, block_size,
                 lgb_model=lgb_model_for_features if uses_lgb_preds else None)
             if result is None:
                 continue
-            tokens, blue_wins, features_arr, lgb_preds_arr = result
+            tokens, blue_wins, features_arr, lgb_preds_arr, _, _ = result
         else:
             result = tokenize_single_game(game_events, map_infos)
             if result is None:

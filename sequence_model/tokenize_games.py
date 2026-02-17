@@ -49,9 +49,11 @@ from sequence_model.vocab import (
     tokenize_get_on_snail, tokenize_get_off_snail,
     tokenize_snail_eat, tokenize_snail_escape, tokenize_victory,
     snail_position_token, time_gap_token,
+    eggs_state_token, food_state_token,
     decode_tokens,
 )
 from fast_materialize import NUM_FEATURES
+from sequence_model.context_lookup import ContextLookup, CONTEXT_DIM
 
 def _contestable_to_team(state: ContestableState) -> Team:
     """Convert ContestableState.BLUE/GOLD to Team.BLUE/GOLD."""
@@ -158,13 +160,18 @@ def tokenize_and_materialize_single_game(game_events, map_infos, lgb_model=None)
         game_events: Normalized event list for one game.
         map_infos: MapStructureInfos for maiden index lookup.
         lgb_model: Optional LightGBM model for generating predictions.
+            If None, lgb_preds will be all zeros but event_feat_map and n_header
+            are returned for deferred batch prediction.
 
     Returns:
-        (tokens, blue_wins, features_per_token, lgb_preds_per_token) where:
+        (tokens, blue_wins, features_per_token, lgb_preds_per_token,
+         event_feat_map, n_header) where:
         - tokens: list of ints
         - blue_wins: 1 if blue won, 0 otherwise
         - features_per_token: np.array shape (num_tokens, 52) float32
         - lgb_preds_per_token: np.array shape (num_tokens,) float32
+        - event_feat_map: list of (feat, num_tokens, timestamp) for deferred LGB
+        - n_header: number of header tokens (for filling predictions)
         Returns None if the game can't be tokenized.
     """
     from sequence_model.game_state import GameStateTracker
@@ -248,13 +255,15 @@ def tokenize_and_materialize_single_game(game_events, map_infos, lgb_model=None)
             # Get features BEFORE applying event (matches fast_materialize)
             feat = tracker.get_features(event.timestamp)
 
-            # Insert time-gap token before the event tokens
+            # Insert time-gap token, then count state tokens, then event tokens
             elapsed = event.timestamp - last_timestamp
             tokens.append(time_gap_token(max(0.0, elapsed)))
+            tokens.append(eggs_state_token(int(feat[0]), int(feat[20])))
+            tokens.append(food_state_token(int(feat[1]), int(feat[21])))
             tokens.extend(event_tokens)
 
             # All tokens from this event get the same feature vector
-            num_new = 1 + len(event_tokens)
+            num_new = 3 + len(event_tokens)  # time_gap + eggs + food + event tokens
             all_features.extend([feat] * num_new)
             event_feat_map.append((feat, num_new, event.timestamp))
 
@@ -304,7 +313,23 @@ def tokenize_and_materialize_single_game(game_events, map_infos, lgb_model=None)
     features_arr = np.array(all_features, dtype=np.float32)
     lgb_preds_arr = np.array(all_lgb_preds, dtype=np.float32)
 
-    return tokens, blue_wins, features_arr, lgb_preds_arr
+    return tokens, blue_wins, features_arr, lgb_preds_arr, event_feat_map, n_header
+
+
+def fill_lgb_predictions(lgb_preds_arr, event_feat_map, n_header, pred_values):
+    """Fill LGB predictions into a token-level array using precomputed values.
+
+    Args:
+        lgb_preds_arr: np.array shape (num_tokens,), modified in-place
+        event_feat_map: list of (feat, num_tokens, timestamp) from tokenization
+        n_header: number of header tokens
+        pred_values: dict mapping event_index -> prediction value
+    """
+    tok_offset = n_header
+    for i, (feat, num_tokens, ts) in enumerate(event_feat_map):
+        pred = pred_values.get(i, 0.0)
+        lgb_preds_arr[tok_offset:tok_offset + num_tokens] = pred
+        tok_offset += num_tokens
 
 
 def tokenize_partition_range(input_dir, start_partition, end_partition,
@@ -381,13 +406,17 @@ def tokenize_csv_file(csv_path, map_infos, max_games=None, verbose=True):
 
 
 def tokenize_csv_file_with_features(csv_path, map_infos, lgb_model=None,
-                                     max_games=None, verbose=True):
+                                     max_games=None, verbose=True,
+                                     context_lookup=None):
     """Tokenize games from a single CSV/gzip file with feature materialization.
 
     Returns:
-        List of (tokens, blue_wins, features, lgb_preds) tuples for valid games.
+        (all_games, all_contexts) where:
+        - all_games: list of (tokens, blue_wins, features, lgb_preds) tuples
+        - all_contexts: list of np.array(21,) uint16, or None if no context_lookup
     """
     all_games = []
+    all_contexts = [] if context_lookup is not None else None
     total_tokens = 0
 
     events = iterate_events_from_csv(csv_path)
@@ -404,12 +433,15 @@ def tokenize_csv_file_with_features(csv_path, map_infos, lgb_model=None,
         if result is None:
             continue
 
-        tokens, blue_wins, features, lgb_preds = result
+        tokens, blue_wins, features, lgb_preds, _, _ = result
         all_games.append((tokens, blue_wins, features, lgb_preds))
         total_tokens += len(tokens)
 
+        if all_contexts is not None:
+            all_contexts.append(context_lookup.get_game_context(game_id))
+
     _print_stats(all_games, total_tokens, verbose)
-    return all_games
+    return all_games, all_contexts
 
 
 def _game_tokens(g):
@@ -507,6 +539,27 @@ def write_feature_bin_files(games_with_features, output_dir, prefix):
 
     print(f'  {feat_path}: {os.path.getsize(feat_path) / 1e6:.1f} MB')
     print(f'  {pred_path}: {os.path.getsize(pred_path) / 1e6:.1f} MB')
+
+
+def write_context_bin_files(context_arrays, output_dir, prefix):
+    """Write per-game context arrays as a memory-mapped .bin file.
+
+    context_arrays: list of np.array(21,) uint16, one per game.
+
+    Files:
+        {prefix}_context.bin — uint16[n_games, 21]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    n_games = len(context_arrays)
+    print(f'Writing {prefix} context: {n_games} games')
+
+    ctx_arr = np.zeros((n_games, CONTEXT_DIM), dtype=np.uint16)
+    for i, ctx in enumerate(context_arrays):
+        ctx_arr[i] = ctx
+
+    ctx_path = os.path.join(output_dir, f'{prefix}_context.bin')
+    ctx_arr.tofile(ctx_path)
+    print(f'  {ctx_path}: {os.path.getsize(ctx_path) / 1e6:.1f} MB')
 
 
 def print_sample_game(games, index=0):
@@ -762,23 +815,76 @@ def build_interleaved_union(qf_bin_path, li_bin_path, max_games=None):
     return pool
 
 
-def tokenize_codec_pool(pool, map_infos, lgb_model=None, symmetric=False):
+def _batch_lgb_predict(lgb_model, pending_games, num_threads):
+    """Run batched LGB prediction across multiple games and fill results.
+
+    Args:
+        lgb_model: LightGBM Booster model
+        pending_games: list of (lgb_preds_arr, event_feat_map, n_header) tuples
+        num_threads: number of threads for LGB predict
+    """
+    # Collect all features needing prediction across all games
+    all_feats = []
+    # Track (game_idx, event_idx) for each feature row
+    game_event_indices = []
+
+    for game_idx, (lgb_preds_arr, event_feat_map, n_header) in enumerate(pending_games):
+        for event_idx, (feat, num_tokens, ts) in enumerate(event_feat_map):
+            if ts > 5.0:
+                all_feats.append(feat)
+                game_event_indices.append((game_idx, event_idx))
+
+    if not all_feats:
+        return
+
+    # Single batched prediction across all games
+    all_preds = lgb_model.predict(
+        np.array(all_feats, dtype=np.float32),
+        num_threads=num_threads)
+
+    # Build per-game prediction dicts
+    game_pred_dicts = [dict() for _ in pending_games]
+    for pred_idx, (game_idx, event_idx) in enumerate(game_event_indices):
+        game_pred_dicts[game_idx][event_idx] = float(all_preds[pred_idx])
+
+    # Fill predictions into each game's lgb_preds array
+    for game_idx, (lgb_preds_arr, event_feat_map, n_header) in enumerate(pending_games):
+        fill_lgb_predictions(lgb_preds_arr, event_feat_map, n_header,
+                             game_pred_dicts[game_idx])
+
+
+def tokenize_codec_pool(pool, map_infos, lgb_model=None, symmetric=False,
+                         context_lookup=None):
     """Tokenize games from a codec binary pool with optional symmetric augmentation.
+
+    Batches LGB predictions across multiple games for efficiency.
 
     Args:
         pool: list of (game_id, encoded_bytes, source) tuples
         map_infos: MapStructureInfos instance
         lgb_model: optional LightGBM model for predictions
         symmetric: if True, also tokenize team-swapped copies
+        context_lookup: optional ContextLookup for player/scene/cabinet context
 
     Returns:
-        list of (tokens, blue_wins, features, lgb_preds) tuples
+        (all_games, all_contexts) where:
+        - all_games: list of (tokens, blue_wins, ...) tuples
+        - all_contexts: list of np.array(21,) uint16, or None if no context_lookup
     """
     from symmetry import swap_event_stream
 
+    LGB_BATCH_SIZE = 500  # games per LGB batch predict
+    num_threads = min(os.cpu_count() or 1, 16)
+
     all_games = []
+    all_contexts = [] if context_lookup is not None else None
     total_tokens = 0
     failed = 0
+
+    # Pending games awaiting batched LGB prediction:
+    # each entry: (lgb_preds_arr, event_feat_map, n_header)
+    # plus index into all_games for updating
+    pending_lgb = []
 
     t_start = time.time()
     for gi, (game_id, encoded_bytes, source) in enumerate(pool):
@@ -796,8 +902,9 @@ def tokenize_codec_pool(pool, map_infos, lgb_model=None, symmetric=False):
 
         # Tokenize original
         if lgb_model is not None:
+            # Tokenize without LGB predict (deferred to batch)
             result = tokenize_and_materialize_single_game(
-                game_events, map_infos, lgb_model=lgb_model)
+                game_events, map_infos, lgb_model=None)
         else:
             result = tokenize_single_game(game_events, map_infos)
         if result is None:
@@ -805,33 +912,52 @@ def tokenize_codec_pool(pool, map_infos, lgb_model=None, symmetric=False):
             continue
 
         if lgb_model is not None:
-            tokens, blue_wins, features, lgb_preds = result
+            tokens, blue_wins, features, lgb_preds, event_feat_map, n_header = result
             all_games.append((tokens, blue_wins, features, lgb_preds))
+            pending_lgb.append((lgb_preds, event_feat_map, n_header))
         else:
             tokens, blue_wins = result
             all_games.append((tokens, blue_wins))
         total_tokens += len(tokens)
+
+        # Context lookup for this game
+        if all_contexts is not None:
+            ctx = context_lookup.get_game_context(game_id)
+            all_contexts.append(ctx)
 
         # Symmetric augmentation: swap teams and tokenize
         if symmetric:
             swapped_events = swap_event_stream(game_events)
             if lgb_model is not None:
                 result_sw = tokenize_and_materialize_single_game(
-                    swapped_events, map_infos, lgb_model=lgb_model)
+                    swapped_events, map_infos, lgb_model=None)
             else:
                 result_sw = tokenize_single_game(swapped_events, map_infos)
             if result_sw is not None:
                 if lgb_model is not None:
-                    tokens_sw, bw_sw, feat_sw, lgb_sw = result_sw
+                    tokens_sw, bw_sw, feat_sw, lgb_sw, efm_sw, nh_sw = result_sw
                     all_games.append((tokens_sw, bw_sw, feat_sw, lgb_sw))
+                    pending_lgb.append((lgb_sw, efm_sw, nh_sw))
                 else:
                     tokens_sw, bw_sw = result_sw
                     all_games.append((tokens_sw, bw_sw))
                 total_tokens += len(tokens_sw if lgb_model is not None else result_sw[0])
+                if all_contexts is not None:
+                    all_contexts.append(ContextLookup.swap_context(ctx))
+
+        # Flush LGB batch when enough games accumulated
+        if lgb_model is not None and len(pending_lgb) >= LGB_BATCH_SIZE:
+            _batch_lgb_predict(lgb_model, pending_lgb, num_threads)
+            pending_lgb.clear()
+
+    # Flush remaining
+    if lgb_model is not None and pending_lgb:
+        _batch_lgb_predict(lgb_model, pending_lgb, num_threads)
+        pending_lgb.clear()
 
     print(f'  Tokenized: {len(all_games)} games ({failed} failed)')
     _print_stats(all_games, total_tokens, verbose=True)
-    return all_games
+    return all_games, all_contexts
 
 
 def main():
@@ -874,6 +1000,11 @@ def main():
                         help='Path to LI encoded binary (logged_in_games/encoded/all_games.bin)')
     parser.add_argument('--symmetric', action='store_true',
                         help='Add team-swapped copies of all games (doubles data)')
+    # Context (hivemind) embeddings
+    parser.add_argument('--usergame-csv', type=str, default=None,
+                        help='Path to usergame.csv for player/scene context')
+    parser.add_argument('--game-csv', type=str, default=None,
+                        help='Path to game.csv for cabinet context')
     args = parser.parse_args()
 
     map_infos = map_structure.MapStructureInfos()
@@ -884,6 +1015,14 @@ def main():
         import lightgbm as lgb
         print(f'Loading LightGBM model from {args.lgb_model}')
         lgb_model = lgb.Booster(model_file=args.lgb_model)
+
+    # Load context lookup if both CSV files provided
+    context_lookup = None
+    if args.usergame_csv and args.game_csv:
+        print(f'Loading context from {args.usergame_csv} and {args.game_csv}')
+        context_lookup = ContextLookup(args.usergame_csv, args.game_csv)
+        print(f'  {context_lookup.n_users} users, {context_lookup.n_scenes} scenes, '
+              f'{context_lookup.n_cabinets} cabinets')
 
     if args.qf_bin and args.li_bin:
         # QF+LI union mode: decode from codec binaries, interleave, tokenize
@@ -896,9 +1035,12 @@ def main():
             print('  (with symmetric augmentation)')
         if args.materialize:
             print('  (with feature materialization)')
+        if context_lookup is not None:
+            print('  (with player/scene/cabinet context)')
         t0 = time.time()
-        all_games = tokenize_codec_pool(
-            pool, map_infos, lgb_model=lgb_model, symmetric=args.symmetric)
+        all_games, all_contexts = tokenize_codec_pool(
+            pool, map_infos, lgb_model=lgb_model, symmetric=args.symmetric,
+            context_lookup=context_lookup)
         print(f'Tokenization took {time.time() - t0:.1f}s\n')
 
         # Deterministic 90/10 split by game order
@@ -921,21 +1063,34 @@ def main():
             write_bin_files(train_games, args.output_dir, 'train')
             write_bin_files(val_games, args.output_dir, 'val')
 
+        # Write context bins if context was collected
+        if all_contexts is not None:
+            train_contexts = all_contexts[:split_idx]
+            val_contexts = all_contexts[split_idx:]
+            write_context_bin_files(train_contexts, args.output_dir, 'train')
+            write_context_bin_files(val_contexts, args.output_dir, 'val')
+            context_lookup.save_meta(
+                os.path.join(args.output_dir, 'context_meta.json'))
+
         # If --val-csv given, treat it as a held-out test set
         if args.val_csv:
             print(f'\n=== Tokenizing test data from {args.val_csv} ===')
             t0 = time.time()
             if args.materialize:
-                test_games = tokenize_csv_file_with_features(
-                    args.val_csv, map_infos, lgb_model=lgb_model)
+                test_games, test_contexts = tokenize_csv_file_with_features(
+                    args.val_csv, map_infos, lgb_model=lgb_model,
+                    context_lookup=context_lookup)
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(
                     [(g[0], g[1]) for g in test_games], args.output_dir, 'test')
                 write_feature_bin_files(test_games, args.output_dir, 'test')
             else:
                 test_games = tokenize_csv_file(args.val_csv, map_infos)
+                test_contexts = None
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(test_games, args.output_dir, 'test')
+            if test_contexts is not None:
+                write_context_bin_files(test_contexts, args.output_dir, 'test')
 
     elif args.train_dir:
         # Directory mode: tokenize all CSV/gzip files, split 90/10
@@ -945,19 +1100,26 @@ def main():
             print('  (with feature materialization)')
         t0 = time.time()
         all_games = []
+        all_contexts = [] if context_lookup is not None else None
         total_tokens = 0
         for csv_path in csv_files:
             if args.materialize:
-                games = tokenize_csv_file_with_features(
-                    csv_path, map_infos, lgb_model=lgb_model, verbose=False)
+                games, ctxs = tokenize_csv_file_with_features(
+                    csv_path, map_infos, lgb_model=lgb_model, verbose=False,
+                    context_lookup=context_lookup)
             else:
                 games = tokenize_csv_file(csv_path, map_infos, verbose=False)
+                ctxs = None
             all_games.extend(games)
+            if all_contexts is not None and ctxs is not None:
+                all_contexts.extend(ctxs)
             total_tokens += sum(len(_game_tokens(g)) for g in games)
             print(f'  {os.path.basename(csv_path)}: {len(games)} games'
                   f' ({len(all_games)} total)')
             if args.max_games and len(all_games) >= args.max_games:
                 all_games = all_games[:args.max_games]
+                if all_contexts is not None:
+                    all_contexts = all_contexts[:args.max_games]
                 total_tokens = sum(len(_game_tokens(g)) for g in all_games)
                 break
         _print_stats(all_games, total_tokens, verbose=True)
@@ -983,21 +1145,31 @@ def main():
             write_bin_files(train_games, args.output_dir, 'train')
             write_bin_files(val_games, args.output_dir, 'val')
 
+        if all_contexts is not None:
+            write_context_bin_files(all_contexts[:split_idx], args.output_dir, 'train')
+            write_context_bin_files(all_contexts[split_idx:], args.output_dir, 'val')
+            context_lookup.save_meta(
+                os.path.join(args.output_dir, 'context_meta.json'))
+
         # If --val-csv given, treat it as a held-out test set
         if args.val_csv:
             print(f'\n=== Tokenizing test data from {args.val_csv} ===')
             t0 = time.time()
             if args.materialize:
-                test_games = tokenize_csv_file_with_features(
-                    args.val_csv, map_infos, lgb_model=lgb_model)
+                test_games, test_contexts = tokenize_csv_file_with_features(
+                    args.val_csv, map_infos, lgb_model=lgb_model,
+                    context_lookup=context_lookup)
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(
                     [(g[0], g[1]) for g in test_games], args.output_dir, 'test')
                 write_feature_bin_files(test_games, args.output_dir, 'test')
             else:
                 test_games = tokenize_csv_file(args.val_csv, map_infos)
+                test_contexts = None
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(test_games, args.output_dir, 'test')
+            if test_contexts is not None:
+                write_context_bin_files(test_contexts, args.output_dir, 'test')
 
     elif args.train_csv:
         # Single-CSV mode: split one file into train/val, optionally write test
@@ -1006,12 +1178,13 @@ def main():
             print('  (with feature materialization)')
         t0 = time.time()
         if args.materialize:
-            all_games = tokenize_csv_file_with_features(
+            all_games, all_contexts = tokenize_csv_file_with_features(
                 args.train_csv, map_infos, lgb_model=lgb_model,
-                max_games=args.max_games)
+                max_games=args.max_games, context_lookup=context_lookup)
         else:
             all_games = tokenize_csv_file(args.train_csv, map_infos,
                                           max_games=args.max_games)
+            all_contexts = None
         print(f'Tokenization took {time.time() - t0:.1f}s\n')
 
         # Deterministic 90/10 split by game order
@@ -1033,21 +1206,31 @@ def main():
             write_bin_files(train_games, args.output_dir, 'train')
             write_bin_files(val_games, args.output_dir, 'val')
 
+        if all_contexts is not None:
+            write_context_bin_files(all_contexts[:split_idx], args.output_dir, 'train')
+            write_context_bin_files(all_contexts[split_idx:], args.output_dir, 'val')
+            context_lookup.save_meta(
+                os.path.join(args.output_dir, 'context_meta.json'))
+
         # If --val-csv given, treat it as a held-out test set
         if args.val_csv:
             print(f'\n=== Tokenizing test data from {args.val_csv} ===')
             t0 = time.time()
             if args.materialize:
-                test_games = tokenize_csv_file_with_features(
-                    args.val_csv, map_infos, lgb_model=lgb_model)
+                test_games, test_contexts = tokenize_csv_file_with_features(
+                    args.val_csv, map_infos, lgb_model=lgb_model,
+                    context_lookup=context_lookup)
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(
                     [(g[0], g[1]) for g in test_games], args.output_dir, 'test')
                 write_feature_bin_files(test_games, args.output_dir, 'test')
             else:
                 test_games = tokenize_csv_file(args.val_csv, map_infos)
+                test_contexts = None
                 print(f'Test tokenization took {time.time() - t0:.1f}s\n')
                 write_bin_files(test_games, args.output_dir, 'test')
+            if test_contexts is not None:
+                write_context_bin_files(test_contexts, args.output_dir, 'test')
     else:
         # Partition-range mode (original behavior)
         if args.quick:

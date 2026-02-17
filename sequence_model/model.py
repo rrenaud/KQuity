@@ -298,7 +298,7 @@ class Block(nn.Module):
 @dataclass
 class GPTConfig:
     block_size: int = 2560
-    vocab_size: int = 69      # KQ game event vocabulary (61 base + 8 time-gap buckets)
+    vocab_size: int = 185     # KQ game event vocabulary (52 base + 100 snail + 25 count + 8 time-gap)
     n_layer: int = 4
     n_head: int = 4
     n_embd: int = 128
@@ -311,6 +311,12 @@ class GPTConfig:
     feature_dropout: float = 0.0  # probability of zeroing feature embeddings during training
     # Future game state prediction auxiliary task
     n_future_features: int = 0  # 0=disabled, 10=recommended (len(FUTURE_PRED_FEATURE_INDICES))
+    # Context embeddings (hivemind: player/scene/cabinet)
+    n_users: int = 0       # 0=disabled, N+1=enabled (N users + unknown)
+    n_scenes: int = 0      # 0=disabled, N+1=enabled (N scenes + unknown)
+    n_cabinets: int = 0    # 0=disabled, N+1=enabled (N cabinets + unknown)
+    context_emb_dim: int = 16      # Embedding dimension for each context table
+    context_dropout: float = 0.0   # Prob of zeroing entire context during training
 
 
 class KQModel(nn.Module):
@@ -354,6 +360,18 @@ class KQModel(nn.Module):
         if config.lgb_pred_dim > 0:
             self.lgb_pred_proj = nn.Linear(1, config.n_embd)
 
+        # Context embeddings: player/scene/cabinet (hivemind)
+        if config.n_users > 0:
+            self.user_emb = nn.Embedding(config.n_users, config.context_emb_dim)
+            self.scene_emb = nn.Embedding(config.n_scenes, config.context_emb_dim)
+            self.cabinet_emb = nn.Embedding(config.n_cabinets, config.context_emb_dim)
+            # Project summed context embedding to n_embd
+            self.context_proj = nn.Sequential(
+                nn.Linear(config.context_emb_dim, config.n_embd),
+                nn.GELU(),
+                nn.Linear(config.n_embd, config.n_embd),
+            )
+
         # Future game state prediction head (optional)
         if config.n_future_features > 0:
             self.future_head = nn.Sequential(
@@ -381,6 +399,10 @@ class KQModel(nn.Module):
             with torch.no_grad():
                 self.future_head[-1].weight.mul_(0.01)
                 self.future_head[-1].bias.zero_()
+        if config.n_users > 0:
+            with torch.no_grad():
+                self.context_proj[-1].weight.mul_(0.01)
+                self.context_proj[-1].bias.zero_()
 
         print("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
 
@@ -400,7 +422,7 @@ class KQModel(nn.Module):
 
     def forward(self, idx, targets=None, wp_labels=None, lambda_wp=0.1,
                 features=None, lgb_preds=None, lambda_distill=0.0,
-                future_features=None, lambda_future=0.0):
+                future_features=None, lambda_future=0.0, context=None):
         """Forward pass with optional dual loss computation.
 
         Args:
@@ -413,6 +435,7 @@ class KQModel(nn.Module):
             lambda_distill: weight for distillation loss (0 = disabled)
             future_features: (B, T, n_future_features) future state targets, or None
             lambda_future: weight for future prediction loss (0 = disabled)
+            context: (B, 21) uint16 player/scene/cabinet context, or None
 
         Returns:
             logits: (B, T, vocab_size)
@@ -440,6 +463,26 @@ class KQModel(nn.Module):
 
         if lgb_preds is not None and hasattr(self, 'lgb_pred_proj'):
             tok_emb = tok_emb + self.lgb_pred_proj(lgb_preds.unsqueeze(-1))
+
+        # Inject context embeddings (player/scene/cabinet)
+        if context is not None and hasattr(self, 'user_emb'):
+            user_ids = context[:, :10].long()      # (B, 10)
+            scene_ids = context[:, 10:20].long()   # (B, 10)
+            cab_ids = context[:, 20:21].long()     # (B, 1)
+
+            # Sum embeddings across all 10 positions + cabinet
+            ctx_emb = (self.user_emb(user_ids).sum(dim=1) +
+                       self.scene_emb(scene_ids).sum(dim=1) +
+                       self.cabinet_emb(cab_ids).squeeze(1))  # (B, context_emb_dim)
+
+            ctx_proj = self.context_proj(ctx_emb)  # (B, n_embd)
+
+            # Context dropout: zero entire context embedding per batch element
+            if self.training and self.config.context_dropout > 0:
+                mask = torch.rand(b, 1, device=device) > self.config.context_dropout
+                ctx_proj = ctx_proj * mask
+
+            tok_emb = tok_emb + ctx_proj.unsqueeze(1)  # broadcast over T
 
         x = self.transformer.drop(tok_emb)
         for block in self.transformer.h:
@@ -532,18 +575,21 @@ class KQModel(nn.Module):
         return optimizer
 
     @torch.no_grad()
-    def estimate_win_probability(self, idx, features=None, lgb_preds=None):
+    def estimate_win_probability(self, idx, features=None, lgb_preds=None,
+                                  context=None):
         """Get win probability estimates at every position.
 
         Args:
             idx: (B, T) token indices
             features: (B, T, 52) LightGBM feature vectors, or None
             lgb_preds: (B, T) LightGBM predictions, or None
+            context: (B, 21) player/scene/cabinet context, or None
 
         Returns:
             probs: (B, T) P(blue wins) at each position
         """
-        _, wp_logits, _, _ = self(idx, features=features, lgb_preds=lgb_preds)
+        _, wp_logits, _, _ = self(idx, features=features, lgb_preds=lgb_preds,
+                                   context=context)
         return torch.sigmoid(wp_logits)
 
     @torch.no_grad()

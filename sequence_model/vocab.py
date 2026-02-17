@@ -1,6 +1,6 @@
 """Token vocabulary and event-to-token mapping for Killer Queen game sequences.
 
-Each game event becomes 1-4 tokens. The vocabulary is small (~53 tokens)
+Each game event becomes 1-4 tokens. The vocabulary is small (~192 tokens)
 to let the transformer compose event semantics from parts.
 """
 
@@ -88,30 +88,33 @@ KILLED_QUEEN = 49
 KILLED_SOLDIER = 50
 KILLED_WORKER = 51
 
-# Snail position buckets (9) — per-map empirical quantiles with center band
-# Layout: 4 left + center + 4 right, symmetric boundaries around 0.5
-SNAIL_POS_0 = 52  # far left
-SNAIL_POS_1 = 53  # mid left
-SNAIL_POS_2 = 54  # near left
-SNAIL_POS_3 = 55  # close left
-SNAIL_POS_4 = 56  # center (untouched / barely-moved snail)
-SNAIL_POS_5 = 57  # close right
-SNAIL_POS_6 = 58  # near right
-SNAIL_POS_7 = 59  # mid right
-SNAIL_POS_8 = 60  # far right
+# Snail position tokens (100) — uniform linear buckets across screen width
+# Each bucket covers ~19.2 pixels (1920/100). Bucket 0 = far left, 99 = far right.
+N_SNAIL_POS_TOKENS = 100
+SNAIL_POS_BASE = 52  # tokens 52..151
+
+# Egg state tokens (9) — combined (blue_eggs, gold_eggs), 3x3 grid
+# Eggs (queen deaths) range 0-2 per team; 3 = game over so never observed mid-game
+N_EGGS_STATE_TOKENS = 9
+EGGS_STATE_BASE = SNAIL_POS_BASE + N_SNAIL_POS_TOKENS  # 152
+
+# Food state tokens (16) — combined (blue_bucket, gold_bucket), 4x4 grid
+# Food 0-12 per team, bucketed: 0-2, 3-5, 6-8, 9-12
+N_FOOD_STATE_TOKENS = 16
+FOOD_STATE_BASE = EGGS_STATE_BASE + N_EGGS_STATE_TOKENS  # 161
 
 # Time-gap bucket tokens (8) — empirically fit to event gap distribution
 # (median gap ~0.46s, p95 ~2.3s, p99 ~3.8s, 99.5% of gaps < 5s)
-TIME_GAP_0 = 61   # [0, 0.05s)      ~12% of gaps — near-simultaneous
-TIME_GAP_1 = 62   # [0.05s, 0.15s)  ~12% — very fast
-TIME_GAP_2 = 63   # [0.15s, 0.35s)  ~18% — fast
-TIME_GAP_3 = 64   # [0.35s, 0.65s)  ~19% — typical
-TIME_GAP_4 = 65   # [0.65s, 1.0s)   ~14% — moderate
-TIME_GAP_5 = 66   # [1.0s, 1.5s)    ~12% — slow
-TIME_GAP_6 = 67   # [1.5s, 2.5s)    ~ 9% — long pause
-TIME_GAP_7 = 68   # [2.5s+)         ~ 4% — very long pause
+TIME_GAP_0 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS      # 177
+TIME_GAP_1 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 1   # 178
+TIME_GAP_2 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 2   # 179
+TIME_GAP_3 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 3   # 180
+TIME_GAP_4 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 4   # 181
+TIME_GAP_5 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 5   # 182
+TIME_GAP_6 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 6   # 183
+TIME_GAP_7 = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 7   # 184
 
-VOCAB_SIZE = 69
+VOCAB_SIZE = FOOD_STATE_BASE + N_FOOD_STATE_TOKENS + 8   # 185
 
 # --- Lookup tables ---
 
@@ -160,11 +163,11 @@ TOKEN_NAMES = [
     'maiden_speed', 'maiden_wings',
     'own_team_goal', 'opp_team_goal',
     'killed_queen', 'killed_soldier', 'killed_worker',
-    'snail_far_L', 'snail_mid_L', 'snail_near_L', 'snail_close_L',
-    'snail_center',
-    'snail_close_R', 'snail_near_R', 'snail_mid_R', 'snail_far_R',
-    'time_gap_0', 'time_gap_1', 'time_gap_2', 'time_gap_3',
-    'time_gap_4', 'time_gap_5', 'time_gap_6', 'time_gap_7',
+] + [f'snail_p{i}' for i in range(N_SNAIL_POS_TOKENS)
+] + [f'eggs_b{b}g{g}' for b in range(3) for g in range(3)
+] + [f'food_b{b}g{g}' for b in range(4) for g in range(4)
+] + ['time_gap_0', 'time_gap_1', 'time_gap_2', 'time_gap_3',
+     'time_gap_4', 'time_gap_5', 'time_gap_6', 'time_gap_7',
 ]
 
 assert len(TOKEN_NAMES) == VOCAB_SIZE
@@ -192,6 +195,27 @@ def time_gap_token(seconds: float) -> int:
         if seconds < boundary:
             return TIME_GAP_0 + i
     return TIME_GAP_7  # 40s+
+
+
+# Egg/food count state tokens
+_FOOD_BUCKET_BOUNDARIES = [3, 6, 9]  # buckets: 0-2, 3-5, 6-8, 9-12
+
+
+def eggs_state_token(blue_eggs: int, gold_eggs: int) -> int:
+    """Encode egg counts (queen deaths) as a single token. Each team 0-2."""
+    b = max(0, min(2, blue_eggs))
+    g = max(0, min(2, gold_eggs))
+    return EGGS_STATE_BASE + b * 3 + g
+
+
+def food_state_token(blue_food: int, gold_food: int) -> int:
+    """Encode food (berry deposit) counts as a single bucketed token."""
+    def bucket(f):
+        for i, boundary in enumerate(_FOOD_BUCKET_BOUNDARIES):
+            if f < boundary:
+                return i
+        return 3
+    return FOOD_STATE_BASE + bucket(blue_food) * 4 + bucket(gold_food)
 
 
 def token_name(token_id: int) -> str:
@@ -256,36 +280,17 @@ def tokenize_use_maiden(position_id, maiden_type):
     return [USE_MAIDEN, player_token(position_id), type_tok]
 
 
-# Per-map empirical quantile boundaries for snail position bucketing.
-# Layout: 4 left + center [0.49, 0.51) + 4 right = 9 buckets.
-# Left/right boundaries are symmetric around 0.5 (averaged from left/right
-# quantiles). Each non-center bucket holds ~12% of events; center captures
-# the untouched-snail spike (~5-8% on active maps, ~37% on twilight).
-# Computed from ~100K+ snail events per map across 10 shards.
-_SNAIL_QUANTILE_BOUNDARIES = {
-    #              far_L   mid_L   near_L  close_L  ctr_lo  ctr_hi  close_R  near_R  mid_R
-    Map.map_day:      [0.195, 0.295, 0.384, 0.49, 0.51, 0.616, 0.705, 0.805],
-    Map.map_dusk:     [0.200, 0.312, 0.411, 0.49, 0.51, 0.589, 0.688, 0.800],
-    Map.map_night:    [0.267, 0.358, 0.434, 0.49, 0.51, 0.566, 0.642, 0.733],
-    Map.map_twilight: [0.308, 0.402, 0.457, 0.49, 0.51, 0.543, 0.598, 0.692],
-}
-
 _SCREEN_WIDTH = 1920  # from constants; duplicated here to avoid circular import
 
 
 def snail_position_token(snail_x, map_type):
-    """Convert raw snail_x pixel coordinate to a quantile bucket token.
+    """Convert raw snail_x pixel coordinate to a linear bucket token (0-99).
 
-    Uses per-map empirical boundaries with a dedicated center bucket for
-    the untouched/barely-moved snail. Boundaries are symmetric around 0.5
-    for each map.
+    Uniform linear bucketing: each of 100 buckets covers ~19.2 pixels.
     """
-    fraction = snail_x / _SCREEN_WIDTH
-    boundaries = _SNAIL_QUANTILE_BOUNDARIES[map_type]
-    for i, boundary in enumerate(boundaries):
-        if fraction < boundary:
-            return SNAIL_POS_0 + i
-    return SNAIL_POS_8
+    bucket = int(snail_x * N_SNAIL_POS_TOKENS / _SCREEN_WIDTH)
+    bucket = max(0, min(N_SNAIL_POS_TOKENS - 1, bucket))
+    return SNAIL_POS_BASE + bucket
 
 
 def tokenize_get_on_snail(position_id, snail_pos_tok):
@@ -362,6 +367,6 @@ def tokenize_event(event):
 # TODO: Add discretized spatial grid tokens (e.g. 8x6 buckets) for kill
 #       locations — may help model learn map control patterns
 # Time-gap bucket tokens are now included (TIME_GAP_0..7) between events.
-# Snail position deciles are now included (SNAIL_POS_0..9) on all snail events.
+# Snail position tokens are now included (100 linear buckets) on all snail events.
 # TODO: Add berry-slot tokens (0-11) to berryDeposit events —
 #       lets model track how close a team is to economic victory

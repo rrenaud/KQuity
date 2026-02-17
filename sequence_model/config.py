@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelConfig:
-    vocab_size: int = 62       # From vocab.py VOCAB_SIZE
+    vocab_size: int = 185      # From vocab.py VOCAB_SIZE
     block_size: int = 1024     # Context length — covers >99% of games
     n_layer: int = 4
     n_head: int = 4

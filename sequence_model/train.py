@@ -30,7 +30,7 @@ except ImportError:
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from sequence_model.model import KQModel, GPTConfig, FUTURE_PRED_FEATURE_INDICES
-from sequence_model.vocab import VOCAB_SIZE, PAD, BOS as BOS_TOKEN
+from sequence_model.vocab import VOCAB_SIZE, PAD, BOS as BOS_TOKEN, TIME_GAP_0, TIME_GAP_7
 from fast_materialize import NUM_FEATURES
 
 # -----------------------------------------------------------------------------
@@ -137,11 +137,36 @@ def parse_args():
                         help='Token-based future prediction horizon K (0=disabled, 5≈1s, 28≈5s)')
     parser.add_argument('--lambda-future', type=float, default=0.0,
                         help='Weight for future prediction loss (default: 0.0)')
+    parser.add_argument('--wp-boundary-only', action='store_true',
+                        help='Only compute WP loss at time-gap token positions')
+    # Context (hivemind) embeddings
+    parser.add_argument('--use-context', action='store_true',
+                        help='Load and inject player/scene/cabinet context')
+    parser.add_argument('--context-emb-dim', type=int, default=16,
+                        help='Embedding dimension for context tables (default: 16)')
+    parser.add_argument('--context-dropout', type=float, default=0.3,
+                        help='Probability of zeroing context during training (default: 0.3)')
     return parser.parse_args()
 
 
 # Cache for BOS offsets per split — built once, reused across get_batch calls
 _bos_offset_cache = {}
+
+# Cache for context memmaps per split
+_context_mmap_cache = {}
+
+
+def _get_context_mmap(split, data_dir):
+    """Load context memmap for a split. Cached."""
+    from sequence_model.context_lookup import CONTEXT_DIM
+    key = (split, data_dir)
+    if key not in _context_mmap_cache:
+        ctx_file = os.path.join(data_dir, f'{split}_context.bin')
+        raw = np.memmap(ctx_file, dtype=np.uint16, mode='r')
+        n_games = len(raw) // CONTEXT_DIM
+        _context_mmap_cache[key] = raw.reshape(n_games, CONTEXT_DIM)
+        print(f"  Loaded context for {n_games} games in {split}")
+    return _context_mmap_cache[key]
 
 
 def _get_bos_offsets(split, data_dir):
@@ -158,7 +183,8 @@ def _get_bos_offsets(split, data_dir):
 
 def get_batch(split, data_dir, block_size, batch_size, device, device_type,
               use_features=False, use_lgb_preds=False,
-              future_pred_horizon=0, future_feature_indices=None):
+              future_pred_horizon=0, future_feature_indices=None,
+              wp_boundary_only=False, use_context=False):
     """Load a game-aligned random batch of token sequences.
 
     Each batch element starts at a BOS (game start) token. Games shorter than
@@ -172,6 +198,7 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
         features: (B, T, 52) float32 feature vectors, or None
         lgb_preds: (B, T) float32 LGB predictions, or None
         future_features: (B, T, n_future_features) float32 future targets, or None
+        context: (B, 21) uint16 context vectors, or None
     """
     token_file = os.path.join(data_dir, f'{split}.bin')
     label_file = os.path.join(data_dir, f'{split}_labels.bin')
@@ -190,6 +217,10 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
         pred_file = os.path.join(data_dir, f'{split}_lgb_preds.bin')
         pred_mmap = np.memmap(pred_file, dtype=np.float16, mode='r')
 
+    ctx_mmap = None
+    if use_context:
+        ctx_mmap = _get_context_mmap(split, data_dir)
+
     bos_offsets = _get_bos_offsets(split, data_dir)
     chosen = np.random.randint(0, len(bos_offsets), size=batch_size)
 
@@ -200,6 +231,9 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
                           dtype=np.float32) if use_features else None
     pred_batch = np.zeros((batch_size, block_size),
                           dtype=np.float32) if use_lgb_preds else None
+    from sequence_model.context_lookup import CONTEXT_DIM
+    ctx_batch = np.zeros((batch_size, CONTEXT_DIM),
+                         dtype=np.int64) if use_context else None
 
     # Future feature targets: need features mmap even if not injecting features
     use_future = future_pred_horizon > 0 and future_feature_indices is not None
@@ -240,6 +274,9 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
         if pred_mmap is not None:
             pred_batch[b, :actual_len] = pred_mmap[start:start + actual_len].astype(np.float32)
 
+        if ctx_mmap is not None:
+            ctx_batch[b] = ctx_mmap[idx].astype(np.int64)
+
         # Future feature targets: features at position (start + K) within same game
         if use_future:
             K = future_pred_horizon
@@ -249,12 +286,18 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
                 src = feat_mmap[start + K:start + K + n_valid]
                 future_feat_batch[b, :n_valid] = src[:, future_feature_indices].astype(np.float32)
 
+    # WP boundary masking: only compute WP loss at time-gap token positions
+    if wp_boundary_only:
+        is_boundary = (x >= TIME_GAP_0) & (x <= TIME_GAP_7)
+        wp = np.where(is_boundary & (wp != -1), wp, -1)
+
     x = torch.from_numpy(x)
     y = torch.from_numpy(y)
     wp = torch.from_numpy(wp)
     features_t = torch.from_numpy(feat_batch) if feat_batch is not None else None
     lgb_preds_t = torch.from_numpy(pred_batch) if pred_batch is not None else None
     future_features_t = torch.from_numpy(future_feat_batch) if future_feat_batch is not None else None
+    context_t = torch.from_numpy(ctx_batch) if ctx_batch is not None else None
 
     if device_type == 'cuda':
         x = x.pin_memory().to(device, non_blocking=True)
@@ -266,6 +309,8 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
             lgb_preds_t = lgb_preds_t.pin_memory().to(device, non_blocking=True)
         if future_features_t is not None:
             future_features_t = future_features_t.pin_memory().to(device, non_blocking=True)
+        if context_t is not None:
+            context_t = context_t.pin_memory().to(device, non_blocking=True)
     else:
         x, y, wp = x.to(device), y.to(device), wp.to(device)
         if features_t is not None:
@@ -274,8 +319,10 @@ def get_batch(split, data_dir, block_size, batch_size, device, device_type,
             lgb_preds_t = lgb_preds_t.to(device)
         if future_features_t is not None:
             future_features_t = future_features_t.to(device)
+        if context_t is not None:
+            context_t = context_t.to(device)
 
-    return x, y, wp, features_t, lgb_preds_t, future_features_t
+    return x, y, wp, features_t, lgb_preds_t, future_features_t, context_t
 
 
 def get_lr(it, learning_rate, warmup_iters, lr_decay_iters, min_lr):
@@ -295,7 +342,8 @@ def estimate_loss(model, data_dir, block_size, batch_size, device, device_type,
                   ctx, eval_iters, lw, use_features=False, use_lgb_preds=False,
                   lambda_distill=0.0, zero_tokens=False,
                   future_pred_horizon=0, lambda_future=0.0,
-                  future_feature_indices=None):
+                  future_feature_indices=None, wp_boundary_only=False,
+                  use_context=False):
     """Estimate loss on train and val splits."""
     out = {}
     model.eval()
@@ -308,12 +356,14 @@ def estimate_loss(model, data_dir, block_size, batch_size, device, device_type,
         total_wp_correct = 0
         total_wp_count = 0
         for k in range(eval_iters):
-            x, y, wp, features, lgb_preds, future_features = get_batch(
+            x, y, wp, features, lgb_preds, future_features, context = get_batch(
                 split, data_dir, block_size, batch_size,
                 device, device_type,
                 use_features=use_features, use_lgb_preds=use_lgb_preds,
                 future_pred_horizon=future_pred_horizon,
-                future_feature_indices=future_feature_indices)
+                future_feature_indices=future_feature_indices,
+                wp_boundary_only=wp_boundary_only,
+                use_context=use_context)
             if zero_tokens:
                 x.zero_()
             with ctx:
@@ -322,7 +372,8 @@ def estimate_loss(model, data_dir, block_size, batch_size, device, device_type,
                     features=features, lgb_preds=lgb_preds,
                     lambda_distill=lambda_distill,
                     future_features=future_features,
-                    lambda_future=lambda_future)
+                    lambda_future=lambda_future,
+                    context=context)
             total_loss += loss.item()
             total_lm += details['lm_loss']
             total_wp += details['wp_loss']
@@ -397,6 +448,25 @@ def main():
                 print("Run: python -m sequence_model.tokenize_games --materialize --lgb-model ... first")
                 sys.exit(1)
 
+    # Verify context files exist if requested
+    ctx_meta = None
+    if args.use_context:
+        import json
+        meta_path = os.path.join(args.data_dir, 'context_meta.json')
+        if not os.path.exists(meta_path):
+            print(f"Error: context meta not found: {meta_path}")
+            print("Run tokenize_games with --usergame-csv and --game-csv first")
+            sys.exit(1)
+        with open(meta_path) as f:
+            ctx_meta = json.load(f)
+        for split in ['train', 'val']:
+            ctx_bin = os.path.join(args.data_dir, f'{split}_context.bin')
+            if not os.path.exists(ctx_bin):
+                print(f"Error: context file not found: {ctx_bin}")
+                sys.exit(1)
+        print(f"Context: {ctx_meta['n_users']} users, {ctx_meta['n_scenes']} scenes, "
+              f"{ctx_meta['n_cabinets']} cabinets")
+
     tokens_per_iter = (args.gradient_accumulation_steps * args.batch_size
                        * args.block_size)
     print(f"tokens per iteration: {tokens_per_iter:,}")
@@ -418,6 +488,11 @@ def main():
         lgb_pred_dim=1 if args.use_lgb_preds else 0,
         feature_dropout=args.feature_dropout,
         n_future_features=len(FUTURE_PRED_FEATURE_INDICES) if args.future_pred_horizon > 0 else 0,
+        n_users=ctx_meta['n_users'] + 1 if ctx_meta else 0,
+        n_scenes=ctx_meta['n_scenes'] + 1 if ctx_meta else 0,
+        n_cabinets=ctx_meta['n_cabinets'] + 1 if ctx_meta else 0,
+        context_emb_dim=args.context_emb_dim,
+        context_dropout=args.context_dropout,
     )
 
     if args.init_from == 'scratch':
@@ -430,7 +505,8 @@ def main():
         checkpoint = torch.load(ckpt_path, map_location=args.device, weights_only=False)
         for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size',
                   'model_type', 'n_lgb_features', 'lgb_pred_dim', 'feature_dropout',
-                  'n_future_features']:
+                  'n_future_features', 'n_users', 'n_scenes', 'n_cabinets',
+                  'context_emb_dim', 'context_dropout']:
             if k in checkpoint['model_args']:
                 model_args[k] = checkpoint['model_args'][k]
             # old checkpoints may lack model_type/feature fields — use defaults
@@ -469,12 +545,14 @@ def main():
         model = torch.compile(model)
 
     # Training loop
-    x, y, wp, features, lgb_preds, future_features = get_batch(
+    x, y, wp, features, lgb_preds, future_features, context = get_batch(
         'train', args.data_dir, args.block_size,
         args.batch_size, args.device, device_type,
         use_features=args.use_lgb_features, use_lgb_preds=args.use_lgb_preds,
         future_pred_horizon=args.future_pred_horizon,
-        future_feature_indices=future_feature_indices)
+        future_feature_indices=future_feature_indices,
+        wp_boundary_only=args.wp_boundary_only,
+        use_context=args.use_context)
     if args.zero_tokens:
         x.zero_()
     t0 = time.time()
@@ -508,6 +586,10 @@ def main():
                 'feature_dropout': args.feature_dropout,
                 'future_pred_horizon': args.future_pred_horizon,
                 'lambda_future': args.lambda_future,
+                'wp_boundary_only': args.wp_boundary_only,
+                'use_context': args.use_context,
+                'context_emb_dim': args.context_emb_dim,
+                'context_dropout': args.context_dropout,
             },
         )
 
@@ -529,6 +611,12 @@ def main():
     if args.future_pred_horizon > 0:
         print(f"  future_pred_horizon = {args.future_pred_horizon}")
         print(f"  lambda_future = {args.lambda_future}")
+    if args.wp_boundary_only:
+        print(f"  wp_boundary_only = {args.wp_boundary_only}")
+    if args.use_context:
+        print(f"  use_context = True")
+        print(f"  context_emb_dim = {args.context_emb_dim}")
+        print(f"  context_dropout = {args.context_dropout}")
     print()
 
     while True:
@@ -549,7 +637,9 @@ def main():
                 zero_tokens=args.zero_tokens,
                 future_pred_horizon=args.future_pred_horizon,
                 lambda_future=args.lambda_future,
-                future_feature_indices=future_feature_indices)
+                future_feature_indices=future_feature_indices,
+                wp_boundary_only=args.wp_boundary_only,
+                use_context=args.use_context)
             distill_str = ''
             if 'distill_loss' in losses.get('train', {}):
                 distill_str = (f", distill {losses['train']['distill_loss']:.4f}"
@@ -612,16 +702,19 @@ def main():
                     features=features, lgb_preds=lgb_preds,
                     lambda_distill=args.lambda_distill,
                     future_features=future_features,
-                    lambda_future=args.lambda_future)
+                    lambda_future=args.lambda_future,
+                    context=context)
                 loss = loss / args.gradient_accumulation_steps
 
-            x, y, wp, features, lgb_preds, future_features = get_batch(
+            x, y, wp, features, lgb_preds, future_features, context = get_batch(
                 'train', args.data_dir, args.block_size,
                 args.batch_size, args.device, device_type,
                 use_features=args.use_lgb_features,
                 use_lgb_preds=args.use_lgb_preds,
                 future_pred_horizon=args.future_pred_horizon,
-                future_feature_indices=future_feature_indices)
+                future_feature_indices=future_feature_indices,
+                wp_boundary_only=args.wp_boundary_only,
+                use_context=args.use_context)
             if args.zero_tokens:
                 x.zero_()
             scaler.scale(loss).backward()
