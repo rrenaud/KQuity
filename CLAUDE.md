@@ -34,6 +34,10 @@ To re-encode from CSV: `python encode_datasets.py`
 - **Bagged ensembles are free.** Train multiple models with 80% bootstrap bagging + different seeds, average predictions. Strictly better than any single model at no extra cost.
 - **Always validate with multiple seeds.** Seed variance on unf@95% is +/- 0.4-0.6%. Any claimed improvement under ~1pp needs multi-seed confirmation.
 
+## Plot preferences
+
+Use `fill_between` for variance shading (mean +/- std band) on scaling plots, not just error bars. The translucent background bands make it easier to see overlap and separation between curves.
+
 ## Running tests
 
 ```

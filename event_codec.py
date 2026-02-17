@@ -671,7 +671,7 @@ def _game_state_to_vectorize_args(game_state):
             game_state.berries_available, gold_sym)
 
 
-def materialize_entries(entries, drop_state_probability=0.0):
+def materialize_entries(entries, drop_state_probability=0.0, seed=42):
     """Materialize features from an iterable of (game_id, encoded_bytes).
 
     This is the shared materialization core used by both
@@ -681,6 +681,7 @@ def materialize_entries(entries, drop_state_probability=0.0):
     Args:
         entries: iterable of (game_id, encoded_bytes) tuples.
         drop_state_probability: Probability of dropping each eligible state.
+        seed: RNG seed for state dropping (default: 42).
 
     Returns:
         (states, labels, game_ids, timestamps): numpy arrays.
@@ -695,7 +696,7 @@ def materialize_entries(entries, drop_state_probability=0.0):
     timestamp_buf = np.empty(capacity, dtype=np.float32)
     write_idx = 0
 
-    rng = random.Random(42)
+    rng = random.Random(seed)
     no_drop = (drop_state_probability == 0.0)
     n_failures = 0
 
@@ -763,7 +764,8 @@ def materialize_entries(entries, drop_state_probability=0.0):
 
 
 def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
-                                max_games=None, exclude_game_ids=None):
+                                max_games=None, exclude_game_ids=None,
+                                seed=42):
     """Materialize features from a packed binary file.
 
     Args:
@@ -772,6 +774,7 @@ def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
         max_games: If set, only process this many games from the file.
             Excluded games do not count toward this limit.
         exclude_game_ids: Set of game IDs to skip entirely.
+        seed: RNG seed for state dropping (default: 42).
 
     Returns:
         (states, labels, game_ids, timestamps): numpy arrays matching
@@ -787,4 +790,5 @@ def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
             games_processed += 1
             yield game_id, encoded
 
-    return materialize_entries(_iter_entries(), drop_state_probability)
+    return materialize_entries(_iter_entries(), drop_state_probability,
+                              seed=seed)
