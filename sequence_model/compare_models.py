@@ -36,9 +36,11 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import lightgbm as lgb
-from fast_materialize import fast_materialize
+from fast_materialize import fast_materialize, NUM_FEATURES
 from sequence_model.model import KQModel, GPTConfig
-from sequence_model.tokenize_games import tokenize_single_game
+from sequence_model.tokenize_games import (
+    tokenize_single_game, tokenize_and_materialize_single_game,
+)
 from sequence_model.vocab import BOS, EOS
 from preprocess import (
     iterate_events_from_csv,
@@ -50,7 +52,10 @@ import map_structure
 
 def load_seq_model(checkpoint_path, device='cpu'):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    config = GPTConfig(**checkpoint['model_args'])
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(GPTConfig)}
+    model_args = {k: v for k, v in checkpoint['model_args'].items() if k in valid_fields}
+    config = GPTConfig(**model_args)
     model = KQModel(config)
     state_dict = checkpoint['model']
     for k in list(state_dict.keys()):
@@ -80,15 +85,22 @@ def eval_lgb_on_partition(csv_path, lgb_model):
 
 
 def eval_seq_on_partition(csv_path, seq_model, map_infos, device, block_size,
-                          sample_rate=0.1):
+                          sample_rate=0.1, lgb_model_for_features=None):
     """Return (predictions, labels) for seq model on one partition.
 
     For each game, tokenize it and sample ~sample_rate of token positions
     to evaluate win probability. This gives a manageable number of samples
     comparable to LightGBM's per-event snapshots.
+
+    If lgb_model_for_features is provided and the seq model uses features,
+    features will be materialized per game using GameStateTracker.
     """
     all_probs = []
     all_labels = []
+
+    uses_features = getattr(seq_model.config, 'n_lgb_features', 0) > 0
+    uses_lgb_preds = getattr(seq_model.config, 'lgb_pred_dim', 0) > 0
+    materialize = uses_features or uses_lgb_preds
 
     events_iter = iterate_events_from_csv(csv_path)
     for game_id, game_events in iterate_events_by_game_and_normalize_time(events_iter):
@@ -96,15 +108,28 @@ def eval_seq_on_partition(csv_path, seq_model, map_infos, device, block_size,
         if error:
             continue
 
-        result = tokenize_single_game(game_events, map_infos)
-        if result is None:
-            continue
-
-        tokens, blue_wins = result
+        if materialize:
+            result = tokenize_and_materialize_single_game(
+                game_events, map_infos,
+                lgb_model=lgb_model_for_features if uses_lgb_preds else None)
+            if result is None:
+                continue
+            tokens, blue_wins, features_arr, lgb_preds_arr = result
+        else:
+            result = tokenize_single_game(game_events, map_infos)
+            if result is None:
+                continue
+            tokens, blue_wins = result
+            features_arr = None
+            lgb_preds_arr = None
 
         # Truncate to block_size for the model
         if len(tokens) > block_size:
             tokens = tokens[:block_size]
+            if features_arr is not None:
+                features_arr = features_arr[:block_size]
+            if lgb_preds_arr is not None:
+                lgb_preds_arr = lgb_preds_arr[:block_size]
 
         # Skip very short games
         if len(tokens) < 10:
@@ -112,16 +137,24 @@ def eval_seq_on_partition(csv_path, seq_model, map_infos, device, block_size,
 
         # Sample positions (skip BOS header of 3 tokens and EOS)
         n = len(tokens)
-        # Sample roughly every 1/sample_rate tokens to match LightGBM density
-        # LightGBM gets ~1 snapshot per event, events are ~3 tokens on average
         step = max(1, int(3 / sample_rate))
         indices = list(range(3, n - 1, step))
         if not indices:
             continue
 
         token_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
+        features_t = None
+        lgb_preds_t = None
+        if features_arr is not None and uses_features:
+            features_t = torch.tensor(features_arr, dtype=torch.float32,
+                                      device=device).unsqueeze(0)
+        if lgb_preds_arr is not None and uses_lgb_preds:
+            lgb_preds_t = torch.tensor(lgb_preds_arr, dtype=torch.float32,
+                                       device=device).unsqueeze(0)
+
         with torch.no_grad():
-            wp_probs = seq_model.estimate_win_probability(token_tensor)
+            wp_probs = seq_model.estimate_win_probability(
+                token_tensor, features=features_t, lgb_preds=lgb_preds_t)
         wp_probs = wp_probs[0].cpu().numpy()
 
         for idx in indices:
@@ -131,7 +164,8 @@ def eval_seq_on_partition(csv_path, seq_model, map_infos, device, block_size,
     return np.array(all_probs), np.array(all_labels)
 
 
-def eval_seq_by_stage(csv_path, seq_model, map_infos, device, block_size):
+def eval_seq_by_stage(csv_path, seq_model, map_infos, device, block_size,
+                      lgb_model_for_features=None):
     """Return per-stage predictions for the seq model.
 
     For each game, split into early/mid/late thirds and sample one prediction
@@ -139,35 +173,61 @@ def eval_seq_by_stage(csv_path, seq_model, map_infos, device, block_size):
     """
     stage_data = {'early': ([], []), 'mid': ([], []), 'late': ([], [])}
 
+    uses_features = getattr(seq_model.config, 'n_lgb_features', 0) > 0
+    uses_lgb_preds = getattr(seq_model.config, 'lgb_pred_dim', 0) > 0
+    materialize = uses_features or uses_lgb_preds
+
     events_iter = iterate_events_from_csv(csv_path)
     for game_id, game_events in iterate_events_by_game_and_normalize_time(events_iter):
         error = is_valid_game(game_events, map_infos)
         if error:
             continue
 
-        result = tokenize_single_game(game_events, map_infos)
-        if result is None:
-            continue
+        if materialize:
+            result = tokenize_and_materialize_single_game(
+                game_events, map_infos,
+                lgb_model=lgb_model_for_features if uses_lgb_preds else None)
+            if result is None:
+                continue
+            tokens, blue_wins, features_arr, lgb_preds_arr = result
+        else:
+            result = tokenize_single_game(game_events, map_infos)
+            if result is None:
+                continue
+            tokens, blue_wins = result
+            features_arr = None
+            lgb_preds_arr = None
 
-        tokens, blue_wins = result
         if len(tokens) > block_size:
             tokens = tokens[:block_size]
+            if features_arr is not None:
+                features_arr = features_arr[:block_size]
+            if lgb_preds_arr is not None:
+                lgb_preds_arr = lgb_preds_arr[:block_size]
         n = len(tokens)
         if n < 12:
             continue
 
         token_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
+        features_t = None
+        lgb_preds_t = None
+        if features_arr is not None and uses_features:
+            features_t = torch.tensor(features_arr, dtype=torch.float32,
+                                      device=device).unsqueeze(0)
+        if lgb_preds_arr is not None and uses_lgb_preds:
+            lgb_preds_t = torch.tensor(lgb_preds_arr, dtype=torch.float32,
+                                       device=device).unsqueeze(0)
+
         with torch.no_grad():
-            wp_probs = seq_model.estimate_win_probability(token_tensor)
+            wp_probs = seq_model.estimate_win_probability(
+                token_tensor, features=features_t, lgb_preds=lgb_preds_t)
         wp_probs = wp_probs[0].cpu().numpy()
 
         label = float(blue_wins)
-        # Content tokens are positions 3 to n-2 (skip BOS header and EOS)
         content_start = 3
         content_end = n - 1
         content_len = content_end - content_start
 
-        # Sample ~every 3 tokens (matching LightGBM's 1-per-event density)
         for i in range(content_start, content_end, 3):
             frac = (i - content_start) / max(content_len - 1, 1)
             if frac < 0.25:
@@ -328,7 +388,8 @@ def main():
 
         # Seq model
         sp, sl = eval_seq_on_partition(args.test_csv, seq_model, map_infos,
-                                       args.device, args.block_size)
+                                       args.device, args.block_size,
+                                       lgb_model_for_features=lgb_model)
         if len(sp) > 0:
             all_seq_preds.append(sp)
             all_seq_labels.append(sl)
@@ -336,7 +397,8 @@ def main():
         # Per-stage
         lgb_stages = eval_lgb_by_stage(args.test_csv, lgb_model)
         seq_stages = eval_seq_by_stage(args.test_csv, seq_model, map_infos,
-                                       args.device, args.block_size)
+                                       args.device, args.block_size,
+                                       lgb_model_for_features=lgb_model)
         for stage in ['early', 'mid', 'late']:
             if len(lgb_stages[stage][0]) > 0:
                 stage_lgb[stage][0].append(lgb_stages[stage][0])
@@ -377,7 +439,8 @@ def main():
 
             # Seq model
             sp, sl = eval_seq_on_partition(csv_path, seq_model, map_infos,
-                                           args.device, args.block_size)
+                                           args.device, args.block_size,
+                                           lgb_model_for_features=lgb_model)
             if len(sp) > 0:
                 all_seq_preds.append(sp)
                 all_seq_labels.append(sl)
@@ -385,7 +448,8 @@ def main():
             # Per-stage
             lgb_stages = eval_lgb_by_stage(csv_path, lgb_model)
             seq_stages = eval_seq_by_stage(csv_path, seq_model, map_infos,
-                                           args.device, args.block_size)
+                                           args.device, args.block_size,
+                                           lgb_model_for_features=lgb_model)
             for stage in ['early', 'mid', 'late']:
                 if len(lgb_stages[stage][0]) > 0:
                     stage_lgb[stage][0].append(lgb_stages[stage][0])

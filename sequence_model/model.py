@@ -16,6 +16,11 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# Top LGB features by importance (gain):
+#   Eggs (36.6%), Food deposits (30.8%), Snail (13.2%), Maidens (5.1%), Berries (1.0%)
+# Excludes worker-level features (sort order changes between timesteps) and static map one-hot.
+FUTURE_PRED_FEATURE_INDICES = [0, 20, 1, 21, 49, 50, 40, 41, 42, 51]
+
 
 class LayerNorm(nn.Module):
     """LayerNorm with optional bias (PyTorch doesn't support bias=False directly)."""
@@ -124,6 +129,32 @@ class CausalLinearAttention(nn.Module):
         return y
 
 
+@torch.jit.script
+def _fast_ssm_scan(A_bar: torch.Tensor, Bu: torch.Tensor, C_t: torch.Tensor,
+                   d_inner: int, d_state: int) -> torch.Tensor:
+    """JIT-compiled sequential SSM scan — eliminates Python loop overhead.
+
+    Args:
+        A_bar: (B, T, d_inner, d_state) — discretized decay
+        Bu: (B, T, d_inner, d_state) — discretized input
+        C_t: (B, T, d_state) — output projection per timestep
+        d_inner: inner dimension
+        d_state: state dimension
+
+    Returns:
+        y: (B, T, d_inner) — output at each timestep
+    """
+    B = A_bar.shape[0]
+    T = A_bar.shape[1]
+    h = torch.zeros(B, d_inner, d_state, device=A_bar.device, dtype=A_bar.dtype)
+    ys = torch.empty(B, T, d_inner, device=A_bar.device, dtype=A_bar.dtype)
+    for t in range(T):
+        h = A_bar[:, t] * h + Bu[:, t]
+        # y_t = sum over state dim: h * C_t  (equivalent to einsum 'bds,bs->bd')
+        ys[:, t] = (h * C_t[:, t].unsqueeze(1)).sum(dim=-1)
+    return ys
+
+
 class MambaLayerPure(nn.Module):
     """Pure PyTorch selective SSM (Mamba) — no CUDA kernels needed.
 
@@ -185,14 +216,9 @@ class MambaLayerPure(nn.Module):
         A_bar = torch.exp(dt.unsqueeze(-1) * A.unsqueeze(0).unsqueeze(0))  # (B, T, d_inner, d_state)
         B_bar = dt.unsqueeze(-1) * B_t.unsqueeze(2)  # (B, T, d_inner, d_state)
 
-        # Sequential scan
-        h = torch.zeros(B, self.d_inner, self.d_state, device=x.device, dtype=x.dtype)
-        ys = []
-        for t in range(T):
-            h = A_bar[:, t] * h + B_bar[:, t] * x_branch[:, t].unsqueeze(-1)
-            y_t = torch.einsum('bds,bs->bd', h, C_t[:, t])  # (B, d_inner)
-            ys.append(y_t)
-        y = torch.stack(ys, dim=1)  # (B, T, d_inner)
+        # JIT-compiled sequential scan (eliminates Python loop overhead)
+        Bu = B_bar * x_branch.unsqueeze(-1)  # (B, T, d_inner, d_state)
+        y = _fast_ssm_scan(A_bar, Bu, C_t, self.d_inner, self.d_state)
 
         # Skip connection with D
         y = y + self.D.unsqueeze(0).unsqueeze(0) * x_branch
@@ -279,6 +305,12 @@ class GPTConfig:
     dropout: float = 0.1
     bias: bool = False
     model_type: str = 'transformer'  # 'transformer' | 'linear-attn' | 'mamba'
+    # LightGBM feature injection
+    n_lgb_features: int = 0    # 0=disabled, 52=enabled
+    lgb_pred_dim: int = 0      # 0=disabled, 1=enabled
+    feature_dropout: float = 0.0  # probability of zeroing feature embeddings during training
+    # Future game state prediction auxiliary task
+    n_future_features: int = 0  # 0=disabled, 10=recommended (len(FUTURE_PRED_FEATURE_INDICES))
 
 
 class KQModel(nn.Module):
@@ -312,11 +344,43 @@ class KQModel(nn.Module):
         # Win probability head: hidden → 1 (sigmoid applied in loss, not here)
         self.wp_head = nn.Linear(config.n_embd, 1, bias=True)
 
+        # LightGBM feature projection (optional)
+        if config.n_lgb_features > 0:
+            self.feature_proj = nn.Sequential(
+                nn.Linear(config.n_lgb_features, config.n_embd),
+                nn.GELU(),
+                nn.Linear(config.n_embd, config.n_embd),
+            )
+        if config.lgb_pred_dim > 0:
+            self.lgb_pred_proj = nn.Linear(1, config.n_embd)
+
+        # Future game state prediction head (optional)
+        if config.n_future_features > 0:
+            self.future_head = nn.Sequential(
+                nn.Linear(config.n_embd, config.n_embd),
+                nn.GELU(),
+                nn.Linear(config.n_embd, config.n_future_features),
+            )
+
         # Init weights
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.n_layer))
+
+        # Near-zero init for feature projections so model starts ~= baseline
+        if config.n_lgb_features > 0:
+            with torch.no_grad():
+                self.feature_proj[-1].weight.mul_(0.01)
+                self.feature_proj[-1].bias.zero_()
+        if config.lgb_pred_dim > 0:
+            with torch.no_grad():
+                self.lgb_pred_proj.weight.mul_(0.01)
+                self.lgb_pred_proj.bias.zero_()
+        if config.n_future_features > 0:
+            with torch.no_grad():
+                self.future_head[-1].weight.mul_(0.01)
+                self.future_head[-1].bias.zero_()
 
         print("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
 
@@ -334,7 +398,9 @@ class KQModel(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None, wp_labels=None, lambda_wp=0.1):
+    def forward(self, idx, targets=None, wp_labels=None, lambda_wp=0.1,
+                features=None, lgb_preds=None, lambda_distill=0.0,
+                future_features=None, lambda_future=0.0):
         """Forward pass with optional dual loss computation.
 
         Args:
@@ -342,12 +408,17 @@ class KQModel(nn.Module):
             targets: (B, T) next-token targets, -1 for ignore
             wp_labels: (B, T) win probability labels (0 or 1), -1 for ignore
             lambda_wp: weight for win probability loss
+            features: (B, T, 52) LightGBM feature vectors, or None
+            lgb_preds: (B, T) LightGBM win probability predictions, or None
+            lambda_distill: weight for distillation loss (0 = disabled)
+            future_features: (B, T, n_future_features) future state targets, or None
+            lambda_future: weight for future prediction loss (0 = disabled)
 
         Returns:
             logits: (B, T, vocab_size)
             wp_logits: (B, T) win probability logits (pre-sigmoid)
             loss: scalar total loss (if targets provided)
-            loss_details: dict with 'lm_loss' and 'wp_loss' (if targets provided)
+            loss_details: dict with 'lm_loss', 'wp_loss', and optionally 'distill_loss', 'future_loss'
         """
         device = idx.device
         b, t = idx.size()
@@ -357,10 +428,28 @@ class KQModel(nn.Module):
         if hasattr(self.transformer, 'wpe'):
             pos = torch.arange(0, t, dtype=torch.long, device=device)
             tok_emb = tok_emb + self.transformer.wpe(pos)
+
+        # Inject LightGBM features into embedding space
+        if features is not None and hasattr(self, 'feature_proj'):
+            feat_emb = self.feature_proj(features)
+            # Feature dropout: randomly zero feature embeddings during training
+            if self.training and self.config.feature_dropout > 0:
+                mask = torch.rand(b, 1, 1, device=device) > self.config.feature_dropout
+                feat_emb = feat_emb * mask
+            tok_emb = tok_emb + feat_emb
+
+        if lgb_preds is not None and hasattr(self, 'lgb_pred_proj'):
+            tok_emb = tok_emb + self.lgb_pred_proj(lgb_preds.unsqueeze(-1))
+
         x = self.transformer.drop(tok_emb)
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
+
+        # Future game state prediction head (before lm_head detaches from x)
+        future_preds = None
+        if hasattr(self, 'future_head'):
+            future_preds = self.future_head(x)  # (B, T, n_future_features)
 
         # Next-token prediction head
         logits = self.lm_head(x)
@@ -396,6 +485,31 @@ class KQModel(nn.Module):
                 'wp_loss': wp_loss.item(),
             }
 
+            # Distillation loss: MSE between wp_logits and logit(lgb_preds)
+            if lambda_distill > 0 and lgb_preds is not None:
+                # Mask to positions where lgb_preds != 0 (skip early-game/padding)
+                distill_mask = (lgb_preds != 0)
+                if distill_mask.any():
+                    lgb_p = lgb_preds[distill_mask].float().clamp(1e-7, 1 - 1e-7)
+                    lgb_logits = torch.log(lgb_p / (1 - lgb_p))  # logit transform
+                    distill_loss = F.mse_loss(wp_logits[distill_mask], lgb_logits)
+                else:
+                    distill_loss = torch.tensor(0.0, device=device)
+                loss = loss + lambda_distill * distill_loss
+                loss_details['distill_loss'] = distill_loss.item()
+
+            # Future game state prediction loss
+            if lambda_future > 0 and future_features is not None and future_preds is not None:
+                # Mask: positions where future_features are all zero are padding/unavailable
+                future_mask = (future_features.abs().sum(dim=-1) > 0)  # (B, T)
+                if future_mask.any():
+                    future_loss = F.mse_loss(
+                        future_preds[future_mask], future_features[future_mask])
+                else:
+                    future_loss = torch.tensor(0.0, device=device)
+                loss = loss + lambda_future * future_loss
+                loss_details['future_loss'] = future_loss.item()
+
         return logits, wp_logits, loss, loss_details
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
@@ -418,16 +532,18 @@ class KQModel(nn.Module):
         return optimizer
 
     @torch.no_grad()
-    def estimate_win_probability(self, idx):
+    def estimate_win_probability(self, idx, features=None, lgb_preds=None):
         """Get win probability estimates at every position.
 
         Args:
             idx: (B, T) token indices
+            features: (B, T, 52) LightGBM feature vectors, or None
+            lgb_preds: (B, T) LightGBM predictions, or None
 
         Returns:
             probs: (B, T) P(blue wins) at each position
         """
-        _, wp_logits, _, _ = self(idx)
+        _, wp_logits, _, _ = self(idx, features=features, lgb_preds=lgb_preds)
         return torch.sigmoid(wp_logits)
 
     @torch.no_grad()

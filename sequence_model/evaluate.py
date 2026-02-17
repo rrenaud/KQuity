@@ -30,6 +30,7 @@ from sequence_model.vocab import (
     PLAYER_KILL, KILLED_QUEEN, TOKEN_NAMES,
     decode_tokens,
 )
+from fast_materialize import NUM_FEATURES
 
 
 VICTORY_TOKENS = {
@@ -43,6 +44,10 @@ def load_model(checkpoint_path, device='cpu'):
     """Load a trained model from checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model_args = checkpoint['model_args']
+    # Filter to only known GPTConfig fields for backward compat
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(GPTConfig)}
+    model_args = {k: v for k, v in model_args.items() if k in valid_fields}
     config = GPTConfig(**model_args)
     model = KQModel(config)
     state_dict = checkpoint['model']
@@ -91,7 +96,8 @@ def compute_perplexity(model, data_dir, split, block_size, batch_size,
 
 @torch.no_grad()
 def compute_win_prob_metrics(model, data_dir, split, block_size, batch_size,
-                             device, ctx, num_batches=200):
+                             device, ctx, num_batches=200,
+                             use_features=False, use_lgb_preds=False):
     """Compute win probability accuracy and log loss.
 
     We evaluate at every position (matching training), collecting predictions
@@ -101,6 +107,17 @@ def compute_win_prob_metrics(model, data_dir, split, block_size, batch_size,
     label_file = os.path.join(data_dir, f'{split}_labels.bin')
     tokens = np.memmap(token_file, dtype=np.uint16, mode='r')
     labels = np.memmap(label_file, dtype=np.uint8, mode='r')
+
+    feat_mmap = None
+    pred_mmap = None
+    if use_features:
+        feat_file = os.path.join(data_dir, f'{split}_features.bin')
+        if os.path.exists(feat_file):
+            feat_mmap = np.memmap(feat_file, dtype=np.float16, mode='r').reshape(-1, NUM_FEATURES)
+    if use_lgb_preds:
+        pred_file = os.path.join(data_dir, f'{split}_lgb_preds.bin')
+        if os.path.exists(pred_file):
+            pred_mmap = np.memmap(pred_file, dtype=np.float16, mode='r')
 
     all_probs = []
     all_labels = []
@@ -114,8 +131,19 @@ def compute_win_prob_metrics(model, data_dir, split, block_size, batch_size,
             torch.from_numpy(labels[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix
         ]).to(device)
 
+        features_t = None
+        lgb_preds_t = None
+        if feat_mmap is not None:
+            features_t = torch.stack([
+                torch.from_numpy(feat_mmap[i:i + block_size].astype(np.float32)) for i in ix
+            ]).to(device)
+        if pred_mmap is not None:
+            lgb_preds_t = torch.stack([
+                torch.from_numpy(pred_mmap[i:i + block_size].astype(np.float32)) for i in ix
+            ]).to(device)
+
         with ctx:
-            _, wp_logits, _, _ = model(x)
+            _, wp_logits, _, _ = model(x, features=features_t, lgb_preds=lgb_preds_t)
 
         wp_mask = (wp != -1)
         if wp_mask.any():
@@ -257,6 +285,10 @@ def main():
     parser.add_argument('--num-batches', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--block-size', type=int, default=1024)
+    parser.add_argument('--use-lgb-features', action='store_true',
+                        help='Load 52D LightGBM features if available')
+    parser.add_argument('--use-lgb-preds', action='store_true',
+                        help='Load LightGBM predictions if available')
     args = parser.parse_args()
 
     if not os.path.exists(args.checkpoint):
@@ -281,12 +313,19 @@ def main():
             args.device, ctx, num_batches=args.num_batches)
         print(f"  {split}: perplexity={ppl:.2f}, avg_loss={avg_loss:.4f}")
 
+    # Detect if model uses features
+    use_features = args.use_lgb_features or getattr(model.config, 'n_lgb_features', 0) > 0
+    use_lgb_preds = args.use_lgb_preds or getattr(model.config, 'lgb_pred_dim', 0) > 0
+    if use_features:
+        print(f"  Features: lgb_features={use_features}, lgb_preds={use_lgb_preds}")
+
     # 2. Win Probability
     print("\n=== Win Probability Metrics ===")
     for split in ['train', 'val']:
         metrics = compute_win_prob_metrics(
             model, args.data_dir, split, args.block_size, args.batch_size,
-            args.device, ctx, num_batches=args.num_batches)
+            args.device, ctx, num_batches=args.num_batches,
+            use_features=use_features, use_lgb_preds=use_lgb_preds)
         print(f"  {split}: accuracy={metrics['accuracy']:.4f} "
               f"({100 * metrics['accuracy']:.1f}%), "
               f"log_loss={metrics['log_loss']:.4f}, "
@@ -299,7 +338,8 @@ def main():
     print("\n=== Calibration (val split) ===")
     val_metrics = compute_win_prob_metrics(
         model, args.data_dir, 'val', args.block_size, args.batch_size,
-        args.device, ctx, num_batches=args.num_batches)
+        args.device, ctx, num_batches=args.num_batches,
+        use_features=use_features, use_lgb_preds=use_lgb_preds)
     calibration = compute_calibration(val_metrics['probs'], val_metrics['labels'])
     print(f"  {'Bin Center':>10} {'Frac Pos':>10} {'Count':>10}")
     for center, frac, count in calibration:
