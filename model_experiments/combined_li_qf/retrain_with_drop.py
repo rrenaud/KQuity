@@ -44,8 +44,6 @@ def load_entries(name):
     return entries
 
 
-
-
 def load_holdout():
     from event_codec import fast_materialize_from_codec
     ho_X, ho_y, ho_gids, ho_ts = fast_materialize_from_codec(HOLDOUT_PATH)

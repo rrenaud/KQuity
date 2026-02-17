@@ -56,16 +56,6 @@ def load_all_entries(bin_path):
     return list(read_packed_games(bin_path))
 
 
-def build_deduplicated_pool(qf_entries, li_entries):
-    """Build deduplicated union pool with overlap statistics.
-
-    Returns:
-        (pool, qf_ids, li_ids, stats)
-    """
-    pool, stats = build_union_pool(qf_entries, li_entries)
-    qf_ids = {gid for gid, _ in qf_entries}
-    li_ids = {gid for gid, _ in li_entries}
-    return pool, qf_ids, li_ids, stats
 
 
 def load_holdout():
@@ -139,7 +129,8 @@ def sample_mix_entries(qf_entries, li_entries, n_games, qf_ratio, seed,
     """Sample a mix of QF and LI entries at a given ratio.
 
     Draws qf_ratio * n_games from QF and (1-qf_ratio) * n_games from LI,
-    then deduplicates (QF preferred for overlaps).
+    then deduplicates (QF preferred for overlaps). The returned count may
+    be less than n_games due to QF/LI overlap (~108K shared game IDs).
     """
     rng = random.Random(seed)
     n_qf = int(round(qf_ratio * n_games))
@@ -231,7 +222,7 @@ def _worker_run(args):
             pool = load_all_entries(SOURCES['unfiltered'])
             pool.reverse()
         else:
-            pool, _, _, _ = build_deduplicated_pool(qf_entries, li_entries)
+            pool, _ = build_union_pool(qf_entries, li_entries)
         sampled = sample_entries(pool, max_games, exclude_gids)
     else:
         sampled = sample_mix_entries(
@@ -573,8 +564,7 @@ def main():
         else:
             print(f"  {len(unfiltered_entries):,} unfiltered games loaded (oldest first)")
 
-    pool, qf_ids, li_ids, data_stats = build_deduplicated_pool(
-        qf_entries, li_entries)
+    pool, data_stats = build_union_pool(qf_entries, li_entries)
     print(f"\nData stats: QF={data_stats['qf_total']:,}, "
           f"LI={data_stats['li_total']:,}, "
           f"overlap={data_stats['overlap']:,}, "
