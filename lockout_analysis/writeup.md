@@ -4,6 +4,9 @@
 
 Dataset: 182,576 logged-in games from Hivemind (`logged_in_games/`). Full analysis code: [lockout_analysis.ipynb](lockout_analysis.ipynb).
 
+**Contents:**
+[Game Quality Metric](#game-quality-metric) · [How Common is Lockout?](#how-common-is-lockout) · [Data Quality Effects](#data-quality-effects) · [Map Differences](#map-differences) · [Skill Effects](#skill-effects) · [Timing of First Lockout](#timing-of-first-lockout) · [Conditional Lockout Rate](#conditional-lockout-rate) · [Lockout Duration](#lockout-duration) · [Victim Queen Lives](#victim-queen-lives) · [Tournament vs. Casual](#tournament-vs-casual) · [Summary](#summary)
+
 ## Game Quality Metric
 
 Not all games in the dataset are competitive. Cabinets in bars see plenty of casual play — kids mashing buttons, people wandering off mid-game, lopsided 5v1 matchups. To distinguish competitive games from noise, we trained a **game quality classifier**: a LightGBM model that takes 69 hand-crafted features over the full event stream of a game (berry counts, kill patterns, snail progress, maiden usage, game duration, etc.) and predicts whether the game looks like one played by logged-in Hivemind users (the positive class) versus an unfiltered anonymous game (the negative class). The intuition is that games with logged-in players are more likely to be deliberate, competitive play.
@@ -27,6 +30,10 @@ The lockout team wins **74.0%** [73.8%, 74.3%] of the time — a strong but far 
 | Snail | 9,514 | 9.0% |
 
 Military wins dominate lockout games, which makes sense — the locking-out team has warrior superiority and can press it for queen kills.
+
+![Win condition comparison: all games vs lockout games](plots/win_condition_comparison.png)
+
+Compared to all games, lockout games see a large shift toward military wins and a corresponding decrease in economic and snail wins.
 
 **Warrior count at lockout:**
 
@@ -90,13 +97,43 @@ The victim queen's skill has a clear effect: better victim queens are harder to 
 
 In even-matched games (skill differential < 4.1), lockout win rate is fairly flat across skill levels: 72.2% at the lowest skill bin to 75.2% at the highest. Lockout is roughly equally punishing at all skill levels.
 
-## Timing
+## Timing of First Lockout
 
 ![Lockout timing distribution and win rate](plots/lockout_timing.png)
 
-Median lockout time is **48 seconds** — lockout happens early. The distribution is right-skewed with most lockouts occurring in the first 60 seconds of a game.
+This measures when the first lockout occurs in each game (not how long it lasts — see Duration below). Median time of first lockout is **48 seconds** — lockout happens early. The distribution is right-skewed with most first lockouts occurring within the first 60 seconds.
 
-Early vs. late lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout happens doesn't meaningfully affect how decisive it is. Only 310 games (0.3%) have lockout beyond 300 seconds.
+Early vs. late first-lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout first occurs doesn't meaningfully affect how decisive it is. Only 310 of 105,508 lockout games (0.3%) see their first lockout after 300 seconds.
+
+## Conditional Lockout Rate
+
+![Conditional lockout probability per 5-second window](plots/conditional_lockout_hazard.png)
+
+The timing histogram above shows *when* lockout happens, but a more useful question is: given that a game has reached time T without lockout, what's the probability lockout occurs in the next 5 seconds? This is the discrete hazard rate.
+
+The hazard peaks at **4.8%** around **t=48s** — if a game reaches 48 seconds without lockout, there's roughly a 1-in-20 chance it happens in the next 5 seconds. After the peak the rate gradually declines: by 120s it's down to 3.8%. This shape makes sense — games that were going to get locked out mostly already have been, so the surviving population is increasingly lockout-resistant.
+
+## Lockout Duration
+
+![Lockout duration distribution and win rate](plots/lockout_duration.png)
+
+After the first lockout is achieved, how long does it last? Duration is measured from the moment lockout conditions are first met until the victim team **gets a warrior** — meaning a drone touches a wings maiden and receives wings. Intermediate changes don't end the lockout: the victim queen can tag a gate, or kill an opposing warrior, but as long as the victim team has zero warriors they remain locked out and the clock keeps running. If the victim never forms a warrior, the duration extends to the game-ending event.
+
+Longer-lasting lockouts tend to be more decisive, as the locking-out team has more time to press their advantage for military kills or economic/snail wins.
+
+## Victim Queen Lives
+
+![Victim win probability by queen lives at lockout](plots/victim_queen_eggs.png)
+
+How much does the victim queen's status at the moment of lockout matter? Queen "eggs" represent remaining lives: 2 means the queen hasn't died yet, 1 means she's died once, 0 means she's died twice (one life left).
+
+| Eggs remaining | Victim win rate | 95% CI | Games |
+|---|---|---|---|
+| 2 (no deaths) | 35.6% | ±0.5% | 32,155 |
+| 1 (died once) | 25.9% | ±0.4% | 43,996 |
+| 0 (died twice) | 15.5% | ±0.4% | 29,357 |
+
+Each queen death roughly halves the victim's comeback odds. A victim queen with full lives still loses the majority of the time, but has more than double the win rate of a queen on her last life. This makes sense — a queen with lives to spare can play aggressively to retake gates, while a queen on last life must play conservatively or risk a military loss.
 
 ## Tournament vs. Casual
 
@@ -114,6 +151,9 @@ Tournament games have significantly higher lockout frequency (66.1% vs. 56.2%) a
 - **Military wins dominate** lockout games (73%), as expected from warrior superiority.
 - **Map matters** — Twilight has the lowest lockout rate (50%) and win rate (69%); Night has the highest rate (65%).
 - **Lockout partially overrides skill deficits** — even lower-skilled teams win 69% when they lock out.
-- **Lockout happens early** — median 48 seconds — and timing doesn't affect win rate.
+- **Lockout happens early** — median first lockout at 48 seconds — and timing doesn't affect win rate.
+- **Conditional lockout rate peaks around 48s then declines** — the hazard rate falls as lockout-prone games exit the at-risk pool.
+- **Longer lockouts are more decisive** — lockout duration correlates with win rate.
+- **Victim queen lives matter a lot** — victim win rate drops from 36% (no deaths) to 16% (two deaths) at lockout.
 - **Higher-quality games have more lockout** (27% below-threshold vs. 66% very-high), but win rate is stable across quality tiers.
 - **Tournament players lock out more often and convert more reliably** than casual players.
