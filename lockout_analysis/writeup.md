@@ -117,7 +117,7 @@ The hazard peaks at **4.8%** around **t=48s** — if a game reaches 48 seconds w
 
 ![Lockout duration distribution and win rate](plots/lockout_duration.png)
 
-After the first lockout is achieved, how long does it last? Duration is measured from the moment lockout conditions are first met until the victim team **gets a warrior** — meaning a drone touches a wings maiden and receives wings. Intermediate changes don't end the lockout: the victim queen can tag a gate, or kill an opposing warrior, but as long as the victim team has zero warriors they remain locked out and the clock keeps running. If the victim never forms a warrior, the duration extends to the game-ending event.
+After the first lockout is achieved, how long does it last? Duration is measured from the moment lockout conditions are first met until the victim team **gets a warrior**. The victim queen can tag a gate, or kill an opposing warrior, but as long as the victim team has zero warriors they remain locked out and the clock keeps running. If the victim never forms a warrior, the duration extends to the game-ending event.
 
 Longer-lasting lockouts tend to be more decisive, as the locking-out team has more time to press their advantage for military kills or economic/snail wins.
 
@@ -125,15 +125,14 @@ Longer-lasting lockouts tend to be more decisive, as the locking-out team has mo
 
 ![Victim win probability by queen lives at lockout](plots/victim_queen_eggs.png)
 
-How much does the victim queen's status at the moment of lockout matter? Queen "eggs" represent remaining lives: 2 means the queen hasn't died yet, 1 means she's died once, 0 means she's died twice (one life left).
-
+How much does the victim queen's status at the moment of lockout matter?
 | Eggs remaining | Victim win rate | 95% CI | Games |
 |---|---|---|---|
 | 2 (no deaths) | 35.6% | ±0.5% | 32,155 |
 | 1 (died once) | 25.9% | ±0.4% | 43,996 |
 | 0 (died twice) | 15.5% | ±0.4% | 29,357 |
 
-Each queen death roughly halves the victim's comeback odds. A victim queen with full lives still loses the majority of the time, but has more than double the win rate of a queen on her last life. This makes sense — a queen with lives to spare can play aggressively to retake gates, while a queen on last life must play conservatively or risk a military loss.
+Each queen death costs the victim team about 40% of the remaining win probability. A victim queen with full lives still loses the majority of the time, but has more than double the win rate of a queen on her last life. This makes sense — a queen with lives to spare can play aggressively to retake gates, while a queen on last life must play conservatively or risk a military loss.
 
 ## Tournament vs. Casual
 
