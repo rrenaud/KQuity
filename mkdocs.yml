@@ -34,7 +34,7 @@ exclude_docs: |
   logged_in_games/encoded/
   cached_game_quality_scores/
   quality_cache/
-  lockout_analysis/
+  lockout_analysis/*.ipynb
   ratings_viewer/
 
 plugins:
@@ -58,6 +58,7 @@ nav:
     - Rating-Based Quality: model_experiments/rating_based_quality_experiments.md
     - Symmetry Augmentation: model_experiments/symmetry_augmentation/report.md
     - Combined Scaling: model_experiments/combined_li_qf/combined_scaling_report.md
+  - Lockout Analysis: lockout_analysis/writeup.md
   - Data:
     - Logged-In Games: logged_in_games/README.md
     - Quality Filtered: quality_filtered/README.md
