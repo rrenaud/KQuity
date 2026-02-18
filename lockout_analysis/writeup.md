@@ -4,6 +4,9 @@
 
 Dataset: 182,576 logged-in games from Hivemind (`logged_in_games/`). Full analysis code: [lockout_analysis.ipynb](lockout_analysis.ipynb).
 
+**Contents:**
+[Game Quality Metric](#game-quality-metric) · [How Common is Lockout?](#how-common-is-lockout) · [Data Quality Effects](#data-quality-effects) · [Map Differences](#map-differences) · [Skill Effects](#skill-effects) · [Timing of First Lockout](#timing-of-first-lockout) · [Lockout Duration](#lockout-duration) · [Tournament vs. Casual](#tournament-vs-casual) · [Summary](#summary)
+
 ## Game Quality Metric
 
 Not all games in the dataset are competitive. Cabinets in bars see plenty of casual play — kids mashing buttons, people wandering off mid-game, lopsided 5v1 matchups. To distinguish competitive games from noise, we trained a **game quality classifier**: a LightGBM model that takes 69 hand-crafted features over the full event stream of a game (berry counts, kill patterns, snail progress, maiden usage, game duration, etc.) and predicts whether the game looks like one played by logged-in Hivemind users (the positive class) versus an unfiltered anonymous game (the negative class). The intuition is that games with logged-in players are more likely to be deliberate, competitive play.
@@ -27,6 +30,10 @@ The lockout team wins **74.0%** [73.8%, 74.3%] of the time — a strong but far 
 | Snail | 9,514 | 9.0% |
 
 Military wins dominate lockout games, which makes sense — the locking-out team has warrior superiority and can press it for queen kills.
+
+![Win condition comparison: all games vs lockout games](plots/win_condition_comparison.png)
+
+Compared to all games, lockout games see a large shift toward military wins and a corresponding decrease in economic and snail wins.
 
 **Warrior count at lockout:**
 
@@ -90,13 +97,21 @@ The victim queen's skill has a clear effect: better victim queens are harder to 
 
 In even-matched games (skill differential < 4.1), lockout win rate is fairly flat across skill levels: 72.2% at the lowest skill bin to 75.2% at the highest. Lockout is roughly equally punishing at all skill levels.
 
-## Timing
+## Timing of First Lockout
 
 ![Lockout timing distribution and win rate](plots/lockout_timing.png)
 
-Median lockout time is **48 seconds** — lockout happens early. The distribution is right-skewed with most lockouts occurring in the first 60 seconds of a game.
+This measures when the first lockout occurs in each game (not how long it lasts — see Duration below). Median time of first lockout is **48 seconds** — lockout happens early. The distribution is right-skewed with most first lockouts occurring within the first 60 seconds.
 
-Early vs. late lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout happens doesn't meaningfully affect how decisive it is. Only 310 games (0.3%) have lockout beyond 300 seconds.
+Early vs. late first-lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout first occurs doesn't meaningfully affect how decisive it is. Only 310 of 105,508 lockout games (0.3%) see their first lockout after 300 seconds.
+
+## Lockout Duration
+
+![Lockout duration distribution and win rate](plots/lockout_duration.png)
+
+After the first lockout is achieved, how long does it last? Duration is measured from the moment lockout conditions are first met until the victim team forms a warrior. Intermediate changes — the victim queen tagging a gate, or the locking team losing a warrior — don't end the lockout for duration purposes, because the victim team still can't upgrade and remains locked out. If no warrior is ever formed, the duration extends to the game-ending event.
+
+Longer-lasting lockouts tend to be more decisive, as the locking-out team has more time to press their advantage for military kills or economic/snail wins.
 
 ## Tournament vs. Casual
 
@@ -114,6 +129,7 @@ Tournament games have significantly higher lockout frequency (66.1% vs. 56.2%) a
 - **Military wins dominate** lockout games (73%), as expected from warrior superiority.
 - **Map matters** — Twilight has the lowest lockout rate (50%) and win rate (69%); Night has the highest rate (65%).
 - **Lockout partially overrides skill deficits** — even lower-skilled teams win 69% when they lock out.
-- **Lockout happens early** — median 48 seconds — and timing doesn't affect win rate.
+- **Lockout happens early** — median first lockout at 48 seconds — and timing doesn't affect win rate.
+- **Longer lockouts are more decisive** — lockout duration correlates with win rate.
 - **Higher-quality games have more lockout** (27% below-threshold vs. 66% very-high), but win rate is stable across quality tiers.
 - **Tournament players lock out more often and convert more reliably** than casual players.
