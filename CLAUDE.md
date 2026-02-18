@@ -34,9 +34,17 @@ To re-encode from CSV: `python encode_datasets.py`
 - **Bagged ensembles are free.** Train multiple models with 80% bootstrap bagging + different seeds, average predictions. Strictly better than any single model at no extra cost.
 - **Always validate with multiple seeds.** Seed variance on unf@95% is +/- 0.4-0.6%. Any claimed improvement under ~1pp needs multi-seed confirmation.
 
+## Writeup conventions
+
+Writeups (`.md` analysis documents) should include a linkable table of contents near the top. Use GitHub-flavored markdown anchor links: `[Section Name](#section-name)` with `·` separators.
+
 ## Plot preferences
 
 Use `fill_between` for variance shading (mean +/- std band) on scaling plots, not just error bars. The translucent background bands make it easier to see overlap and separation between curves.
+
+## VS Code
+
+When opening notebook files in VS Code, pass the repo root as the workspace directory so that relative imports and data paths resolve correctly: `code <repo-root>/ <file>`.
 
 ## Running tests
 
