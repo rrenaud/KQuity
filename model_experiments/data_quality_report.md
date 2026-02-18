@@ -24,25 +24,23 @@ QF and LI are similar in size but differ in composition. They share ~108K
 games; each has ~75K exclusive games the other lacks. The exclusive subsets
 isolate the signal from quality filtering vs. login-based selection.
 
-Each game produces many states (one per event, typically ~100-300), so state
-counts are much larger than game counts.
-
 ## Experiment Design
 
 ### Win-Probability Model
 
 LightGBM binary classifier predicting P(gold wins) from in-game state features
 (69 features: berry counts, snail position, kills, carries, etc.). Each game
-produces ~100-300 training states (one per event).
+event updates the state, yielding ~100-300 training examples per game — so
+training set sizes are orders of magnitude larger than game counts.
 
 ### Evaluation Metrics
 
 - **Log loss**: Primary metric. Lower is better.
 - **AUC-ROC**: Discrimination ability. Higher is better.
 - **Accuracy**: Classification accuracy at 0.5 threshold. Higher is better.
-- **Egg inversion rate**: Fraction of evaluation positions where the model
-  assigns >50% win probability to the losing team. Lower is better. Computed
-  on 5,000 samples.
+- **Egg inversion rate**: Fraction of sampled positions where adding a blue egg
+  causes P(blue wins) to decrease. Measures non-monotonicity — a perfectly
+  monotonic model would score 0. Lower is better. Computed on 5,000 samples.
 - **Symmetry deviation**: Mean |P(gold wins | features) - (1 - P(gold wins | swapped features))|.
   Measures consistency under team swap. Lower is better.
 
