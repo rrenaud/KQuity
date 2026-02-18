@@ -1,0 +1,63 @@
+site_name: KQuity
+site_description: Win-probability model for Killer Queen (arcade)
+site_url: https://rrenaud.github.io/KQuity/
+repo_url: https://github.com/rrenaud/KQuity
+repo_name: rrenaud/KQuity
+
+docs_dir: .
+site_dir: site
+
+exclude_docs: |
+  CLAUDE.md
+  site/
+  *.py
+  *.bin
+  *.csv
+  *.csv.gz
+  *.parquet
+  *.pkl
+  *.joblib
+  *.ipynb
+  *.txt
+  *.json
+  *.sh
+  .gitignore
+  LICENSE
+  Makefile
+  __pycache__/
+  .git/
+  .github/
+  tests/
+  unfiltered_partitioned/
+  late_tournament_games/
+  quality_filtered/encoded/
+  logged_in_games/encoded/
+  cached_game_quality_scores/
+  quality_cache/
+  lockout_analysis/
+  ratings_viewer/
+
+plugins:
+  - same-dir
+  - search
+
+theme:
+  name: material
+
+nav:
+  - Home: README.md
+  - Experiment Log: experiment_log.md
+  - Ratings Experiments: ratings_experiments.md
+  - Docs:
+    - Discord Ideas: docs/discord_ideas_plausibility_report.md
+    - Training Guide: docs/training_lightgbm_win_predictor.md
+  - Game Quality Classifier:
+    - Report: game_quality_classifier/quality_classifier_report.md
+  - Model Experiments:
+    - Data Quality: model_experiments/data_quality_report.md
+    - Rating-Based Quality: model_experiments/rating_based_quality_experiments.md
+    - Symmetry Augmentation: model_experiments/symmetry_augmentation/report.md
+    - Combined Scaling: model_experiments/combined_li_qf/combined_scaling_report.md
+  - Data:
+    - Logged-In Games: logged_in_games/README.md
+    - Quality Filtered: quality_filtered/README.md
