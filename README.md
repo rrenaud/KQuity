@@ -1,6 +1,6 @@
 # KQuity
 
-KQuity powers live win-probability predictions in [hivemind](https://hivemind.gg) and provides game analysis for Killer Queen — a 10-player arcade strategy game where teams of five race to win by military dominance, economic victory (berries), or snail ride.
+KQuity powers live win-probability predictions in [Hivemind](http://kqhivemind.com/) and provides game analysis for Killer Queen — a 10-player arcade strategy game where teams of five race to win by military dominance, economic victory (berries), or snail ride.
 
 ## Models
 
