@@ -1,8 +1,10 @@
 # Lockout Analysis
 
+KQuity powers live win-probability predictions in [Hivemind](http://kqhivemind.com/) and provides game analysis for Killer Queen — a 10-player arcade strategy game where teams of five race to win by military dominance, economic victory (berries), or snail ride.
+
 **Lockout** in Killer Queen: one team controls all 3 warrior gates (wings maidens), has 2+ warriors, and the opponent has zero warriors — leaving them unable to upgrade.
 
-Dataset: 182,576 logged-in games from Hivemind (`logged_in_games/`). Full analysis code: [lockout_analysis.ipynb](lockout_analysis.ipynb).
+Dataset: 182,576 logged-in games from [Hivemind](http://kqhivemind.com/) (`logged_in_games/`). Full analysis code: [lockout_analysis.ipynb](lockout_analysis.ipynb).
 
 **Contents:**
 [Game Quality Metric](#game-quality-metric) · [How Common is Lockout?](#how-common-is-lockout) · [Data Quality Effects](#data-quality-effects) · [Map Differences](#map-differences) · [Skill Effects](#skill-effects) · [Timing of First Lockout](#timing-of-first-lockout) · [Conditional Lockout Rate](#conditional-lockout-rate) · [Lockout Duration](#lockout-duration) · [Victim Queen Lives](#victim-queen-lives) · [Tournament vs. Casual](#tournament-vs-casual) · [Summary](#summary)
@@ -103,8 +105,7 @@ In even-matched games (skill differential < 4.1), lockout win rate is fairly fla
 
 This measures when the first lockout occurs in each game (not how long it lasts — see Duration below). Median time of first lockout is **48 seconds** — lockout happens early. The distribution is right-skewed with most first lockouts occurring within the first 60 seconds.
 
-Early vs. late first-lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout first occurs doesn't meaningfully affect how decisive it is. Only 310 of 105,508 lockout games (0.3%) see their first lockout after 300 seconds.
-
+Early vs. late first-lockout win rates are nearly identical: 74.2% (early) vs. 73.8% (late). When lockout first occurs doesn't meaningfully affect how decisive it is.
 ## Conditional Lockout Rate
 
 ![Conditional lockout probability per 5-second window](plots/conditional_lockout_hazard.png)
@@ -126,6 +127,7 @@ Longer-lasting lockouts tend to be more decisive, as the locking-out team has mo
 ![Victim win probability by queen lives at lockout](plots/victim_queen_eggs.png)
 
 How much does the victim queen's status at the moment of lockout matter?
+
 | Eggs remaining | Victim win rate | 95% CI | Games |
 |---|---|---|---|
 | 2 (no deaths) | 35.6% | ±0.5% | 32,155 |
