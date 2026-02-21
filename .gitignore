@@ -5,6 +5,12 @@ __pycache__/
 *.npy
 ratings_viewer/ratings_history.json
 mu_over_time.png
-logged_in_games/shards/
+logged_in_games/
+unfiltered_partitioned/
+quality_filtered/encoded/
+late_tournament_games/encoded/
+late_tournament_games/*.csv.gz
+ratings*.pkl
+quality_cache/
 data/game_db/
 site/
