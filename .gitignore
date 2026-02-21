@@ -6,4 +6,5 @@ __pycache__/
 ratings_viewer/ratings_history.json
 mu_over_time.png
 logged_in_games/shards/
+data/game_db/
 site/
