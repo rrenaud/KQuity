@@ -1,10 +1,12 @@
 import csv
+import datetime
 import glob
 import gzip
 import os
 import random
 import time
 import unittest
+from typing import ClassVar
 
 import numpy as np
 
@@ -18,13 +20,13 @@ from fast_materialize import (
 from event_codec import encode_game, walk_game_states
 
 
-def _read_benchmark_games():
+def _read_benchmark_games() -> tuple[dict[int, list[tuple[datetime.datetime, str, str]]], list[int]]:
     """Read benchmark CSVs and return dict {game_id: raw_events}."""
     test_dir = os.path.dirname(__file__)
     pattern = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
-    games = {}
-    game_order = []
+    games: dict[int, list[tuple[datetime.datetime, str, str]]] = {}
+    game_order: list[int] = []
     for filename in sorted(glob.glob(pattern)):
         with gzip.open(filename, 'rt') as f:
             reader = csv.reader(f)
@@ -44,11 +46,14 @@ def _read_benchmark_games():
 class TestEventCodecCorrectness(unittest.TestCase):
     """Compare binary codec path against fast_materialize for every benchmark game."""
 
+    games: ClassVar[dict[int, list[tuple[datetime.datetime, str, str]]]]
+    game_order: ClassVar[list[int]]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.games, cls.game_order = _read_benchmark_games()
 
-    def test_encode_walk_matches_fast_path(self):
+    def test_encode_walk_matches_fast_path(self) -> None:
         """Feature vectors from binary walk must match fast_materialize.
 
         Aligns events by index (not timestamp) to avoid centisecond boundary
@@ -62,15 +67,14 @@ class TestEventCodecCorrectness(unittest.TestCase):
         max_snail_diff = 0.0
 
         for game_id in game_order:
-            raw_events = [list(e) for e in games[game_id]]
+            game_events = games[game_id]
 
             # --- fast path reference ---
-            ref_buf = np.empty((len(raw_events), NUM_FEATURES), dtype=np.float32)
-            ref_labels = np.empty(len(raw_events), dtype=np.int8)
-            ref_ts = np.empty(len(raw_events), dtype=np.float32)
+            ref_buf = np.empty((len(game_events), NUM_FEATURES), dtype=np.float32)
+            ref_labels = np.empty(len(game_events), dtype=np.int8)
+            ref_ts = np.empty(len(game_events), dtype=np.float32)
             rng = random.Random(42)
-            ref_events = [tuple(e) for e in raw_events]
-            ref_idx = _process_game(ref_events, ref_buf, ref_labels, ref_ts, 0, 0.0, rng)
+            ref_idx = _process_game(list(game_events), ref_buf, ref_labels, ref_ts, 0, 0.0, rng)
             if ref_idx == 0:
                 continue
             ref_features = ref_buf[:ref_idx]
@@ -83,8 +87,7 @@ class TestEventCodecCorrectness(unittest.TestCase):
             # --- binary codec path ---
             # Collect ALL walker states (not just > 5.0) so we can align by
             # event index. Both paths iterate events in the same sorted order.
-            codec_events = [tuple(e) for e in raw_events]
-            encoded = encode_game(codec_events)
+            encoded = encode_game(list(game_events))
             if encoded is None:
                 continue  # anomalous game (e.g. >60s gap) rejected by encoder
 
@@ -140,7 +143,7 @@ class TestEventCodecCorrectness(unittest.TestCase):
         print(f'Max snail position diff: {max_snail_diff:.6f}')
         self.assertGreater(total_games, 100, 'Expected >100 valid games')
 
-    def test_victory_fields_set(self):
+    def test_victory_fields_set(self) -> None:
         """After walking a game, game_state.winning_team matches CSV label."""
         games = self.games
         game_order = self.game_order
@@ -167,6 +170,7 @@ class TestEventCodecCorrectness(unittest.TestCase):
             for _rel_ts, gs in walk_game_states(encoded):
                 pass
 
+            assert gs is not None
             self.assertIsNotNone(gs.winning_team,
                                  f'Game {game_id}: winning_team not set')
             self.assertEqual(gs.winning_team, expected_team,
@@ -183,11 +187,14 @@ class TestEventCodecCorrectness(unittest.TestCase):
 class TestEventCodecCompression(unittest.TestCase):
     """Measure compression ratio of binary encoding vs CSV."""
 
+    games: ClassVar[dict[int, list[tuple[datetime.datetime, str, str]]]]
+    game_order: ClassVar[list[int]]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.games, cls.game_order = _read_benchmark_games()
 
-    def test_compression_ratio(self):
+    def test_compression_ratio(self) -> None:
         games = self.games
         total_binary = 0
         total_csv = 0
@@ -223,11 +230,14 @@ class TestEventCodecCompression(unittest.TestCase):
 class TestEventCodecSpeed(unittest.TestCase):
     """Benchmark walk_game_states vs fast_materialize._process_game."""
 
+    games: ClassVar[dict[int, list[tuple[datetime.datetime, str, str]]]]
+    game_order: ClassVar[list[int]]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.games, cls.game_order = _read_benchmark_games()
 
-    def test_speed_benchmark(self):
+    def test_speed_benchmark(self) -> None:
         """Both paths include featurization for a fair comparison."""
         games = self.games
         game_order = self.game_order

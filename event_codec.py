@@ -24,11 +24,17 @@ Opcode+payload packing:
   3-byte: [opcode:4][payload_hi:4][mid:8][lo:8]   (20 bits payload)
 """
 
+import collections.abc
+import datetime
 import glob
 import json
 import os
+import random
 import struct
-from typing import Iterator, Tuple
+import sys
+
+import numpy as np
+import numpy.typing as npt
 
 from constants import Team, ContestableState, VictoryCondition, Map
 from preprocess import GameState, position_id_to_team, position_id_to_worker_index
@@ -39,6 +45,7 @@ from fast_materialize import (
     _vectorize_state, NUM_FEATURES,
 )
 import map_structure
+from _types import MaterializeResult
 
 # --- Opcodes ---
 OP_GAMESTART = 0
@@ -56,7 +63,7 @@ OP_SNAIL_ESCAPE = 11
 OP_PLAYER_KILL = 12
 OP_VICTORY = 13
 
-_EVENT_TYPE_TO_OPCODE = {
+_EVENT_TYPE_TO_OPCODE: dict[str, int] = {
     'gamestart': OP_GAMESTART,
     'mapstart': OP_MAPSTART,
     'spawn': OP_SPAWN,
@@ -74,7 +81,7 @@ _EVENT_TYPE_TO_OPCODE = {
 }
 
 # Bytes per opcode+payload (excluding timestamp delta)
-_OPCODE_SIZES = [
+_OPCODE_SIZES: list[int] = [
     1,  # 0: gamestart
     1,  # 1: mapstart
     2,  # 2: spawn
@@ -91,13 +98,13 @@ _OPCODE_SIZES = [
     1,  # 13: victory
 ]
 
-_VICTORY_COND_TO_INT = {'military': 0, 'economic': 1, 'snail': 2}
-_INT_TO_VICTORY_COND = [
+_VICTORY_COND_TO_INT: dict[str, int] = {'military': 0, 'economic': 1, 'snail': 2}
+_INT_TO_VICTORY_COND: list[VictoryCondition] = [
     VictoryCondition.military, VictoryCondition.economic, VictoryCondition.snail
 ]
 
 
-def _build_maiden_type_lookup():
+def _build_maiden_type_lookup() -> dict[str, list[str]]:
     json_path = os.path.join(os.path.dirname(__file__), 'map_structure_info.json')
     with open(json_path, 'rb') as f:
         raw = json.load(f)
@@ -107,12 +114,12 @@ def _build_maiden_type_lookup():
     }
 
 
-_MAIDEN_TYPES = _build_maiden_type_lookup()
+_MAIDEN_TYPES: dict[str, list[str]] = _build_maiden_type_lookup()
 
-_MAP_STRUCTURE_INFOS = None
+_MAP_STRUCTURE_INFOS: map_structure.MapStructureInfos | None = None
 
 
-def _get_map_structure_infos():
+def _get_map_structure_infos() -> map_structure.MapStructureInfos:
     global _MAP_STRUCTURE_INFOS
     if _MAP_STRUCTURE_INFOS is None:
         _MAP_STRUCTURE_INFOS = map_structure.MapStructureInfos()
@@ -123,7 +130,7 @@ def _get_map_structure_infos():
 # Encoder
 # ---------------------------------------------------------------------------
 
-def encode_game(raw_events):
+def encode_game(raw_events: list[tuple['datetime.datetime', str, str]]) -> bytes | None:
     """Encode a game's events into compact binary.
 
     Args:
@@ -136,8 +143,8 @@ def encode_game(raw_events):
     raw_events.sort(key=lambda x: x[0])
 
     gamestart_dt = None
-    map_name = None
-    gold_on_left = None
+    map_name: str | None = None
+    gold_on_left: bool | None = None
 
     for dt, event_type, values_str in raw_events:
         if event_type == 'gamestart' and gamestart_dt is None:
@@ -151,12 +158,13 @@ def encode_game(raw_events):
         return None
 
     map_idx = MAP_INDEX[map_name]
+    assert gold_on_left is not None
     map_lookup = _MAP_LOOKUPS.get((map_name, gold_on_left))
     if map_lookup is None:
         return None
 
-    berry_lookup = map_lookup['berry_lookup']
-    maiden_lookup = map_lookup['maiden_lookup']
+    berry_lookup: dict[tuple[int, int], int] = map_lookup['berry_lookup']  # type: ignore[assignment]
+    maiden_lookup: dict[tuple[int, int], tuple[str, int]] = map_lookup['maiden_lookup']  # type: ignore[assignment]
 
     try:
         return _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
@@ -165,8 +173,12 @@ def encode_game(raw_events):
         return None
 
 
-def _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
-                   berry_lookup, maiden_lookup):
+def _encode_events(raw_events: list[tuple[datetime.datetime, str, str]],
+                   gamestart_dt: datetime.datetime,
+                   map_idx: int,
+                   gold_on_left: bool,
+                   berry_lookup: dict[tuple[int, int], int],
+                   maiden_lookup: dict[tuple[int, int], tuple[str, int]]) -> bytes | None:
     """Inner encoding loop. Raises KeyError on unmapped positions."""
     buf = bytearray([(map_idx << 1) | int(gold_on_left)])
     last_cs = 0
@@ -292,7 +304,7 @@ def _encode_events(raw_events, gamestart_dt, map_idx, gold_on_left,
 # Decoder / walker
 # ---------------------------------------------------------------------------
 
-def walk_game_states(encoded_bytes):
+def walk_game_states(encoded_bytes: bytes) -> collections.abc.Iterator[tuple[float, GameState]]:
     """Decode binary events and yield game states.
 
     Yields (rel_ts, game_state) BEFORE each event's mutation is applied,
@@ -443,7 +455,8 @@ def walk_game_states(encoded_bytes):
         # gamestart, mapstart: no state mutation
 
 
-def _apply_start_snail(game_state, snail_x, rider_pid, rel_ts, gold_on_left):
+def _apply_start_snail(game_state: GameState, snail_x: int, rider_pid: int,
+                       rel_ts: float, gold_on_left: bool) -> None:
     rider_team = rider_pid % 2
     rider_widx = (rider_pid - 3) // 2
     has_speed = game_state.teams[rider_team].workers[rider_widx].has_speed
@@ -453,7 +466,7 @@ def _apply_start_snail(game_state, snail_x, rider_pid, rel_ts, gold_on_left):
     game_state.snail_state.last_touch_timestamp = rel_ts
 
 
-def _apply_stop_snail(game_state, snail_x, rel_ts):
+def _apply_stop_snail(game_state: GameState, snail_x: int, rel_ts: float) -> None:
     game_state.snail_state.snail_x = float(snail_x)
     game_state.snail_state.snail_velocity = 0.0
     game_state.snail_state.last_touch_timestamp = rel_ts
@@ -471,12 +484,12 @@ _ENTRY_FMT = '<IH'       # game_id (uint32, max ~4.3B), payload_length (uint16, 
 _ENTRY_SIZE = struct.calcsize(_ENTRY_FMT)
 
 
-def write_packed_games(entries, path):
+def write_packed_games(entries: collections.abc.Iterable[tuple[int, bytes]], path: str) -> None:
     """Write a list of (game_id, encoded_bytes) to a packed binary file.
 
     Games with payloads exceeding uint16 max (65535 bytes) are skipped.
     """
-    skipped_ids = []
+    skipped_ids: list[int] = []
     with open(path, 'wb') as f:
         # Write placeholder count, patch after
         count_pos = f.tell()
@@ -493,12 +506,11 @@ def write_packed_games(entries, path):
         f.seek(count_pos)
         f.write(struct.pack(_HEADER_FMT, written))
     if skipped_ids:
-        import sys
         print(f"  Warning: {len(skipped_ids)} games skipped (payload > 65535 bytes): "
               f"{skipped_ids}", file=sys.stderr)
 
 
-def read_packed_games(path):
+def read_packed_games(path: str) -> collections.abc.Iterator[tuple[int, bytes]]:
     """Read a packed binary file, yielding (game_id, encoded_bytes) pairs."""
     with open(path, 'rb') as f:
         (num_games,) = struct.unpack(_HEADER_FMT, f.read(4))
@@ -508,7 +520,7 @@ def read_packed_games(path):
             yield game_id, data
 
 
-def _read_csv_games(csv_glob):
+def _read_csv_games(csv_glob: str) -> tuple[dict[int, list[tuple[object, str, str]]], list[int]]:
     """Read games from CSV/gzip files into a dict keyed by game_id.
 
     Returns:
@@ -518,8 +530,8 @@ def _read_csv_games(csv_glob):
     import csv as csv_mod
     import gzip
 
-    games = {}
-    game_order = []
+    games: dict[int, list[tuple[object, str, str]]] = {}
+    game_order: list[int] = []
     for filename in sorted(glob.glob(csv_glob)):
         opener = gzip.open if filename.endswith('.gz') else open
         with opener(filename, 'rt') as f:
@@ -538,15 +550,16 @@ def _read_csv_games(csv_glob):
     return games, game_order
 
 
-def _encode_games(games, game_order):
+def _encode_games(games: dict[int, list[tuple[object, str, str]]],
+                  game_order: list[int]) -> tuple[list[tuple[int, bytes]], int]:
     """Encode parsed games into binary, returning (entries, rejected_count).
 
     entries is a list of (game_id, encoded_bytes) for successfully encoded games.
     """
-    entries = []
+    entries: list[tuple[int, bytes]] = []
     rejected = 0
     for game_id in game_order:
-        encoded = encode_game(list(games[game_id]))
+        encoded = encode_game(list(games[game_id]))  # type: ignore[arg-type]
         if encoded is None:
             rejected += 1
             continue
@@ -554,7 +567,7 @@ def _encode_games(games, game_order):
     return entries, rejected
 
 
-def encode_csv_to_packed(csv_path, out_path):
+def encode_csv_to_packed(csv_path: str, out_path: str) -> tuple[int, int]:
     """Encode all games from CSV/gzip files into a packed binary file.
 
     Returns (encoded_count, rejected_count).
@@ -565,7 +578,8 @@ def encode_csv_to_packed(csv_path, out_path):
     return len(entries), rejected
 
 
-def reshard_packed_games(input_path, output_dir, num_shards):
+def reshard_packed_games(input_path: str, output_dir: str,
+                         num_shards: int) -> list[str]:
     """Split a packed .bin file into N shard files using partial prefix reads.
 
     Intended for migrating existing single .bin files into the sharded format.
@@ -579,7 +593,7 @@ def reshard_packed_games(input_path, output_dir, num_shards):
     Returns list of shard paths.
     """
     # Phase 1: scan headers to get game count and byte offsets of each entry
-    entry_offsets = []  # (file_offset, entry_total_bytes) for each game
+    entry_offsets: list[tuple[int, int]] = []  # (file_offset, entry_total_bytes) for each game
     with open(input_path, 'rb') as f:
         (num_games,) = struct.unpack(_HEADER_FMT, f.read(4))
         for _ in range(num_games):
@@ -591,10 +605,10 @@ def reshard_packed_games(input_path, output_dir, num_shards):
     os.makedirs(output_dir, exist_ok=True)
     # Round-robin (striped) assignment so each shard gets an even slice of
     # the input ordering.
-    shard_buckets = [[] for _ in range(num_shards)]
+    shard_buckets: list[list[tuple[int, int]]] = [[] for _ in range(num_shards)]
     for idx, offset_entry in enumerate(entry_offsets):
         shard_buckets[idx % num_shards].append(offset_entry)
-    shard_paths = []
+    shard_paths: list[str] = []
 
     # Phase 2: copy byte ranges into shard files
     with open(input_path, 'rb') as f:
@@ -612,7 +626,8 @@ def reshard_packed_games(input_path, output_dir, num_shards):
     return shard_paths
 
 
-def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
+def encode_csv_to_sharded_bins(csv_glob: str, output_dir: str,
+                               num_shards: int) -> tuple[int, int, list[str]]:
     """Encode all CSV partition files into N binary shards directly.
 
     Returns (total_encoded, total_rejected, shard_paths).
@@ -623,10 +638,10 @@ def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
     os.makedirs(output_dir, exist_ok=True)
     # Round-robin (striped) assignment so each shard gets an even slice of
     # the quality ordering.  Game 0 → shard 0, game 1 → shard 1, etc.
-    shard_buckets = [[] for _ in range(num_shards)]
+    shard_buckets: list[list[tuple[int, bytes]]] = [[] for _ in range(num_shards)]
     for idx, entry in enumerate(entries):
         shard_buckets[idx % num_shards].append(entry)
-    shard_paths = []
+    shard_paths: list[str] = []
     for i in range(num_shards):
         if not shard_buckets[i]:
             continue
@@ -641,9 +656,12 @@ def encode_csv_to_sharded_bins(csv_glob, output_dir, num_shards):
 # Materialization from binary codec
 # ---------------------------------------------------------------------------
 
-def _game_state_to_vectorize_args(game_state):
+def _game_state_to_vectorize_args(game_state: GameState) -> tuple[
+    list[list[list[bool]]], list[int], list[int], list[int], int,
+    float, float, float, int, float,
+]:
     """Extract raw variables from GameState for _vectorize_state."""
-    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
+    w: list[list[list[bool]]] = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
     eggs = [0, 0]
     food_count = [0, 0]
 
@@ -655,7 +673,7 @@ def _game_state_to_vectorize_args(game_state):
             ws = ts.workers[wi]
             w[t][wi] = [ws.is_bot, ws.has_food, ws.has_speed, ws.has_wings]
 
-    maiden_map = {
+    maiden_map: dict[ContestableState, int] = {
         ContestableState.NEUTRAL: 0,
         ContestableState.BLUE: 1,
         ContestableState.GOLD: -1,
@@ -671,7 +689,9 @@ def _game_state_to_vectorize_args(game_state):
             game_state.berries_available, gold_sym)
 
 
-def materialize_entries(entries, drop_state_probability=0.0, seed=42):
+def materialize_entries(entries: collections.abc.Iterable[tuple[int, bytes]],
+                        drop_state_probability: float = 0.0,
+                        seed: int = 42) -> MaterializeResult:
     """Materialize features from an iterable of (game_id, encoded_bytes).
 
     This is the shared materialization core used by both
@@ -686,9 +706,6 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
     Returns:
         (states, labels, game_ids, timestamps): numpy arrays.
     """
-    import random
-    import numpy as np
-
     capacity = 100_000
     output_buf = np.empty((capacity, NUM_FEATURES), dtype=np.float32)
     label_buf = np.empty(capacity, dtype=np.int8)
@@ -700,7 +717,7 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
     no_drop = (drop_state_probability == 0.0)
     n_failures = 0
 
-    def _grow_buffers(needed):
+    def _grow_buffers(needed: int) -> None:
         """Grow buffers by 50% (not 2x) to limit peak memory overhead."""
         nonlocal capacity, output_buf, label_buf, game_id_buf, timestamp_buf
         new_cap = max(capacity + capacity // 2, needed)
@@ -720,7 +737,7 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
 
     for game_id, encoded in entries:
         start_idx = write_idx
-        game_state = None
+        game_state: GameState | None = None
 
         try:
             for rel_ts, game_state in walk_game_states(encoded):
@@ -738,7 +755,6 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
                     timestamp_buf[write_idx] = rel_ts
                     write_idx += 1
         except Exception as e:
-            import sys
             print(f"  Warning: game {game_id} failed: {type(e).__name__}: {e}",
                   file=sys.stderr)
             n_failures += 1
@@ -755,7 +771,6 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
         game_id_buf[start_idx:write_idx] = game_id
 
     if n_failures > 0:
-        import sys
         print(f"  Warning: {n_failures} games failed during materialization",
               file=sys.stderr)
 
@@ -763,9 +778,11 @@ def materialize_entries(entries, drop_state_probability=0.0, seed=42):
             game_id_buf[:write_idx], timestamp_buf[:write_idx])
 
 
-def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
-                                max_games=None, exclude_game_ids=None,
-                                seed=42):
+def fast_materialize_from_codec(bin_path: str,
+                                drop_state_probability: float = 0.0,
+                                max_games: int | None = None,
+                                exclude_game_ids: set[int] | None = None,
+                                seed: int = 42) -> MaterializeResult:
     """Materialize features from a packed binary file.
 
     Args:
@@ -780,7 +797,7 @@ def fast_materialize_from_codec(bin_path, drop_state_probability=0.0,
         (states, labels, game_ids, timestamps): numpy arrays matching
         fast_materialize() output format.
     """
-    def _iter_entries():
+    def _iter_entries() -> collections.abc.Iterator[tuple[int, bytes]]:
         games_processed = 0
         for game_id, encoded in read_packed_games(bin_path):
             if exclude_game_ids and game_id in exclude_game_ids:

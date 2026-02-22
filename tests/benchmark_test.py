@@ -16,7 +16,7 @@ class PipelineRegressionTest(unittest.TestCase):
     the output matches expected results. Processing takes approximately 10 seconds.
     """
 
-    def test_events_to_features_regression(self):
+    def test_events_to_features_regression(self) -> None:
         """Verify event processing produces expected features and labels."""
         test_dir = os.path.dirname(__file__)
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
@@ -54,7 +54,7 @@ class PipelineRegressionTest(unittest.TestCase):
             err_msg='Labels do not match expected output')
 
 
-    def test_fast_path_matches_expected(self):
+    def test_fast_path_matches_expected(self) -> None:
         """Verify fast path produces identical output to expected benchmark."""
         test_dir = os.path.dirname(__file__)
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
@@ -85,7 +85,7 @@ class PipelineRegressionTest(unittest.TestCase):
             err_msg='Fast path labels do not match expected output')
 
 
-    def test_fast_path_with_ratings_matches_slow_path(self):
+    def test_fast_path_with_ratings_matches_slow_path(self) -> None:
         """Verify fast and slow paths produce identical 62-feature output with ratings."""
         test_dir = os.path.dirname(__file__)
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')

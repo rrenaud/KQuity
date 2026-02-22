@@ -14,6 +14,7 @@ import os
 import pathlib
 import time
 import numpy as np
+import numpy.typing as npt
 import lightgbm as lgb
 import sklearn.metrics
 
@@ -35,8 +36,8 @@ def validate_and_partition_data(
     output_dir: str,
     games_per_partition: int = 1000,
     min_timestamp: str = '2022-09',
-    max_games: int = None
-):
+    max_games: int | None = None
+) -> tuple[int, int]:
     """Validate game events and partition into smaller files.
 
     Uses a memory-efficient streaming approach:
@@ -63,7 +64,7 @@ def validate_and_partition_data(
     sys.stdout.flush()
     start = time.time()
 
-    events_per_game_id = collections.Counter()
+    events_per_game_id: collections.Counter[int] = collections.Counter()
     row_count = 0
 
     with open(input_csv, 'r') as f:
@@ -96,10 +97,10 @@ def validate_and_partition_data(
     sys.stdout.flush()
     start = time.time()
 
-    validated_game_ids = set()
-    validation_errors = collections.Counter()
+    validated_game_ids: set[int] = set()
+    validation_errors: collections.Counter[str] = collections.Counter()
     map_structure_infos = map_structure.MapStructureInfos()
-    buffered_rows = collections.defaultdict(list)
+    buffered_rows: dict[int, list[dict[str, str]]] = collections.defaultdict(list)
     games_checked = 0
     rows_read = 0
 
@@ -176,20 +177,20 @@ def validate_and_partition_data(
     start = time.time()
 
     sorted_game_ids = sorted(validated_game_ids)
-    partition_mapping = {gid: idx // games_per_partition for idx, gid in enumerate(sorted_game_ids)}
-    counts_per_partition = collections.Counter()
+    partition_mapping: dict[int, int] = {gid: idx // games_per_partition for idx, gid in enumerate(sorted_game_ids)}
+    counts_per_partition: collections.Counter[int] = collections.Counter()
     for gid in sorted_game_ids:
         counts_per_partition[partition_mapping[gid]] += 1
 
-    output_writers = {}
-    output_files = {}
+    output_writers: dict[int, csv.DictWriter[str]] = {}
+    output_files: dict[int, gzip.GzipFile] = {}
     buffered_rows = collections.defaultdict(list)
     games_written = 0
     rows_read = 0
 
     with open(input_csv, 'r') as f:
         reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames
+        fieldnames = reader.fieldnames or []
 
         for row in reader:
             rows_read += 1
@@ -214,7 +215,7 @@ def validate_and_partition_data(
                     output_file = gzip.open(f'{output_dir}/gameevents_{partition:03d}.csv.gz', 'wt')
                     output_writers[partition] = csv.DictWriter(output_file, fieldnames=fieldnames)
                     output_writers[partition].writeheader()
-                    output_files[partition] = output_file
+                    output_files[partition] = output_file  # type: ignore[assignment]
 
                 # Sort by timestamp and write
                 buffered_rows[game_id].sort(key=lambda x: x['timestamp'])
@@ -246,8 +247,8 @@ def validate_and_partition_data(
                     break
 
     # Close any remaining files
-    for f in output_files.values():
-        f.close()
+    for f_out in output_files.values():
+        f_out.close()
 
     num_partitions = len(set(idx // games_per_partition for idx in range(len(sorted_game_ids)))) if sorted_game_ids else 0
     print(f"  Written {games_written:,} games to {num_partitions} partition files")
@@ -264,12 +265,12 @@ def materialize_partition_range(
     end_partition: int,
     drop_prob: float,
     use_fast_path: bool = True
-):
+) -> tuple[npt.NDArray[np.float32] | None, npt.NDArray[np.int8] | None]:
     """Materialize game states from a range of partitions."""
     pathlib.Path(output_dir).mkdir(exist_ok=True, parents=True)
 
-    all_states = []
-    all_labels = []
+    all_states: list[npt.NDArray[np.float32]] = []
+    all_labels: list[npt.NDArray[np.int8]] = []
 
     for partition in range(start_partition, end_partition):
         csv_path = f'{input_dir}/gameevents_{partition:03d}.csv.gz'
@@ -292,9 +293,9 @@ def materialize_partition_range(
             game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
             try:
-                states, labels, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
+                states, labels_i64, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
                 all_states.append(states)
-                all_labels.append(labels)
+                all_labels.append(labels_i64.astype(np.int8))
             except Exception as e:
                 print(f"    Error processing {csv_path}: {e}")
 
@@ -305,16 +306,19 @@ def materialize_partition_range(
     return None, None
 
 
-def load_vectors(pattern: str):
+def load_vectors(pattern: str) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.int8]]:
     """Load state and label vectors from numpy files."""
     X = np.load(f'{pattern}_states.npy')
     y = np.load(f'{pattern}_labels.npy')
     return X, y
 
 
-def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100):
+def train_lgb_model(train_X: npt.NDArray[np.float32],
+                    train_y: npt.NDArray[np.int8],
+                    num_leaves: int = 100,
+                    num_trees: int = 100) -> lgb.Booster:
     """Train a LightGBM model."""
-    param = {
+    param: dict[str, object] = {
         'num_leaves': num_leaves,
         'objective': 'binary',
         'metric': 'binary_logloss',
@@ -325,9 +329,12 @@ def train_lgb_model(train_X, train_y, num_leaves=100, num_trees=100):
     return lgb.train(param, train_data, num_boost_round=num_trees)
 
 
-def evaluate_model(model, test_X, test_y, name: str):
+def evaluate_model(model: lgb.Booster,
+                   test_X: npt.NDArray[np.float32],
+                   test_y: npt.NDArray[np.int8],
+                   name: str) -> dict[str, float]:
     """Evaluate a model and return metrics."""
-    predictions = model.predict(test_X)
+    predictions = np.asarray(model.predict(test_X))
 
     log_loss = sklearn.metrics.log_loss(test_y, predictions)
     accuracy = sklearn.metrics.accuracy_score(test_y, predictions > 0.5)
@@ -339,11 +346,11 @@ def evaluate_model(model, test_X, test_y, name: str):
     if sample_size > 0:
         indices = np.random.choice(len(eligible_X), sample_size, replace=False)
         sample_X = eligible_X[indices]
-        orig_preds = model.predict(sample_X)
+        orig_preds = np.asarray(model.predict(sample_X))
         modified_X = sample_X.copy()
         modified_X[:, 0] += 1
-        mod_preds = model.predict(modified_X)
-        inversions = (mod_preds < orig_preds).mean()
+        mod_preds = np.asarray(model.predict(modified_X))
+        inversions = float((mod_preds < orig_preds).mean())
     else:
         inversions = 0.0
 
@@ -359,7 +366,7 @@ def evaluate_model(model, test_X, test_y, name: str):
     }
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--slow-and-verify', action='store_true',
@@ -373,7 +380,7 @@ def main():
     new_expt_name = 'new_data_model'
 
     # DEBUG: Limit number of games for testing (set to None for full run)
-    debug_max_games = None  # Set to a number like 5000 for faster testing
+    debug_max_games: int | None = None  # Set to a number like 5000 for faster testing
 
     # Step 1: Check if already partitioned, otherwise partition
     if not os.path.exists(new_partitioned_dir) or len(os.listdir(new_partitioned_dir)) == 0:
@@ -416,14 +423,18 @@ def main():
             slow_X, slow_y = materialize_partition_range(
                 new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9, use_fast_path=False
             )
+            assert fast_X is not None and fast_y is not None, "Fast path returned no training data"
+            assert slow_X is not None and slow_y is not None, "Slow path returned no training data"
             assert np.array_equal(fast_y, slow_y), "Training labels mismatch"
             assert np.allclose(fast_X, slow_X, atol=1e-5), f"Training states mismatch: {np.max(np.abs(fast_X - slow_X))}"
             print("  Verification passed: fast and slow paths match!")
             train_X, train_y = fast_X, fast_y
         else:
-            train_X, train_y = materialize_partition_range(
+            train_X_opt, train_y_opt = materialize_partition_range(
                 new_partitioned_dir, expt_dir, 0, train_end, drop_prob=0.9
             )
+            assert train_X_opt is not None and train_y_opt is not None, "No training data materialized"
+            train_X, train_y = train_X_opt, train_y_opt
         np.save(f'{expt_dir}/train_states.npy', train_X)
         np.save(f'{expt_dir}/train_labels.npy', train_y)
         print(f"  Training samples: {len(train_y):,}")
@@ -444,14 +455,18 @@ def main():
             slow_X, slow_y = materialize_partition_range(
                 new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95, use_fast_path=False
             )
+            assert fast_X is not None and fast_y is not None, "Fast path returned no test data"
+            assert slow_X is not None and slow_y is not None, "Slow path returned no test data"
             assert np.array_equal(fast_y, slow_y), "Test labels mismatch"
             assert np.allclose(fast_X, slow_X, atol=1e-5), f"Test states mismatch: {np.max(np.abs(fast_X - slow_X))}"
             print("  Verification passed: fast and slow paths match!")
             test_X, test_y = fast_X, fast_y
         else:
-            test_X, test_y = materialize_partition_range(
+            test_X_opt, test_y_opt = materialize_partition_range(
                 new_partitioned_dir, expt_dir, test_start, num_partitions, drop_prob=0.95
             )
+            assert test_X_opt is not None and test_y_opt is not None, "No test data materialized"
+            test_X, test_y = test_X_opt, test_y_opt
         np.save(f'{expt_dir}/test_states.npy', test_X)
         np.save(f'{expt_dir}/test_labels.npy', test_y)
         print(f"  Test samples: {len(test_y):,}")

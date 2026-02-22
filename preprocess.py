@@ -8,7 +8,8 @@ import os
 import pathlib
 import pickle
 import random
-from typing import List, Optional, Union, Type, Iterator, Tuple, Iterable, TypeAlias
+from collections.abc import Iterator, Iterable
+from typing import Any, TypeAlias
 
 import dateutil.parser
 import numpy as np
@@ -17,6 +18,7 @@ import numpy.typing as npt
 import constants
 import map_structure
 from constants import Team, ContestableState, VictoryCondition, PlayerCategory, MaidenType, Map
+from _types import GameStateVector, GameStatesMatrix
 
 
 # https://kqhivemind.com/wiki/Stats_Socket_Events
@@ -36,85 +38,77 @@ def swap_pid(pid: int) -> int:
 
 
 class WorkerState:
-    def __init__(self):
-        self.has_speed = False
-        self.has_wings = False
-        self.has_food = False
-        self.is_bot = False
+    def __init__(self) -> None:
+        self.has_speed: bool = False
+        self.has_wings: bool = False
+        self.has_food: bool = False
+        self.is_bot: bool = False
 
     def power(self) -> float:
         return self.has_wings + self.has_speed * .5 + self.has_food * .25
 
 
 class TeamState:
-    def __init__(self):
-        self.eggs = 2
-        self.food_deposited = [False for _ in range(12)]
-        self.workers = [WorkerState() for _ in range(4)]
+    def __init__(self) -> None:
+        self.eggs: int = 2
+        self.food_deposited: list[bool] = [False for _ in range(12)]
+        self.workers: list[WorkerState] = [WorkerState() for _ in range(4)]
 
 
-StartSnailEvent: Type = Union['GetOnSnailEvent', 'SnailEatEvent']
-StopSnailEvent: Type = Union['GetOffSnailEvent', 'SnailEscapeEvent']
+StartSnailEvent: TypeAlias = 'GetOnSnailEvent | SnailEatEvent'
+StopSnailEvent: TypeAlias = 'GetOffSnailEvent | SnailEscapeEvent'
 
 
 class InferredSnailState:
     VANILLA_SNAIL_PIXELS_PER_SECOND = 20.896215463
     SPEED_SNAIL_PIXELS_PER_SECOND = 28.209890875
 
-    def __init__(self, game_state: 'GameState'):
-        self.snail_x = constants.SCREEN_WIDTH / 2
-        self.snail_velocity = 0
-        self.last_touch_timestamp = 0.0
-        self.game_state = game_state
+    def __init__(self, game_state: 'GameState') -> None:
+        self.snail_x: float = constants.SCREEN_WIDTH / 2
+        self.snail_velocity: float = 0
+        self.last_touch_timestamp: float = 0.0
+        self.game_state: GameState = game_state
 
     @staticmethod
-    def snail_movement_multiplier(gold_on_left, team):
+    def snail_movement_multiplier(gold_on_left: bool, team: Team) -> int:
         if gold_on_left and team == Team.GOLD: return -1
         if gold_on_left and team == Team.BLUE: return 1
         if not gold_on_left and team == Team.GOLD: return 1
         if not gold_on_left and team == Team.BLUE: return -1
+        return 0  # unreachable
 
     def inferred_snail_position(self, current_ts: float) -> float:
         return self.snail_x + (current_ts - self.last_touch_timestamp) * self.snail_velocity
 
-    def compute_snail_velocity(self, rider_position_id) -> float:
+    def compute_snail_velocity(self, rider_position_id: int) -> float:
         rider = self.game_state.get_worker_by_position_id(rider_position_id)
         velocity = self.SPEED_SNAIL_PIXELS_PER_SECOND if rider.has_speed else self.VANILLA_SNAIL_PIXELS_PER_SECOND
         velocity *= InferredSnailState.snail_movement_multiplier(self.game_state.map_info.gold_on_left,
                                                                  position_id_to_team(rider_position_id))
-
-        # print('snail_x:', self.snail_x,
-        #     'velocity:', velocity,
-        #     'gold_on_left:', self.game_state.map_info.gold_on_left,
-        #     'team:', position_id_to_team(rider_position_id))
         return velocity
 
-    def _update_position_and_timestamp(self, snail_event):
-        # if should_print:
-        #     inferred_position = self.inferred_snail_position(snail_event.timestamp)
-        #     diff = inferred_position - snail_event.snail_x
-        #     print('inferred_position:', inferred_position, 'event_snail_x:', snail_event.snail_x, 'diff:', diff)
+    def _update_position_and_timestamp(self, snail_event: 'GetOnSnailEvent | SnailEatEvent | GetOffSnailEvent | SnailEscapeEvent') -> None:
         self.last_touch_timestamp = snail_event.timestamp
         self.snail_x = snail_event.snail_x
 
-    def start_snail(self, start_snail_event: StartSnailEvent):
+    def start_snail(self, start_snail_event: 'GetOnSnailEvent | SnailEatEvent') -> None:
         self.snail_velocity = self.compute_snail_velocity(start_snail_event.rider_position_id)
         self._update_position_and_timestamp(start_snail_event)
 
-    def stop_snail(self, stop_snail_event: StopSnailEvent):
+    def stop_snail(self, stop_snail_event: 'GetOffSnailEvent | SnailEscapeEvent') -> None:
         self._update_position_and_timestamp(stop_snail_event)
         self.snail_velocity = 0
 
 
 class GameState:
-    def __init__(self, map_info: map_structure.MapStructureInfo):
-        self.map_info = map_info
-        self.teams = [TeamState() for _ in range(2)]
-        self.berries_available = map_info.total_berries
-        self.maiden_states = [ContestableState.NEUTRAL for _ in range(5)]
-        self.snail_state = InferredSnailState(self)
-        self.winning_team = None          # Team or None
-        self.victory_condition = None     # VictoryCondition or None
+    def __init__(self, map_info: map_structure.MapStructureInfo) -> None:
+        self.map_info: map_structure.MapStructureInfo = map_info
+        self.teams: list[TeamState] = [TeamState() for _ in range(2)]
+        self.berries_available: int = map_info.total_berries
+        self.maiden_states: list[ContestableState] = [ContestableState.NEUTRAL for _ in range(5)]
+        self.snail_state: InferredSnailState = InferredSnailState(self)
+        self.winning_team: Team | None = None
+        self.victory_condition: VictoryCondition | None = None
 
     def get_team(self, team: Team) -> TeamState:
         return self.teams[team.value]
@@ -129,11 +123,12 @@ class GameState:
 
 
 class GameEvent:
-    def __init__(self):
-        self.timestamp = None
-        self.game_id = None
+    def __init__(self) -> None:
+        # timestamp is datetime.datetime after parse_event(), float after normalize_times()
+        self.timestamp: Any = None
+        self.game_id: int | None = None
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         pass
 
     def swap_teams(self) -> 'GameEvent':
@@ -142,8 +137,8 @@ class GameEvent:
         return result
 
 
-GameEventsList = List[GameEvent]
-GameEventsIterator = Iterator[GameEvent]
+GameEventsList: TypeAlias = list[GameEvent]
+GameEventsIterator: TypeAlias = Iterator[GameEvent]
 
 
 def position_id_to_team(position_id: int) -> Team:
@@ -158,67 +153,67 @@ def is_queen_position_id(position_id: int) -> bool:
     return position_id <= 2
 
 
-def split_payload(payload: str) -> List[str]:
+def split_payload(payload: str) -> list[str]:
     assert payload.startswith('{')
     assert payload.endswith('}')
     return payload[1:-1].split(',')
 
 
 class GameStartEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.map = Map[payload_values[0]]
-        self.gold_on_left = payload_values[1] == 'True'
-        self.game_version = payload_values[4]
+        self.map: Map = Map[payload_values[0]]
+        self.gold_on_left: bool = payload_values[1] == 'True'
+        self.game_version: str = payload_values[4]
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'GameStartEvent':
         result = copy.copy(self)
         result.gold_on_left = not self.gold_on_left
         return result
 
 
 class GameEndEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.game_duration = float(payload_values[2])
+        self.game_duration: float = float(payload_values[2])
 
 
 class MapStartEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.map = Map[payload_values[0]]
-        self.gold_on_left = payload_values[1] == 'True'
-        self.game_version = payload_values[4]
+        self.map: Map = Map[payload_values[0]]
+        self.gold_on_left: bool = payload_values[1] == 'True'
+        self.game_version: str = payload_values[4]
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'MapStartEvent':
         result = copy.copy(self)
         result.gold_on_left = not self.gold_on_left
         return result
 
 
 class SpawnEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.position_id = int(payload_values[0])
-        self.is_bot = payload_values[1] == 'True'
+        self.position_id: int = int(payload_values[0])
+        self.is_bot: bool = payload_values[1] == 'True'
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.get_worker_by_position_id(self.position_id).is_bot = self.is_bot
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'SpawnEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class BerryDepositEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.hole_x = int(payload_values[0])
-        self.hole_y = int(payload_values[1])
-        self.position_id = int(payload_values[2])
+        self.hole_x: int = int(payload_values[0])
+        self.hole_y: int = int(payload_values[1])
+        self.position_id: int = int(payload_values[2])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         team: Team = position_id_to_team(self.position_id)
         worker_index = position_id_to_worker_index(self.position_id)
         team_state: TeamState = game_state.get_team(team)
@@ -231,21 +226,21 @@ class BerryDepositEvent(GameEvent):
         team_state.food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'BerryDepositEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class BerryKickInEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.hole_x = int(payload_values[0])
-        self.hole_y = int(payload_values[1])
-        self.position_id = int(payload_values[2])
-        self.counts_for_own_team = payload_values[3] == 'True'
+        self.hole_x: int = int(payload_values[0])
+        self.hole_y: int = int(payload_values[1])
+        self.position_id: int = int(payload_values[2])
+        self.counts_for_own_team: bool = payload_values[3] == 'True'
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         team: Team = position_id_to_team(self.position_id)
         if not self.counts_for_own_team:
             team = opposing_team(team)
@@ -258,27 +253,27 @@ class BerryKickInEvent(GameEvent):
         game_state.get_team(team).food_deposited[berry_index] = True
         game_state.berries_available -= 1
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'BerryKickInEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class BlessMaidenEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.maiden_x = int(payload_values[0])
-        self.maiden_y = int(payload_values[1])
-        self.gate_color = ContestableState.BLUE if payload_values[2] == 'Blue' else ContestableState.GOLD
+        self.maiden_x: int = int(payload_values[0])
+        self.maiden_y: int = int(payload_values[1])
+        self.gate_color: ContestableState = ContestableState.BLUE if payload_values[2] == 'Blue' else ContestableState.GOLD
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         try:
             _, maiden_index = game_state.map_info.get_type_and_maiden_index(self.maiden_x, self.maiden_y)
             game_state.maiden_states[maiden_index] = self.gate_color
         except ValueError:
             raise GameValidationError('Invalid maiden event: {} {}'.format(self.maiden_x, self.maiden_y))
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'BlessMaidenEvent':
         result = copy.copy(self)
         result.maiden_x = constants.SCREEN_WIDTH - self.maiden_x
         if self.gate_color == ContestableState.BLUE:
@@ -289,45 +284,45 @@ class BlessMaidenEvent(GameEvent):
 
 
 class CarryFoodEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.position_id = int(payload_values[0])
+        self.position_id: int = int(payload_values[0])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.get_worker_by_position_id(self.position_id).has_food = True
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'CarryFoodEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class GetOnSnailEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.snail_x = int(payload_values[0])
-        self.rider_position_id = int(payload_values[2])
+        self.snail_x: int = int(payload_values[0])
+        self.rider_position_id: int = int(payload_values[2])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.snail_state.start_snail(self)
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'GetOnSnailEvent':
         result = copy.copy(self)
         result.rider_position_id = swap_pid(self.rider_position_id)
         return result
 
 
 class SnailEatEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.snail_x = int(payload_values[0])
-        self.rider_position_id = int(payload_values[2])
-        self.eaten_position_id = int(payload_values[3])
+        self.snail_x: int = int(payload_values[0])
+        self.rider_position_id: int = int(payload_values[2])
+        self.eaten_position_id: int = int(payload_values[3])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.snail_state.start_snail(self)
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'SnailEatEvent':
         result = copy.copy(self)
         result.rider_position_id = swap_pid(self.rider_position_id)
         result.eaten_position_id = swap_pid(self.eaten_position_id)
@@ -335,30 +330,30 @@ class SnailEatEvent(GameEvent):
 
 
 class GetOffSnailEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.snail_x = int(payload_values[0])
-        self.position_id = int(payload_values[3])
+        self.snail_x: int = int(payload_values[0])
+        self.position_id: int = int(payload_values[3])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.snail_state.stop_snail(self)
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'GetOffSnailEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class SnailEscapeEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.snail_x = int(payload_values[0])
-        self.escaped_position_id = int(payload_values[2])
+        self.snail_x: int = int(payload_values[0])
+        self.escaped_position_id: int = int(payload_values[2])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         game_state.snail_state.stop_snail(self)
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'SnailEscapeEvent':
         result = copy.copy(self)
         result.escaped_position_id = swap_pid(self.escaped_position_id)
         return result
@@ -367,26 +362,26 @@ class SnailEscapeEvent(GameEvent):
 class GlanceEvent(GameEvent):
     __slots__ = ['glance_x', 'glance_y', 'position_ids']
 
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
         if len(payload_values) == 2:
             # Hack for older versions where the payload was missing the glance coordinates.
             payload_values = ['-1', '-1'] + payload_values
-        self.glance_x = int(payload_values[0])
-        self.glance_y = int(payload_values[1])
-        self.position_ids = [int(payload_values[2]), int(payload_values[3])]
+        self.glance_x: int = int(payload_values[0])
+        self.glance_y: int = int(payload_values[1])
+        self.position_ids: list[int] = [int(payload_values[2]), int(payload_values[3])]
 
 
 class PlayerKillEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.killer_x = int(payload_values[0])
-        self.killer_y = int(payload_values[1])
-        self.killer_position_id = int(payload_values[2])
-        self.killed_position_id = int(payload_values[3])
-        self.killed_player_category = PlayerCategory[payload_values[4]]
+        self.killer_x: int = int(payload_values[0])
+        self.killer_y: int = int(payload_values[1])
+        self.killer_position_id: int = int(payload_values[2])
+        self.killed_position_id: int = int(payload_values[3])
+        self.killed_player_category: PlayerCategory = PlayerCategory[payload_values[4]]
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         team: Team = position_id_to_team(self.killed_position_id)
         if self.killed_player_category == PlayerCategory.Queen:
             game_state.get_team(team).eggs -= 1
@@ -396,7 +391,7 @@ class PlayerKillEvent(GameEvent):
                                'Worker has wings but is not a soldier')
             killed_worker.has_speed = killed_worker.has_food = killed_worker.has_wings = False
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'PlayerKillEvent':
         result = copy.copy(self)
         result.killer_position_id = swap_pid(self.killer_position_id)
         result.killed_position_id = swap_pid(self.killed_position_id)
@@ -404,24 +399,24 @@ class PlayerKillEvent(GameEvent):
 
 
 class GameValidationError(ValueError):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
-def validate_condition(condition, message):
+def validate_condition(condition: bool, message: str) -> None:
     if not condition:
         raise GameValidationError(message)
 
 
 class UseMaidenEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.maiden_x = int(payload_values[0])
-        self.maiden_y = int(payload_values[1])
-        self.maiden_type = MaidenType[payload_values[2]]
-        self.position_id = int(payload_values[3])
+        self.maiden_x: int = int(payload_values[0])
+        self.maiden_y: int = int(payload_values[1])
+        self.maiden_type: MaidenType = MaidenType[payload_values[2]]
+        self.position_id: int = int(payload_values[3])
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         worker_state = game_state.get_worker_by_position_id(self.position_id)
 
         validate_condition(worker_state.has_food, "Worker using maiden missing food")
@@ -434,24 +429,24 @@ class UseMaidenEvent(GameEvent):
 
         worker_state.has_food = False
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'UseMaidenEvent':
         result = copy.copy(self)
         result.position_id = swap_pid(self.position_id)
         return result
 
 
 class VictoryEvent(GameEvent):
-    def __init__(self, payload_values: List[str]):
+    def __init__(self, payload_values: list[str]) -> None:
         super().__init__()
-        self.winning_team = Team.BLUE if payload_values[0] == 'Blue' else Team.GOLD
-        self.victory_condition = VictoryCondition[payload_values[1]]
+        self.winning_team: Team = Team.BLUE if payload_values[0] == 'Blue' else Team.GOLD
+        self.victory_condition: VictoryCondition = VictoryCondition[payload_values[1]]
 
-    def swap_teams(self):
+    def swap_teams(self) -> 'VictoryEvent':
         result = copy.copy(self)
         result.winning_team = opposing_team(self.winning_team)
         return result
 
-    def modify_game_state(self, game_state: GameState):
+    def modify_game_state(self, game_state: GameState) -> None:
         if self.victory_condition == VictoryCondition.economic:
             validate_condition(sum(game_state.get_team(self.winning_team).food_deposited) == 12,
                                "Econ victory team does not have 12 berries deposited")
@@ -472,7 +467,7 @@ class VictoryEvent(GameEvent):
         game_state.victory_condition = self.victory_condition
 
 
-def parse_event(raw_event_row) -> Optional[GameEvent]:
+def parse_event(raw_event_row: dict[str, str]) -> GameEvent | None:
     skippable_events = {'gameend', 'playernames',
                         'reserveMaiden', 'unreserveMaiden',
                         'cabinetOnline', 'cabinetOffline',
@@ -480,7 +475,8 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
                         'glance',
                         'enteredGameScreen', 'signInPlayer', 'signOutPlayer',
                         }
-    dispatcher = {'berryDeposit': BerryDepositEvent,
+    dispatcher: dict[str, Any] = {
+                  'berryDeposit': BerryDepositEvent,
                   'berryKickIn': BerryKickInEvent,
                   'carryFood': CarryFoodEvent,
                   'snailEat': SnailEatEvent,
@@ -505,43 +501,43 @@ def parse_event(raw_event_row) -> Optional[GameEvent]:
     event = dispatcher[event_type](payload_values)
     event.timestamp = dateutil.parser.isoparse(raw_event_row['timestamp'])
     event.game_id = int(raw_event_row['game_id'])
-    return event
+    return event  # type: ignore[no-any-return]
 
 
 def normalize_times(events: GameEventsList) -> GameEventsList:
     normalized_events = copy.deepcopy(events)
     normalized_events.sort(key=lambda e: e.timestamp)
 
-    start_ts: datetime.datetime = get_game_start(normalized_events).timestamp
+    start_ts = get_game_start(normalized_events).timestamp
     for game_event in normalized_events:
         game_event.timestamp = (game_event.timestamp - start_ts).total_seconds()
     return normalized_events
 
 
-def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Iterator[Tuple[int, GameEventsList]]:
-    last_game_id = None
-    single_game_events = []
+def iterate_events_by_game_and_normalize_time(events: GameEventsIterator) -> Iterator[tuple[int, GameEventsList]]:
+    last_game_id: int | None = None
+    single_game_events: GameEventsList = []
     for event in events:
         cur_game_id = event.game_id
         if last_game_id != cur_game_id and single_game_events:
-            yield last_game_id, normalize_times(single_game_events)
+            yield last_game_id, normalize_times(single_game_events)  # type: ignore[misc]
             single_game_events = []
         single_game_events.append(event)
         last_game_id = cur_game_id
     if single_game_events:
-        yield last_game_id, normalize_times(single_game_events)
+        yield last_game_id, normalize_times(single_game_events)  # type: ignore[misc]
 
 
-def debug_print_events(events: GameEventsList):
+def debug_print_events(events: GameEventsList) -> None:
     for event in events:
-        def ignore_attr(attr_name):
+        def ignore_attr(attr_name: str) -> bool:
             return attr_name.startswith('_') or attr_name == 'modify_game_state'
         attrs = {a: getattr(event, a) for a in dir(event) if not ignore_attr(a)}
 
         print(event.__class__.__name__.removesuffix('Event'), attrs)
 
 
-def find_first_event_of_type(events: GameEventsList, event_type: Type[GameEvent]) -> Optional[GameEvent]:
+def find_first_event_of_type(events: GameEventsList, event_type: type[GameEvent]) -> GameEvent | None:
     for event in events:
         if isinstance(event, event_type):
             return event
@@ -552,20 +548,20 @@ def get_game_start(events: GameEventsList) -> GameStartEvent:
     game_start = find_first_event_of_type(events, GameStartEvent)
     if not game_start:
         raise GameValidationError(f'No game start found in events for game {events[0].game_id}')
-    return game_start
+    return game_start  # type: ignore[return-value]
 
 
 def get_map_start(events: GameEventsList) -> MapStartEvent:
     map_start = find_first_event_of_type(events, MapStartEvent)
     if not map_start:
         raise GameValidationError(f'No map start found in events for game {events[0].game_id}')
-    return map_start
+    return map_start  # type: ignore[return-value]
 
 
 def is_valid_game(events: GameEventsList,
-                  map_structure_infos: map_structure.MapStructureInfos) -> Optional[GameValidationError]:
+                  map_structure_infos: map_structure.MapStructureInfos) -> GameValidationError | None:
     try:
-        game_start: GameStartEvent = get_map_start(events)
+        game_start: MapStartEvent = get_map_start(events)
         map_info: map_structure.MapStructureInfo = map_structure_infos.get_map_info(
             game_start.map, game_start.gold_on_left)
 
@@ -580,7 +576,8 @@ def is_valid_game(events: GameEventsList,
     return None
 
 
-def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEventsIterator:
+def iterate_events_from_csv(csv_path: str,
+                            skip_raw_events_fn: collections.abc.Callable[[dict[str, str]], bool] | None = None) -> GameEventsIterator:
     for filename in sorted(glob.glob(csv_path)):
         if filename.endswith('.gz'):
             f = gzip.open(filename, 'rt')
@@ -590,7 +587,8 @@ def iterate_events_from_csv(csv_path: str, skip_raw_events_fn=None) -> GameEvent
         f.close()
 
 
-def iterate_events_from_csv_reader(csv_event_reader, skip_raw_events_fn=None) -> GameEventsIterator:
+def iterate_events_from_csv_reader(csv_event_reader: csv.DictReader,  # type: ignore[type-arg]
+                                   skip_raw_events_fn: collections.abc.Callable[[dict[str, str]], bool] | None = None) -> GameEventsIterator:
     for row in csv_event_reader:
         try:
             if skip_raw_events_fn and skip_raw_events_fn(row):
@@ -610,12 +608,12 @@ def has_bots(events: GameEventsList) -> bool:
     return False
 
 
-def validate_game_data(csv_path):
+def validate_game_data(csv_path: str) -> None:
     events = iterate_events_from_csv(csv_path, lambda d: d['timestamp'] <= '2022-09')
 
     map_structure_infos = map_structure.MapStructureInfos()
-    validation_errors = collections.Counter()
-    validated_game_ids = set()
+    validation_errors: collections.Counter[str] = collections.Counter()
+    validated_game_ids: set[int] = set()
     for game_id, game_events in iterate_events_by_game_and_normalize_time(events):
         maybe_error = is_valid_game(game_events, map_structure_infos)
         if maybe_error:
@@ -628,7 +626,7 @@ def validate_game_data(csv_path):
 
     with open(csv_path, 'r') as f:
         event_reader = csv.DictReader(f)
-        fieldnames = event_reader.fieldnames
+        fieldnames = event_reader.fieldnames or []
         with open('validated_' + csv_path, 'w') as output_file:
             event_writer = csv.DictWriter(output_file, fieldnames=fieldnames)
             event_writer.writeheader()
@@ -637,7 +635,7 @@ def validate_game_data(csv_path):
                     event_writer.writerow(row)
 
 
-StatesWithFullGameIterable = Iterable[Tuple[int, GameEvent, GameState, List[GameEvent]]]
+StatesWithFullGameIterable: TypeAlias = Iterable[tuple[int, GameEvent, GameState, list[GameEvent]]]
 
 
 def iterate_game_events_with_state(events: GameEventsIterator,
@@ -654,58 +652,55 @@ def iterate_game_events_with_state(events: GameEventsIterator,
             game_event.modify_game_state(game_state)
 
 
-def validate_big_batch():
+def validate_big_batch() -> None:
     validate_game_data('all_gameevent.csv')
 
 
-def compute_kill_matrix():
+def compute_kill_matrix() -> None:
     csv_path = 'validated_all_gameevent_partitioned/gameevents_*.csv'
     events = iterate_events_from_csv(csv_path)
     queen, speed, vanilla = range(3)
 
-    kill_matrix_by_map = {m: np.zeros((3, 3), dtype=np.int32) for m in Map}
+    kill_matrix_by_map: dict[Map, npt.NDArray[np.int32]] = {m: np.zeros((3, 3), dtype=np.int32) for m in Map}
 
     for game_id, event, game_state, _ in iterate_game_events_with_state(events, map_structure.MapStructureInfos()):
         if type(event) == PlayerKillEvent:
-            event: PlayerKillEvent = event
+            kill_event: PlayerKillEvent = event  # type: ignore[assignment]
 
-            def categorize_position_id(position_id):
+            def categorize_position_id(position_id: int) -> int:
                 if is_queen_position_id(position_id):
                     return queen
                 if game_state.get_worker_by_position_id(position_id).has_speed:
                     return speed
                 return vanilla
 
-            killer_type = categorize_position_id(event.killer_position_id)
-            killed_type = categorize_position_id(event.killed_position_id)
-            if killed_type == queen or game_state.get_worker_by_position_id(event.killed_position_id).has_wings:
+            killer_type = categorize_position_id(kill_event.killer_position_id)
+            killed_type = categorize_position_id(kill_event.killed_position_id)
+            if killed_type == queen or game_state.get_worker_by_position_id(kill_event.killed_position_id).has_wings:
                 kill_matrix_by_map[game_state.map_info.map_id][killer_type, killed_type] += 1
 
     pickle.dump(kill_matrix_by_map, open('kill_matrix_by_map.pkl', 'wb'))
 
 
-GameStateVector: Type = npt.NDArray[np.float64]
-
-
 def vectorize_worker(worker: WorkerState, mu: float | None = None) -> GameStateVector:
-    base = [worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings]
+    base: list[float] = [worker.is_bot, worker.has_food, worker.has_speed, worker.has_wings]
     if mu is not None:
         base.append(mu)
     return np.array(base, np.float32)
 
 
 def vectorize_team(team_state: TeamState, queen_mu: float | None = None,
-                   worker_mus: list | None = None) -> GameStateVector:
+                   worker_mus: list[float] | None = None) -> GameStateVector:
     eggs = float(team_state.eggs)
     num_food_deposits = float(sum(team_state.food_deposited))
     num_vanilla = float(sum(w.has_wings and not w.has_speed for w in team_state.workers))
     num_speed_warriors = float(sum(w.has_wings and w.has_speed for w in team_state.workers))
 
-    team_stats = [eggs, num_food_deposits, num_vanilla, num_speed_warriors]
+    team_stats: list[float] = [eggs, num_food_deposits, num_vanilla, num_speed_warriors]
     if queen_mu is not None:
         team_stats.append(queen_mu)
 
-    parts = [team_stats]
+    parts: list[npt.NDArray[np.float32] | list[float]] = [team_stats]
     # Sort workers by power, tracking original index for mu lookup
     sorted_workers = sorted(enumerate(team_state.workers), key=lambda iw: iw[1].power())
     for orig_idx, worker in sorted_workers:
@@ -714,14 +709,15 @@ def vectorize_team(team_state: TeamState, queen_mu: float | None = None,
     return np.concatenate(parts)
 
 
-def vectorize_maidens(maidens: List[ContestableState]) -> GameStateVector:
-    def encode_maiden_state(maiden_color: ContestableState):
+def vectorize_maidens(maidens: list[ContestableState]) -> GameStateVector:
+    def encode_maiden_state(maiden_color: ContestableState) -> float:
         if maiden_color == ContestableState.NEUTRAL:
             return 0.0
         if maiden_color == ContestableState.BLUE:
             return 1.0
         if maiden_color == ContestableState.GOLD:
             return -1.0
+        return 0.0  # unreachable
 
     return np.array([encode_maiden_state(maiden) for maiden in maidens], np.float32)
 
@@ -739,7 +735,7 @@ def vectorize_snail_state(game_state: GameState, next_event: GameEvent) -> GameS
 
 
 def vectorize_game_state(game_state: GameState, next_event: GameEvent,
-                         game_ratings=None) -> GameStateVector:
+                         game_ratings: npt.NDArray[np.float32] | None = None) -> GameStateVector:
     if game_ratings is not None:
         # Blue: queen=ratings[1], workers widx 0-3=ratings[3,5,7,9]
         blue_queen_mu = float(game_ratings[1])
@@ -755,7 +751,7 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent,
         blue_team_vec = vectorize_team(game_state.get_team(Team.BLUE))
         gold_team_vec = vectorize_team(game_state.get_team(Team.GOLD))
 
-    parts = [
+    parts: list[npt.NDArray[np.float32] | list[float]] = [
         blue_team_vec,
         gold_team_vec,
         vectorize_maidens(game_state.maiden_states),
@@ -767,37 +763,36 @@ def vectorize_game_state(game_state: GameState, next_event: GameEvent,
     return np.concatenate(parts)
 
 
-GameStatesMatrix: Type = np.ndarray[np.float64]  # (num_states, num_features)
-OutcomesLabelVector: Type = np.ndarray[bool]  # (num_states,)
-
-
 def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIterable,
                               drop_state_probability: float = 0.0,
                               noisy: bool = False,
-                              ratings_by_game: dict = None) -> Tuple[GameStatesMatrix, OutcomesLabelVector]:
-    vectorized_states = []
-    labels = []
-    game_ids = []
+                              ratings_by_game: dict[int, npt.NDArray[np.float32]] | None = None,
+                              ) -> tuple[GameStatesMatrix, npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    vectorized_states: list[GameStateVector] = []
+    labels: list[int] = []
+    game_ids: list[int] = []
     random.seed(42)
     count = 0
 
-    last_game_id = None
+    last_game_id: int | None = None
     for game_id, event, game_state, all_game_events in game_states_with_full_game:
         if noisy and count % 10000 == 9999:
             print('create_game_state_matrix', count, len(vectorized_states))
         count += 1
         if event.timestamp > 5.0 and random.random() > drop_state_probability:
-            game_ratings = None
+            game_ratings: npt.NDArray[np.float32] | None = None
             if ratings_by_game is not None:
                 game_ratings = ratings_by_game.get(game_id)
             vectorized_states.append(vectorize_game_state(game_state, event, game_ratings))
-            labels.append(1 if all_game_events[-1].winning_team == Team.BLUE else 0)
+            last_event = all_game_events[-1]
+            assert isinstance(last_event, VictoryEvent)
+            labels.append(1 if last_event.winning_team == Team.BLUE else 0)
             game_ids.append(game_id)
 
     return np.vstack(vectorized_states), np.array(labels), np.array(game_ids, dtype=np.int64)
 
 
-def materialize_game_state_matrix(csv_path, drop_state_probability, expt_name):
+def materialize_game_state_matrix(csv_path: str, drop_state_probability: float, expt_name: str) -> None:
     basename = os.path.basename(csv_path)
     map_structure_infos = map_structure.MapStructureInfos()
     game_states_iterable = iterate_game_events_with_state(iterate_events_from_csv(csv_path), map_structure_infos)
@@ -819,4 +814,3 @@ if __name__ == '__main__':
     materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[0-7][0-9].csv', .9, expt_name)
     materialize_game_state_matrix('validated_all_gameevent_partitioned/gameevents_0[8-9][0-9].csv', 0, expt_name)
     print('expt name:', expt_name)
-

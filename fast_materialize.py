@@ -14,6 +14,9 @@ import os
 import random
 
 import numpy as np
+import numpy.typing as npt
+
+from _types import MaterializeResult
 
 # --- Constants (inlined from constants.py) ---
 
@@ -22,7 +25,7 @@ VANILLA_SNAIL_PPS = 20.896215463
 SPEED_SNAIL_PPS = 28.209890875
 
 MAP_NAMES = ['map_day', 'map_night', 'map_dusk', 'map_twilight']
-MAP_INDEX = {name: i for i, name in enumerate(MAP_NAMES)}
+MAP_INDEX: dict[str, int] = {name: i for i, name in enumerate(MAP_NAMES)}
 
 NUM_FEATURES = 52
 NUM_FEATURES_WITH_RATINGS = 62
@@ -48,7 +51,7 @@ COL_GAME_ID = 4
 
 # --- Map lookup tables (built once at module load) ---
 
-def _build_map_lookups(json_path=None):
+def _build_map_lookups(json_path: str | None = None) -> dict[tuple[str, bool], dict[str, object]]:
     """Build flat lookup dicts for all 8 map configurations (4 maps x 2 orientations).
 
     Returns dict keyed by (map_name_str, gold_on_left_bool) -> {
@@ -65,18 +68,18 @@ def _build_map_lookups(json_path=None):
     with open(json_path, 'rb') as f:
         raw = json.load(f)
 
-    lookups = {}
+    lookups: dict[tuple[str, bool], dict[str, object]] = {}
     for map_name, info in raw.items():
         map_idx = MAP_INDEX[map_name]
 
         # gold_on_left=True: left_berries=gold, right_berries=blue
-        berry_gol = {}
+        berry_gol: dict[tuple[int, int], int] = {}
         for i, (x, y) in enumerate(info['left_berries']):
             berry_gol[(x, y)] = i
         for i, (x, y) in enumerate(info['right_berries']):
             berry_gol[(x, y)] = i
 
-        maiden_gol = {}
+        maiden_gol: dict[tuple[int, int], tuple[str, int]] = {}
         for idx, (mtype, x, y) in enumerate(info['maiden_info']):
             maiden_gol[(x, y)] = (mtype, idx)
 
@@ -89,13 +92,13 @@ def _build_map_lookups(json_path=None):
         }
 
         # gold_on_left=False: swap berry ownership, flip maiden x coords
-        berry_gor = {}
+        berry_gor: dict[tuple[int, int], int] = {}
         for i, (x, y) in enumerate(info['right_berries']):
             berry_gor[(x, y)] = i
         for i, (x, y) in enumerate(info['left_berries']):
             berry_gor[(x, y)] = i
 
-        maiden_gor = {}
+        maiden_gor: dict[tuple[int, int], tuple[str, int]] = {}
         for idx, (mtype, x, y) in enumerate(info['maiden_info']):
             maiden_gor[(SCREEN_WIDTH - x, y)] = (mtype, idx)
 
@@ -115,14 +118,14 @@ _MAP_LOOKUPS = _build_map_lookups()
 
 # --- Timestamp parsing ---
 
-def _parse_ts(ts_str):
+def _parse_ts(ts_str: str) -> datetime.datetime:
     """Parse ISO timestamp to datetime. Uses C-implemented fromisoformat."""
     return datetime.datetime.fromisoformat(ts_str)
 
 
 # --- Snail direction helper ---
 
-def _snail_mult(gold_on_left, team_int):
+def _snail_mult(gold_on_left: bool, team_int: int) -> int:
     """Snail movement multiplier. team_int: 0=blue, 1=gold."""
     if gold_on_left:
         return -1 if team_int == 1 else 1
@@ -133,13 +136,15 @@ def _snail_mult(gold_on_left, team_int):
 # --- Direct buffer vectorization ---
 
 # Pre-built map one-hot vectors
-_MAP_ONE_HOT = [[1.0, 0.0, 0.0, 0.0],
+_MAP_ONE_HOT: list[list[float]] = [[1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0]]
 
 
-def _vectorize_team(tw, eggs, fc, queen_mu=0.0, worker_mus=None):
+def _vectorize_team(tw: list[list[bool]], eggs: int, fc: int,
+                    queen_mu: float = 0.0,
+                    worker_mus: list[float] | None = None) -> list[float]:
     """Vectorize one team into a 20 or 25-element list. Returns list of floats.
 
     When worker_mus is provided, produces 25 features (with queen_mu and per-worker mu).
@@ -147,7 +152,7 @@ def _vectorize_team(tw, eggs, fc, queen_mu=0.0, worker_mus=None):
     """
     # Compute powers and sort indices
     w0, w1, w2, w3 = tw[0], tw[1], tw[2], tw[3]
-    pw = [
+    pw: list[tuple[float, int, list[bool]]] = [
         (w0[3] + w0[2] * 0.5 + w0[1] * 0.25, 0, w0),
         (w1[3] + w1[2] * 0.5 + w1[1] * 0.25, 1, w1),
         (w2[3] + w2[2] * 0.5 + w2[1] * 0.25, 2, w2),
@@ -183,9 +188,20 @@ def _vectorize_team(tw, eggs, fc, queen_mu=0.0, worker_mus=None):
                 float(d[0]), float(d[1]), float(d[2]), float(d[3])]
 
 
-def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
-                     map_idx, snail_x, snail_vel, snail_last_ts,
-                     event_ts, berries_avail, gold_sym, game_ratings=None):
+def _vectorize_state(buf: npt.NDArray[np.float32] | list[list[float] | None],
+                     idx: int,
+                     w: list[list[list[bool]]],
+                     eggs: list[int],
+                     food_count: list[int],
+                     maiden_states: list[int],
+                     map_idx: int,
+                     snail_x: float,
+                     snail_vel: float,
+                     snail_last_ts: float,
+                     event_ts: float,
+                     berries_avail: int,
+                     gold_sym: float,
+                     game_ratings: npt.NDArray[np.float32] | None = None) -> None:
     """Write features directly into buf[idx] via list assignment.
 
     52 features when game_ratings is None, 62 when provided.
@@ -222,8 +238,14 @@ def _vectorize_state(buf, idx, w, eggs, food_count, maiden_states,
 
 # --- Per-game processing ---
 
-def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
-                   drop_prob, rng, game_ratings=None):
+def _process_game(raw_events: list[tuple[datetime.datetime, str, str]],
+                  output_buf: npt.NDArray[np.float32],
+                  label_buf: npt.NDArray[np.int8],
+                  timestamp_buf: npt.NDArray[np.float32],
+                  write_idx: int,
+                  drop_prob: float,
+                  rng: random.Random,
+                  game_ratings: npt.NDArray[np.float32] | None = None) -> int:
     """Process one game's events, write feature vectors into output_buf.
 
     raw_events: list of (datetime, event_type, values_str)
@@ -234,9 +256,9 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
     raw_events.sort(key=lambda x: x[0])
 
     # Find gamestart for time normalization, mapstart for map config
-    gamestart_dt = None
-    map_name = None
-    gold_on_left = None
+    gamestart_dt: datetime.datetime | None = None
+    map_name: str | None = None
+    gold_on_left: bool | None = None
 
     for dt, event_type, values_str in raw_events:
         if event_type == 'gamestart' and gamestart_dt is None:
@@ -246,7 +268,7 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             map_name = vals[0]
             gold_on_left = (vals[1] == 'True')
 
-    if gamestart_dt is None or map_name is None:
+    if gamestart_dt is None or map_name is None or gold_on_left is None:
         return write_idx
 
     # Check last event is victory
@@ -262,14 +284,14 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
     if map_lookup is None:
         return write_idx
 
-    berry_lookup = map_lookup['berry_lookup']
-    maiden_lookup = map_lookup['maiden_lookup']
-    map_idx = map_lookup['map_index']
-    total_berries = map_lookup['total_berries']
+    berry_lookup: dict[tuple[int, int], int] = map_lookup['berry_lookup']  # type: ignore[assignment]
+    maiden_lookup: dict[tuple[int, int], tuple[str, int]] = map_lookup['maiden_lookup']  # type: ignore[assignment]
+    map_idx: int = map_lookup['map_index']  # type: ignore[assignment]
+    total_berries: int = map_lookup['total_berries']  # type: ignore[assignment]
 
     # Initialize game state as local variables
     # w[team][worker_idx] = [is_bot, has_food, has_speed, has_wings]
-    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
+    w: list[list[list[bool]]] = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
     eggs = [2, 2]
     food_dep = [[False] * 12, [False] * 12]
     food_count = [0, 0]
@@ -289,7 +311,7 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
         rel_ts = (dt - gamestart_dt).total_seconds()
 
         # Pre-split values once per event
-        vals = values_str[1:-1].split(',') if event_type not in _NO_VALS_EVENTS else None
+        ev_vals: list[str] = values_str[1:-1].split(',') if event_type not in _NO_VALS_EVENTS else []
 
         # Vectorize BEFORE applying this event
         if rel_ts > 5.0 and (no_drop or rng.random() > drop_prob):
@@ -303,21 +325,21 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
 
         # Apply state mutation
         if event_type == 'spawn':
-            pid = int(vals[0])
-            is_bot = vals[1] == 'True'
+            pid = int(ev_vals[0])
+            is_bot = ev_vals[1] == 'True'
             team = pid % 2
             widx = (pid - 3) // 2
             w[team][widx][0] = is_bot
 
         elif event_type == 'carryFood':
-            pid = int(vals[0])
+            pid = int(ev_vals[0])
             team = pid % 2
             widx = (pid - 3) // 2
             w[team][widx][1] = True
 
         elif event_type == 'berryDeposit':
-            hole_x, hole_y = int(vals[0]), int(vals[1])
-            pid = int(vals[2])
+            hole_x, hole_y = int(ev_vals[0]), int(ev_vals[1])
+            pid = int(ev_vals[2])
             team = pid % 2
             widx = (pid - 3) // 2
             w[team][widx][1] = False
@@ -328,9 +350,9 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             berries_avail -= 1
 
         elif event_type == 'berryKickIn':
-            hole_x, hole_y = int(vals[0]), int(vals[1])
-            pid = int(vals[2])
-            own_team = vals[3] == 'True'
+            hole_x, hole_y = int(ev_vals[0]), int(ev_vals[1])
+            pid = int(ev_vals[2])
+            own_team = ev_vals[3] == 'True'
             team = pid % 2
             if not own_team:
                 team = 1 - team
@@ -341,14 +363,14 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             berries_avail -= 1
 
         elif event_type == 'blessMaiden':
-            mx, my = int(vals[0]), int(vals[1])
-            color = 1 if vals[2] == 'Blue' else -1
+            mx, my = int(ev_vals[0]), int(ev_vals[1])
+            color = 1 if ev_vals[2] == 'Blue' else -1
             _, midx = maiden_lookup[(mx, my)]
             maiden_states[midx] = color
 
         elif event_type == 'useMaiden':
-            mtype = vals[2]
-            pid = int(vals[3])
+            mtype = ev_vals[2]
+            pid = int(ev_vals[3])
             team = pid % 2
             widx = (pid - 3) // 2
             if mtype == 'maiden_speed':
@@ -358,8 +380,8 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             w[team][widx][1] = False
 
         elif event_type == 'playerKill':
-            killed_pid = int(vals[3])
-            killed_cat = vals[4]
+            killed_pid = int(ev_vals[3])
+            killed_cat = ev_vals[4]
             team = killed_pid % 2
             if killed_cat == 'Queen':
                 eggs[team] -= 1
@@ -370,8 +392,8 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
                 w[team][widx][3] = False
 
         elif event_type == 'getOnSnail':
-            sx = int(vals[0])
-            rider_pid = int(vals[2])
+            sx = int(ev_vals[0])
+            rider_pid = int(ev_vals[2])
             snail_x = float(sx)
             snail_last_ts = rel_ts
             rider_team = rider_pid % 2
@@ -381,8 +403,8 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             snail_vel = base_speed * _snail_mult(gold_on_left, rider_team)
 
         elif event_type == 'snailEat':
-            sx = int(vals[0])
-            rider_pid = int(vals[2])
+            sx = int(ev_vals[0])
+            rider_pid = int(ev_vals[2])
             snail_x = float(sx)
             snail_last_ts = rel_ts
             rider_team = rider_pid % 2
@@ -392,12 +414,12 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
             snail_vel = base_speed * _snail_mult(gold_on_left, rider_team)
 
         elif event_type == 'getOffSnail':
-            snail_x = float(int(vals[0]))
+            snail_x = float(int(ev_vals[0]))
             snail_last_ts = rel_ts
             snail_vel = 0.0
 
         elif event_type == 'snailEscape':
-            snail_x = float(int(vals[0]))
+            snail_x = float(int(ev_vals[0]))
             snail_last_ts = rel_ts
             snail_vel = 0.0
 
@@ -408,8 +430,10 @@ def _process_game(raw_events, output_buf, label_buf, timestamp_buf, write_idx,
 
 # --- Main entry point ---
 
-def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None,
-                     max_games=None):
+def fast_materialize(csv_path: str,
+                     drop_state_probability: float = 0.0,
+                     ratings_by_game: dict[int, npt.NDArray[np.float32]] | None = None,
+                     max_games: int | None = None) -> MaterializeResult:
     """Fast path: CSV events -> (feature_matrix, labels, game_ids, timestamps).
 
     Args:
@@ -427,8 +451,8 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None,
     num_features = NUM_FEATURES_WITH_RATINGS if ratings_by_game is not None else NUM_FEATURES
 
     # Phase 1: Read all CSV rows, group by game_id
-    games = {}
-    game_order = []
+    games: dict[int, list[tuple[datetime.datetime, str, str]]] = {}
+    game_order: list[int] = []
 
     for filename in sorted(glob.glob(csv_path)):
         opener = gzip.open if filename.endswith('.gz') else open
@@ -462,7 +486,7 @@ def fast_materialize(csv_path, drop_state_probability=0.0, ratings_by_game=None,
 
     for game_id in game_order:
         raw_events = games[game_id]
-        game_ratings = None
+        game_ratings: npt.NDArray[np.float32] | None = None
         if ratings_by_game is not None:
             game_ratings = ratings_by_game.get(game_id)
         start_idx = write_idx

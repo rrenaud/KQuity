@@ -1,9 +1,11 @@
 """Tests for codec_materialize: binary materialization pipeline."""
 
+import datetime
 import os
 import random
 import tempfile
 import unittest
+from typing import ClassVar
 
 import numpy as np
 
@@ -28,32 +30,33 @@ from tests.test_event_codec import _read_benchmark_games
 class TestSingleGameMatchesFastPath(unittest.TestCase):
     """Per-game binary materialization matches _process_game."""
 
+    games: ClassVar[dict[int, list[tuple[datetime.datetime, str, str]]]]
+    game_order: ClassVar[list[int]]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.games, cls.game_order = _read_benchmark_games()
 
-    def test_single_game_matches_fast_path(self):
+    def test_single_game_matches_fast_path(self) -> None:
         total_matched = 0
         total_games = 0
         max_snail_diff = 0.0
 
         for game_id in self.game_order:
-            raw_events = [list(e) for e in self.games[game_id]]
+            game_events = self.games[game_id]
 
             # Fast path reference (drop_prob=0)
-            ref_buf = np.empty((len(raw_events), NUM_FEATURES), dtype=np.float32)
-            ref_labels = np.empty(len(raw_events), dtype=np.int8)
-            ref_ts = np.empty(len(raw_events), dtype=np.float32)
+            ref_buf = np.empty((len(game_events), NUM_FEATURES), dtype=np.float32)
+            ref_labels = np.empty(len(game_events), dtype=np.int8)
+            ref_ts = np.empty(len(game_events), dtype=np.float32)
             rng = random.Random(42)
-            ref_events = [tuple(e) for e in raw_events]
-            ref_idx = _process_game(ref_events, ref_buf, ref_labels, ref_ts, 0, 0.0, rng)
+            ref_idx = _process_game(list(game_events), ref_buf, ref_labels, ref_ts, 0, 0.0, rng)
             if ref_idx == 0:
                 continue
             ref_features = ref_buf[:ref_idx]
 
             # Binary codec path via materialize_entries
-            codec_events = [tuple(e) for e in raw_events]
-            encoded = encode_game(codec_events)
+            encoded = encode_game(list(game_events))
             if encoded is None:
                 continue
 
@@ -101,7 +104,7 @@ class TestSingleGameMatchesFastPath(unittest.TestCase):
 class TestShardRoundTrip(unittest.TestCase):
     """Encode benchmark CSVs -> shards -> materialize matches fast_materialize."""
 
-    def test_shard_round_trip(self):
+    def test_shard_round_trip(self) -> None:
         test_dir = os.path.dirname(__file__)
         csv_glob = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
@@ -124,7 +127,7 @@ class TestShardRoundTrip(unittest.TestCase):
 class TestParallelMatchesSequential(unittest.TestCase):
     """Parallel and sequential binary paths produce identical results."""
 
-    def test_parallel_matches_sequential(self):
+    def test_parallel_matches_sequential(self) -> None:
         test_dir = os.path.dirname(__file__)
         csv_glob = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
@@ -148,7 +151,7 @@ class TestParallelMatchesSequential(unittest.TestCase):
 class TestReshardPreservesAllGames(unittest.TestCase):
     """Resharding preserves all game IDs and payloads."""
 
-    def test_reshard_preserves_all_games(self):
+    def test_reshard_preserves_all_games(self) -> None:
         test_dir = os.path.dirname(__file__)
         csv_glob = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
 
@@ -168,7 +171,7 @@ class TestReshardPreservesAllGames(unittest.TestCase):
             self.assertGreater(len(shard_paths), 0)
 
             # Read back all shards
-            resharded = {}
+            resharded: dict[int, bytes] = {}
             for path in shard_paths:
                 for game_id, data in read_packed_games(path):
                     self.assertNotIn(game_id, resharded,

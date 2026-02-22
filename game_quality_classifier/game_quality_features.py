@@ -27,17 +27,17 @@ from preprocess import (
 from constants import PlayerCategory, Map, VictoryCondition, Team, ContestableState
 import map_structure
 
-GAMEPLAY_EVENT_TYPES = (
+GAMEPLAY_EVENT_TYPES: tuple[type, ...] = (
     PlayerKillEvent, CarryFoodEvent, BerryDepositEvent, BerryKickInEvent,
     BlessMaidenEvent, UseMaidenEvent, GetOnSnailEvent, SnailEatEvent,
     GetOffSnailEvent, SnailEscapeEvent,
 )
 
-ALL_PIDS = range(1, 11)     # PIDs 1-10: all cabinet positions
-WORKER_PIDS = range(3, 11)  # PIDs 3-10 are workers; 1-2 are queens
+ALL_PIDS: range = range(1, 11)     # PIDs 1-10: all cabinet positions
+WORKER_PIDS: range = range(3, 11)  # PIDs 3-10 are workers; 1-2 are queens
 
 
-def _best_gate_triple_window(gate_bless_times):
+def _best_gate_triple_window(gate_bless_times: defaultdict[int, list[float]]) -> float:
     """Find minimum time window covering a bless at 3 different maidens.
 
     gate_bless_times: dict mapping maiden_index -> [timestamps]
@@ -67,7 +67,7 @@ def _best_gate_triple_window(gate_bless_times):
     return best
 
 
-def compute_quality_features(csv_path):
+def compute_quality_features(csv_path: str) -> pd.DataFrame:
     """Compute per-game quality features from a CSV event stream.
 
     Args:
@@ -136,7 +136,7 @@ def compute_quality_features(csv_path):
         first_get_off_snail_t = None
         gameplay_event_count = 0
 
-        player_event_counts = defaultdict(int)
+        player_event_counts: defaultdict[int, int] = defaultdict(int)
         active_pids = set()
         worker_first_objective_t = {}  # pid -> timestamp
         first_event_by_pid = {}  # pid -> timestamp of first gameplay event
@@ -146,7 +146,7 @@ def compute_quality_features(csv_path):
         bless_timestamps = []          # all BlessMaiden timestamps (for Nth bless)
 
         # Gate triple tracking: team -> maiden_index -> [timestamps]
-        gate_bless_times = {
+        gate_bless_times: dict[Team, defaultdict[int, list[float]]] = {
             Team.BLUE: defaultdict(list),
             Team.GOLD: defaultdict(list),
         }
@@ -317,7 +317,7 @@ def compute_quality_features(csv_path):
         time_to_6_carry = carry_timestamps[5] if len(carry_timestamps) >= 6 else duration
 
         # Time to Nth maiden bless (fill with duration if fewer than N blesses)
-        def _time_to_nth(timestamps, n):
+        def _time_to_nth(timestamps: list[float], n: int) -> float:
             return timestamps[n - 1] if len(timestamps) >= n else duration
         time_to_3_bless = _time_to_nth(bless_timestamps, 3)
         time_to_5_bless = _time_to_nth(bless_timestamps, 5)
@@ -405,7 +405,7 @@ def compute_quality_features(csv_path):
 
 
 # Feature columns (excludes game_id)
-FEATURE_COLUMNS = [
+FEATURE_COLUMNS: list[str] = [
     # Basic (10)
     'duration_seconds', 'total_event_count', 'bot_count',
     'vc_military', 'vc_economic', 'vc_snail',

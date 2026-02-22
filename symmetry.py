@@ -9,9 +9,8 @@ This module provides two approaches:
 2. swap_event_stream(events) - event-level swap (for cross-verification)
 """
 
-from typing import List
-
 import numpy as np
+import numpy.typing as npt
 
 from preprocess import GameEvent
 
@@ -27,10 +26,10 @@ from preprocess import GameEvent
 #   [51]     berries_available (team-neutral)
 
 # Permutation: swap blue[0:20] <-> gold[20:40], keep rest in place
-SWAP_PERM = list(range(20, 40)) + list(range(0, 20)) + list(range(40, 52))
+SWAP_PERM: list[int] = list(range(20, 40)) + list(range(0, 20)) + list(range(40, 52))
 
 # Sign flips: negate maiden control and snail pos/vel
-SWAP_SIGN = np.ones(52, dtype=np.float32)
+SWAP_SIGN: npt.NDArray[np.float32] = np.ones(52, dtype=np.float32)
 SWAP_SIGN[40:45] = -1.0  # Maiden control: Blue(+1) <-> Gold(-1)
 SWAP_SIGN[49:51] = -1.0  # Snail pos & vel: flip perspective
 
@@ -45,14 +44,15 @@ SWAP_SIGN[49:51] = -1.0  # Snail pos & vel: flip perspective
 #   [60]     snail_velocity
 #   [61]     berries_available
 
-SWAP_PERM_62 = list(range(25, 50)) + list(range(0, 25)) + list(range(50, 62))
+SWAP_PERM_62: list[int] = list(range(25, 50)) + list(range(0, 25)) + list(range(50, 62))
 
-SWAP_SIGN_62 = np.ones(62, dtype=np.float32)
+SWAP_SIGN_62: npt.NDArray[np.float32] = np.ones(62, dtype=np.float32)
 SWAP_SIGN_62[50:55] = -1.0  # Maiden control
 SWAP_SIGN_62[59:61] = -1.0  # Snail pos & vel
 
 
-def swap_teams(X, y):
+def swap_teams(X: npt.NDArray[np.float32],
+               y: npt.NDArray[np.int8]) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.int8]]:
     """Swap Blue/Gold perspective on materialized feature matrices.
 
     Args:
@@ -67,7 +67,7 @@ def swap_teams(X, y):
     return X[:, SWAP_PERM] * SWAP_SIGN, 1 - y
 
 
-def swap_event_stream(events: List[GameEvent]) -> List[GameEvent]:
+def swap_event_stream(events: list[GameEvent]) -> list[GameEvent]:
     """Swap Blue/Gold teams on a list of GameEvent objects.
 
     Calls each event's swap_teams() method, which is implemented

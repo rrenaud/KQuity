@@ -4,23 +4,27 @@ Provides per-shard, sequential, and parallel materialization from the
 binary-encoded game format produced by event_codec.
 """
 
+import collections.abc
 import glob
 import math
 import multiprocessing
 
 import numpy as np
+import numpy.typing as npt
 
 from event_codec import materialize_entries, read_packed_games
 from fast_materialize import NUM_FEATURES
+from _types import MaterializeResult
 
 
-def _materialize_shard(shard_path, drop_prob, max_games=None):
+def _materialize_shard(shard_path: str, drop_prob: float,
+                       max_games: int | None = None) -> MaterializeResult:
     """Materialize all games in one binary shard.
 
     Returns (features, labels, game_ids, timestamps) as numpy arrays,
     or empty arrays if no valid states.
     """
-    def _iter_entries():
+    def _iter_entries() -> collections.abc.Iterator[tuple[int, bytes]]:
         games_processed = 0
         for game_id, encoded_bytes in read_packed_games(shard_path):
             if max_games is not None and games_processed >= max_games:
@@ -31,7 +35,8 @@ def _materialize_shard(shard_path, drop_prob, max_games=None):
     return materialize_entries(_iter_entries(), drop_prob)
 
 
-def _resolve_shards(shard_glob, max_games):
+def _resolve_shards(shard_glob: str,
+                    max_games: int | None) -> tuple[list[str], int | None]:
     """Resolve shard paths and compute per-shard game limit.
 
     Returns (shard_paths, per_shard) where per_shard is None if no limit.
@@ -41,13 +46,13 @@ def _resolve_shards(shard_glob, max_games):
     shard_paths = sorted(glob.glob(shard_glob))
     if not shard_paths:
         raise ValueError(f'No shards found matching {shard_glob}')
-    per_shard = None
+    per_shard: int | None = None
     if max_games is not None:
         per_shard = max(1, math.ceil(max_games / len(shard_paths)))
     return shard_paths, per_shard
 
 
-def _collect_results(results):
+def _collect_results(results: list[MaterializeResult]) -> MaterializeResult:
     """Concatenate per-shard results, handling the all-empty case."""
     non_empty = [r for r in results if r[0].shape[0] > 0]
     if not non_empty:
@@ -62,8 +67,9 @@ def _collect_results(results):
     return features, labels, game_ids, timestamps
 
 
-def parallel_materialize_bins(shard_glob, drop_prob=0.0, num_workers=4,
-                              max_games=None):
+def parallel_materialize_bins(shard_glob: str, drop_prob: float = 0.0,
+                              num_workers: int = 4,
+                              max_games: int | None = None) -> MaterializeResult:
     """Materialize binary shards in parallel using multiprocessing.
 
     Args:
@@ -83,7 +89,8 @@ def parallel_materialize_bins(shard_glob, drop_prob=0.0, num_workers=4,
     return _collect_results(results)
 
 
-def sequential_materialize_bins(shard_glob, drop_prob=0.0, max_games=None):
+def sequential_materialize_bins(shard_glob: str, drop_prob: float = 0.0,
+                                max_games: int | None = None) -> MaterializeResult:
     """Materialize binary shards sequentially (single-process baseline).
 
     Args:
@@ -96,7 +103,7 @@ def sequential_materialize_bins(shard_glob, drop_prob=0.0, max_games=None):
     """
     shard_paths, per_shard = _resolve_shards(shard_glob, max_games)
 
-    results = []
+    results: list[MaterializeResult] = []
     for path in shard_paths:
         results.append(_materialize_shard(path, drop_prob, per_shard))
 

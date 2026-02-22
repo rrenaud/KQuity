@@ -9,8 +9,7 @@ tournament games where teams are likely playing at their best.
 import csv
 import gzip
 import os
-from collections import defaultdict
-from typing import Set, Dict, List
+
 import pandas as pd
 
 from tournament_clustering import load_clustering, TournamentMetadata
@@ -18,10 +17,10 @@ from tournament_clustering import load_clustering, TournamentMetadata
 
 def get_late_tournament_game_ids(
     games_df: pd.DataFrame,
-    tournaments: List[TournamentMetadata],
+    tournaments: list[TournamentMetadata],
     min_teams: int = 15,
     last_n_matches: int = 5,
-) -> Set[int]:
+) -> set[int]:
     """
     Get game IDs from the last N matches of tournaments with >min_teams teams.
 
@@ -35,11 +34,11 @@ def get_late_tournament_game_ids(
         Set of game IDs for late tournament games
     """
     # Filter to tournaments with enough teams
-    qualifying_tournaments = [t for t in tournaments if t.num_teams > min_teams]
+    qualifying_tournaments: list[TournamentMetadata] = [t for t in tournaments if t.num_teams > min_teams]
     print(f"Tournaments with >{min_teams} teams: {len(qualifying_tournaments)}")
 
     # For each qualifying tournament, find the last N matches by time
-    late_game_ids = set()
+    late_game_ids: set[int] = set()
 
     for tournament in qualifying_tournaments:
         # Get all games for this tournament's matches
@@ -75,8 +74,8 @@ def get_late_tournament_game_ids(
 def extract_game_events(
     input_dir: str,
     output_path: str,
-    game_ids: Set[int],
-):
+    game_ids: set[int],
+) -> tuple[int, int]:
     """
     Extract game events for specific game IDs from partitioned files.
 
@@ -93,12 +92,12 @@ def extract_game_events(
     ])
     print(f"Found {len(partition_files)} partition files")
 
-    total_events = 0
-    games_found = set()
-    fieldnames = None
+    total_events: int = 0
+    games_found: set[int] = set()
+    fieldnames: list[str] | None = None
 
     with gzip.open(output_path, 'wt', newline='') as out_f:
-        writer = None
+        writer: csv.DictWriter[str] | None = None
 
         for partition_file in partition_files:
             partition_path = os.path.join(input_dir, partition_file)
@@ -108,13 +107,15 @@ def extract_game_events(
                 reader = csv.DictReader(in_f)
 
                 if fieldnames is None:
-                    fieldnames = reader.fieldnames
+                    assert reader.fieldnames is not None, 'CSV must have headers'
+                    fieldnames = list(reader.fieldnames)
                     writer = csv.DictWriter(out_f, fieldnames=fieldnames)
                     writer.writeheader()
 
                 for row in reader:
                     game_id = int(row['game_id'])
                     if game_id in game_ids:
+                        assert writer is not None
                         writer.writerow(row)
                         total_events += 1
                         games_found.add(game_id)
@@ -127,7 +128,7 @@ def extract_game_events(
     return len(games_found), total_events
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(

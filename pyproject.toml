@@ -1,0 +1,30 @@
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_return_any = true
+no_implicit_optional = true
+exclude = [
+    "^late_tournament_games/late_tournament_games/",
+    "^model_experiments/",
+    "^quality_filtered/",
+    "^logged_in_games/",
+    "^unfiltered_partitioned/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "lightgbm",
+    "lightgbm.*",
+    "sklearn",
+    "sklearn.*",
+    "openskill",
+    "openskill.*",
+    "dateutil",
+    "dateutil.*",
+    "pandas",
+    "pandas.*",
+    "matplotlib",
+    "matplotlib.*",
+]
+ignore_missing_imports = true

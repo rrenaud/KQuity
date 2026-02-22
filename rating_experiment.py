@@ -11,50 +11,69 @@ Splits by game chronological order, trains both models, compares on test set.
 import pickle
 import resource
 import time
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
+import numpy.typing as npt
 import sklearn.metrics
 
+from _types import GameIdArray, GameStatesMatrix, OutcomesLabelVector
 from fast_materialize import fast_materialize
 
 
-def load_ratings(path='ratings.pkl'):
+def load_ratings(path: str = 'ratings.pkl') -> dict[int, npt.NDArray[np.float32]]:
     with open(path, 'rb') as f:
-        return pickle.load(f)
+        result: dict[int, npt.NDArray[np.float32]] = pickle.load(f)
+        return result
 
 
-def chronological_split(game_ids, fraction=0.5):
+def chronological_split(
+    game_ids: GameIdArray, fraction: float = 0.5,
+) -> tuple[set[np.int64], set[np.int64]]:
     """Split game_ids into train/test by chronological order (game_id proxy)."""
     unique_ids = np.unique(game_ids)
     unique_ids.sort()
-    split_idx = int(len(unique_ids) * fraction)
-    train_ids = set(unique_ids[:split_idx])
-    test_ids = set(unique_ids[split_idx:])
+    split_idx: int = int(len(unique_ids) * fraction)
+    train_ids: set[np.int64] = set(unique_ids[:split_idx])
+    test_ids: set[np.int64] = set(unique_ids[split_idx:])
     return train_ids, test_ids
 
 
-def filter_by_game_ids(states, labels, game_ids, keep_ids):
+def filter_by_game_ids(
+    states: GameStatesMatrix,
+    labels: OutcomesLabelVector,
+    game_ids: GameIdArray,
+    keep_ids: set[np.int64],
+) -> tuple[GameStatesMatrix, OutcomesLabelVector]:
     mask = np.array([gid in keep_ids for gid in game_ids])
     return states[mask], labels[mask]
 
 
-def train_and_evaluate(train_X, train_y, test_X, test_y, name, num_leaves=200, num_trees=200):
-    param = {
+def train_and_evaluate(
+    train_X: GameStatesMatrix,
+    train_y: OutcomesLabelVector,
+    test_X: GameStatesMatrix,
+    test_y: OutcomesLabelVector,
+    name: str,
+    num_leaves: int = 200,
+    num_trees: int = 200,
+) -> dict[str, float]:
+    param: dict[str, Any] = {
         'num_leaves': num_leaves,
         'objective': 'binary',
         'metric': 'binary_logloss',
         'boosting': 'gbdt',
         'verbose': -1,
     }
-    train_data = lgb.Dataset(train_X, train_y)
-    start = time.time()
-    model = lgb.train(param, train_data, num_boost_round=num_trees)
-    train_time = time.time() - start
+    train_data: lgb.Dataset = lgb.Dataset(train_X, train_y)
+    start: float = time.time()
+    model: lgb.Booster = lgb.train(param, train_data, num_boost_round=num_trees)
+    train_time: float = time.time() - start
 
-    predictions = model.predict(test_X)
-    log_loss = sklearn.metrics.log_loss(test_y, predictions)
-    accuracy = sklearn.metrics.accuracy_score(test_y, predictions > 0.5)
+    predictions: npt.NDArray[np.floating[Any]] = model.predict(test_X)  # type: ignore[assignment]
+    log_loss: float = sklearn.metrics.log_loss(test_y, predictions)
+    accuracy: float = sklearn.metrics.accuracy_score(test_y, predictions > 0.5)
 
     print(f'\n{name}:')
     print(f'  Train time: {train_time:.1f}s')
@@ -64,7 +83,7 @@ def train_and_evaluate(train_X, train_y, test_X, test_y, name, num_leaves=200, n
     return {'log_loss': log_loss, 'accuracy': accuracy, 'train_time': train_time}
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description='A/B experiment: ratings features')
     parser.add_argument('--ratings', type=str, default='ratings.pkl',

@@ -10,11 +10,12 @@ import csv
 import gzip
 import os
 import time
+from typing import Any
 
 
-def compute_login_counts(usergame_csv_path):
+def compute_login_counts(usergame_csv_path: str) -> dict[int, int]:
     """Count non-empty user_id entries per game_id in usergame.csv."""
-    counter = collections.Counter()
+    counter: collections.Counter[int] = collections.Counter()
     with open(usergame_csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -30,17 +31,17 @@ GAMES_PER_PARTITION = 1000
 GAME_ID_COL = 4  # game_id is column index 4 in gameevents CSV
 
 
-def build_partition_assignments():
+def build_partition_assignments() -> tuple[dict[int, int], int]:
     """Build game_id -> output_partition mapping.
 
     Games with login_count >= 1, sorted by (login_count DESC, start_time DESC).
     """
     print("Computing login counts...")
-    login_counts = compute_login_counts(USERGAME_CSV)
+    login_counts: dict[int, int] = compute_login_counts(USERGAME_CSV)
     print(f"  Games with logins: {len(login_counts):,}")
 
     print("Reading game start times...")
-    game_start_times = {}
+    game_start_times: dict[int, str] = {}
     with open(GAME_CSV) as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -51,17 +52,17 @@ def build_partition_assignments():
     print(f"  Games with logins AND in game.csv: {len(game_start_times):,}")
 
     # Sort by (login_count DESC, start_time DESC)
-    sorted_games = sorted(
+    sorted_games: list[int] = sorted(
         game_start_times.keys(),
         key=lambda gid: (login_counts[gid], game_start_times[gid]),
         reverse=True,
     )
 
-    game_to_partition = {
+    game_to_partition: dict[int, int] = {
         gid: idx // GAMES_PER_PARTITION
         for idx, gid in enumerate(sorted_games)
     }
-    num_partitions = (len(sorted_games) + GAMES_PER_PARTITION - 1) // GAMES_PER_PARTITION
+    num_partitions: int = (len(sorted_games) + GAMES_PER_PARTITION - 1) // GAMES_PER_PARTITION
     print(f"  Output partitions: {num_partitions}")
 
     # Show top games for verification
@@ -71,23 +72,23 @@ def build_partition_assignments():
     return game_to_partition, num_partitions
 
 
-def stream_and_repartition(game_to_partition):
+def stream_and_repartition(game_to_partition: dict[int, int]) -> None:
     """Stream source partitions and write events to output partitions."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    open_writers = {}  # partition_num -> (gzip_file, csv_writer)
-    header = None
-    games_written = set()
-    events_written = 0
+    open_writers: dict[int, tuple[gzip.GzipFile, Any]] = {}  # partition_num -> (gzip_file, csv_writer)
+    header: list[str] | None = None
+    games_written: set[int] = set()
+    events_written: int = 0
 
     # Find all source partition files
-    source_files = sorted(
+    source_files: list[str] = sorted(
         f for f in os.listdir(SOURCE_DIR)
         if f.startswith('gameevents_') and f.endswith('.csv.gz')
     )
     print(f"\nStreaming {len(source_files)} source partitions...")
 
-    t0 = time.time()
+    t0: float = time.time()
     for file_idx, filename in enumerate(source_files):
         filepath = os.path.join(SOURCE_DIR, filename)
 
@@ -98,8 +99,8 @@ def stream_and_repartition(game_to_partition):
                 header = file_header
 
             # Buffer events for one game at a time
-            current_game_id = None
-            current_buffer = []
+            current_game_id: int | None = None
+            current_buffer: list[list[str]] = []
 
             for row in reader:
                 game_id = int(row[GAME_ID_COL])
@@ -145,22 +146,28 @@ def stream_and_repartition(game_to_partition):
     print(f"  Output files: {len(os.listdir(OUTPUT_DIR))}")
 
 
-def _flush_game(game_id, buffer, game_to_partition, open_writers, header):
+def _flush_game(
+    game_id: int,
+    buffer: list[list[str]],
+    game_to_partition: dict[int, int],
+    open_writers: dict[int, tuple[gzip.GzipFile, Any]],
+    header: list[str],
+) -> None:
     """Write buffered events for a game to its output partition."""
-    part_num = game_to_partition[game_id]
+    part_num: int = game_to_partition[game_id]
 
     if part_num not in open_writers:
         outpath = os.path.join(OUTPUT_DIR, f'gameevents_{part_num:03d}.csv.gz')
         gz_file = gzip.open(outpath, 'wt')
         writer = csv.writer(gz_file)
         writer.writerow(header)
-        open_writers[part_num] = (gz_file, writer)
+        open_writers[part_num] = (gz_file, writer)  # type: ignore[assignment]
 
     _, writer = open_writers[part_num]
     writer.writerows(buffer)
 
 
-def main():
+def main() -> None:
     print("=== Phase 1: Build partition assignments ===")
     game_to_partition, num_partitions = build_partition_assignments()
 
