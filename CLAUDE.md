@@ -6,6 +6,10 @@ Two classifiers:
 - **Win-probability model**: Partial game state → P(gold wins). Uses 52 in-game features (berry counts, snail position, kills, etc.) extracted at each event during a game.
 - **Game quality classifier**: Full game event stream → is this a competitive game? Uses 69 hand-crafted heuristic features over the entire game. Trained on logged-in games as positives, unfiltered games as negatives. Tournament games anchor the threshold. Used to filter training data for the win-probability model.
 
+## Preferred model
+
+`current_preferred_model.mdl` (symlink) → `model_experiments/combined_li_qf/qf_200k_symaug_100l_100t.mdl`. This is the combined logged-in + quality-filtered model (200k QF games, symmetry-augmented, 100 leaves / 100 trees). Use this for export_predictions and any inference tasks.
+
 ## Data
 
 Prefer the compact binary `.bin` files over raw `.csv.gz` — they load faster and use `event_codec.py` for encoding/decoding.
@@ -45,6 +49,18 @@ Use `fill_between` for variance shading (mean +/- std band) on scaling plots, no
 ## VS Code
 
 When opening notebook files in VS Code, pass the repo root as the workspace directory so that relative imports and data paths resolve correctly: `code <repo-root>/ <file>`.
+
+## Git worktrees
+
+When creating a new git worktree, symlink the large data directories that are not tracked in git:
+
+```
+ln -s /home/rrenaud/KQuity/unfiltered_partitioned worktree_path/unfiltered_partitioned
+ln -s /home/rrenaud/KQuity/quality_filtered worktree_path/quality_filtered
+ln -s /home/rrenaud/KQuity/logged_in_games worktree_path/logged_in_games
+ln -s /home/rrenaud/KQuity/late_tournament_games worktree_path/late_tournament_games
+ln -s /home/rrenaud/KQuity/model_experiments worktree_path/model_experiments
+```
 
 ## Running tests
 
