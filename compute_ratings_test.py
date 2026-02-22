@@ -10,7 +10,9 @@ import pytest
 from compute_ratings import compute_ratings, load_usergame, load_game_cabinets
 
 
-def _make_outcomes(games):
+def _make_outcomes(
+    games: list[tuple[int, str, str]],
+) -> dict[int, tuple[datetime.datetime, str]]:
     """Helper: build outcomes dict from list of (game_id, timestamp_str, winner).
 
     Returns {game_id: (datetime, winner_str)}.
@@ -24,7 +26,7 @@ def _make_outcomes(games):
 class TestChronologicalCorrectness:
     """Ratings for game N must use only games before N."""
 
-    def test_ratings_reflect_only_prior_games(self):
+    def test_ratings_reflect_only_prior_games(self) -> None:
         # Three games in sequence. Player 100 wins game 1 and 2, plays game 3.
         # Their mu at game 3 should be > default 25.0.
         usergame = {
@@ -54,7 +56,7 @@ class TestChronologicalCorrectness:
 class TestWinningTeamRatingsIncrease:
     """Repeated wins should increase team ratings."""
 
-    def test_repeated_wins_increase_mu(self):
+    def test_repeated_wins_increase_mu(self) -> None:
         # Same two players, player 100 (Blue) wins every game
         usergame = {}
         outcomes_list = []
@@ -78,7 +80,7 @@ class TestWinningTeamRatingsIncrease:
 class TestCabinetAverageFallback:
     """Anonymous/unknown players should get cabinet average mu."""
 
-    def test_anonymous_gets_cabinet_average(self):
+    def test_anonymous_gets_cabinet_average(self) -> None:
         usergame = {
             1: {2: (100, 'Alice'), 1: (200, 'Bob')},
             2: {2: (100, 'Alice'), 1: (201, 'Carol')},
@@ -97,7 +99,7 @@ class TestCabinetAverageFallback:
         alice_mu = result.player_ratings[(100, 'queen')].mu
         assert alice_mu > 25.0
 
-    def test_no_cabinet_history_falls_back_to_default(self):
+    def test_no_cabinet_history_falls_back_to_default(self) -> None:
         # Game at a venue with no prior history, anonymous player
         usergame = {
             1: {2: (100, 'Alice')},  # only one logged-in player
@@ -112,7 +114,7 @@ class TestCabinetAverageFallback:
         # Anonymous queen (pos 1) should get default mu (25.0)
         assert result.ratings_by_game[1][0] == pytest.approx(25.0)
 
-    def test_cabinet_avg_diverges_with_asymmetric_participation(self):
+    def test_cabinet_avg_diverges_with_asymmetric_participation(self) -> None:
         # Strong player (Alice) plays many games at venue_a, always winning.
         # Different opponents each time, who only play once.
         # Cabinet average skews because Alice (high mu) contributes many entries.
@@ -143,7 +145,7 @@ class TestCabinetAverageFallback:
 class TestFirstTimePlayerCabinetAverage:
     """A first-time player at a cabinet with history gets cabinet average."""
 
-    def test_first_timer_gets_cabinet_avg(self):
+    def test_first_timer_gets_cabinet_avg(self) -> None:
         usergame = {}
         outcomes_list = []
         for i in range(1, 6):
@@ -167,7 +169,7 @@ class TestFirstTimePlayerCabinetAverage:
 class TestDualRoleRatings:
     """Players get independent ratings for queen and drone roles."""
 
-    def test_queen_and_drone_ratings_are_independent(self):
+    def test_queen_and_drone_ratings_are_independent(self) -> None:
         # Player 100 plays queen in game 1 (wins), drone in game 2 (loses).
         # Queen rating should go up, drone rating should go down.
         usergame = {
@@ -190,7 +192,7 @@ class TestDualRoleRatings:
         # They should be different
         assert result.player_ratings[(100, 'queen')].mu != result.player_ratings[(100, 'drone')].mu
 
-    def test_queen_cabinet_avg_separate_from_drone(self):
+    def test_queen_cabinet_avg_separate_from_drone(self) -> None:
         # Build up cabinet history with a dominant queen.
         # Drone cabinet average should not be pulled up by queen stats.
         usergame = {}
@@ -231,7 +233,7 @@ class TestDualRoleRatings:
 class TestPickleRoundtrip:
     """Ratings dict should survive pickle save/load."""
 
-    def test_roundtrip(self):
+    def test_roundtrip(self) -> None:
         usergame = {
             1: {2: (100, 'Alice'), 1: (200, 'Bob')},
         }

@@ -28,9 +28,11 @@ import gzip
 import json
 import os
 import sys
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
+import numpy.typing as npt
 
 from fast_materialize import (
     NUM_FEATURES, SKIP_EVENTS, _NO_VALS_EVENTS,
@@ -40,28 +42,35 @@ from fast_materialize import (
 )
 
 
-def _vectorize_counterfactual(w, eggs, food_count, maiden_states,
-                              map_idx, snail_x, snail_vel, snail_last_ts,
-                              rel_ts, berries_avail, gold_sym):
+def _vectorize_counterfactual(
+    w: list[list[list[bool]]], eggs: list[int], food_count: list[int],
+    maiden_states: list[int], map_idx: int, snail_x: float,
+    snail_vel: float, snail_last_ts: float, rel_ts: float,
+    berries_avail: int, gold_sym: float,
+) -> list[float] | None:
     """Vectorize a counterfactual state, return feature list."""
-    buf = [None]
+    buf: list[list[float] | None] = [None]
     _vectorize_state(buf, 0, w, eggs, food_count, maiden_states,
                      map_idx, snail_x, snail_vel, snail_last_ts,
                      rel_ts, berries_avail, gold_sym)
     return buf[0]
 
 
-def _compute_counterfactuals(w, eggs, food_count, maiden_states,
-                             map_idx, snail_x, snail_vel, snail_last_ts,
-                             rel_ts, berries_avail, gold_sym):
+def _compute_counterfactuals(
+    w: list[list[list[bool]]], eggs: list[int], food_count: list[int],
+    maiden_states: list[int], map_idx: int, snail_x: float,
+    snail_vel: float, snail_last_ts: float, rel_ts: float,
+    berries_avail: int, gold_sym: float,
+) -> list[tuple[str, list[float] | None]]:
     """Compute counterfactual feature vectors for all possible events.
 
     Returns list of (event_name, feature_vector) tuples.
     Operates on deep copies of mutable state to avoid side effects.
     """
-    results = []
+    results: list[tuple[str, list[float] | None]] = []
 
-    def _vz(cw, ce, cfc, cms, csx):
+    def _vz(cw: list[list[list[bool]]], ce: list[int], cfc: list[int],
+            cms: list[int], csx: float) -> list[float] | None:
         return _vectorize_counterfactual(
             cw, ce, cfc, cms, map_idx, csx, snail_vel, snail_last_ts,
             rel_ts, berries_avail, gold_sym)
@@ -78,7 +87,7 @@ def _compute_counterfactuals(w, eggs, food_count, maiden_states,
         cfc = list(food_count)
         cfc[team] += 1
         cba = berries_avail - 1
-        buf = [None]
+        buf: list[list[float] | None] = [None]
         _vectorize_state(buf, 0, w, eggs, cfc, maiden_states,
                          map_idx, snail_x, snail_vel, snail_last_ts,
                          rel_ts, cba, gold_sym)
@@ -92,7 +101,6 @@ def _compute_counterfactuals(w, eggs, food_count, maiden_states,
         for has_speed, type_suffix in [(True, 'swd'),
                                        (False, 'vwd')]:
             # Find any matching worker
-            found = False
             for widx in range(4):
                 worker = w[team][widx]
                 if worker[3] and worker[2] == has_speed:  # has_wings and speed match
@@ -102,7 +110,6 @@ def _compute_counterfactuals(w, eggs, food_count, maiden_states,
                     cw[team][widx][3] = False  # has_wings
                     results.append((f'{team_prefix}{type_suffix}',
                                     _vz(cw, eggs, food_count, maiden_states, snail_x)))
-                    found = True
                     break
 
     # --- Warrior formations / maiden use (6) ---
@@ -165,16 +172,20 @@ def _compute_counterfactuals(w, eggs, food_count, maiden_states,
     return results
 
 
-def _process_game_predictions(raw_events, model, counterfactuals=False):
+def _process_game_predictions(
+    raw_events: list[tuple[datetime.datetime, str, str]],
+    model: lgb.Booster,
+    counterfactuals: bool = False,
+) -> tuple[list[dict[str, Any]], bool] | None:
     """Process one game's events, return (predictions, gold_on_left) tuple.
 
     Returns None if the game is invalid (no gamestart/mapstart).
     """
     raw_events.sort(key=lambda x: x[0])
 
-    gamestart_dt = None
-    map_name = None
-    gold_on_left = None
+    gamestart_dt: datetime.datetime | None = None
+    map_name: str | None = None
+    gold_on_left: bool | None = None
 
     for dt, event_type, values_str in raw_events:
         if event_type == 'gamestart' and gamestart_dt is None:
@@ -184,20 +195,20 @@ def _process_game_predictions(raw_events, model, counterfactuals=False):
             map_name = vals[0]
             gold_on_left = (vals[1] == 'True')
 
-    if gamestart_dt is None or map_name is None:
+    if gamestart_dt is None or map_name is None or gold_on_left is None:
         return None
 
     map_lookup = _MAP_LOOKUPS.get((map_name, gold_on_left))
     if map_lookup is None:
         return None
 
-    berry_lookup = map_lookup['berry_lookup']
-    maiden_lookup = map_lookup['maiden_lookup']
-    map_idx = map_lookup['map_index']
-    total_berries = map_lookup['total_berries']
+    berry_lookup: dict[tuple[int, int], int] = map_lookup['berry_lookup']  # type: ignore[assignment]
+    maiden_lookup: dict[tuple[int, int], tuple[str, int]] = map_lookup['maiden_lookup']  # type: ignore[assignment]
+    map_idx: int = map_lookup['map_index']  # type: ignore[assignment]
+    total_berries: int = map_lookup['total_berries']  # type: ignore[assignment]
 
     # Initialize game state
-    w = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
+    w: list[list[list[bool]]] = [[[False, False, False, False] for _ in range(4)] for _ in range(2)]
     eggs = [2, 2]
     food_dep = [[False] * 12, [False] * 12]
     food_count = [0, 0]
@@ -209,18 +220,18 @@ def _process_game_predictions(raw_events, model, counterfactuals=False):
     gold_sym = 1.0 if gold_on_left else -1.0
 
     # Collect feature vectors and timestamps
-    states = []
-    timestamps = []
+    states: list[list[float] | None] = []
+    timestamps: list[float] = []
     # For counterfactuals: list of (event_idx, event_name, feature_vec_or_list)
-    cf_entries = [] if counterfactuals else None
+    cf_entries: list[tuple[int, str, list[float] | None]] = [] if counterfactuals else []
 
     for dt, event_type, values_str in raw_events:
         rel_ts = (dt - gamestart_dt).total_seconds()
-        vals = values_str[1:-1].split(',') if event_type not in _NO_VALS_EVENTS else None
+        vals = values_str[1:-1].split(',') if event_type not in _NO_VALS_EVENTS else []
 
         # Vectorize BEFORE applying this event (same as fast_materialize)
         if rel_ts > 5.0:
-            buf = [None]
+            buf: list[list[float] | None] = [None]
             _vectorize_state(buf, 0, w, eggs, food_count, maiden_states,
                              map_idx, snail_x, snail_vel, snail_last_ts,
                              rel_ts, berries_avail, gold_sym)
@@ -342,7 +353,7 @@ def _process_game_predictions(raw_events, model, counterfactuals=False):
     all_vectors = list(states)
 
     # Track where each counterfactual's prediction lands in the combined array
-    cf_map = []
+    cf_map: list[tuple[int, str, int]] = []
     for event_idx, name, vec in cf_entries:
         start = len(all_vectors)
         all_vectors.append(vec)
@@ -353,28 +364,31 @@ def _process_game_predictions(raw_events, model, counterfactuals=False):
     baseline_preds = all_preds[:n_baselines]
 
     # Build per-event counterfactual dicts
-    cf_dicts = [{} for _ in range(n_baselines)]
+    cf_dicts: list[dict[str, float]] = [{} for _ in range(n_baselines)]
     for event_idx, name, start in cf_map:
         delta = float(all_preds[start] - baseline_preds[event_idx])
         if abs(delta) >= 0.001:  # skip negligible
             cf_dicts[event_idx][name] = round(delta, 4)
 
-    results = []
+    results: list[dict[str, Any]] = []
     for i, (t, p) in enumerate(zip(timestamps, baseline_preds)):
-        entry = {'t': round(t, 2), 'p': round(float(p), 4)}
+        entry: dict[str, Any] = {'t': round(t, 2), 'p': round(float(p), 4)}
         if cf_dicts[i]:
             entry['c'] = cf_dicts[i]
         results.append(entry)
     return results, gold_on_left
 
 
-def load_games_from_partitions(data_dir, target_game_ids):
+def load_games_from_partitions(
+    data_dir: str,
+    target_game_ids: set[int],
+) -> dict[int, list[tuple[datetime.datetime, str, str]]]:
     """Scan partition files and load events for target game IDs.
 
     Returns dict {game_id: [(datetime, event_type, values_str), ...]}.
     """
-    games = {}
-    found_ids = set()
+    games: dict[int, list[tuple[datetime.datetime, str, str]]] = {}
+    found_ids: set[int] = set()
     target_set = set(target_game_ids)
 
     files = sorted(glob.glob(os.path.join(data_dir, 'gameevents_*.csv.gz')))
@@ -412,7 +426,7 @@ def load_games_from_partitions(data_dir, target_game_ids):
     return games
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Export model predictions for specified games')
     parser.add_argument('--model', required=True,
@@ -434,7 +448,7 @@ def main():
     args = parser.parse_args()
 
     # Collect target game IDs
-    target_game_ids = set()
+    target_game_ids: set[int] = set()
     if args.chapters:
         with open(args.chapters) as f:
             chapter_data = json.load(f)
@@ -457,8 +471,8 @@ def main():
     print(f"Found {len(games)} games")
 
     # Generate predictions
-    results = {}
-    gold_on_left_map = {}
+    results: dict[str, list[dict[str, Any]]] = {}
+    gold_on_left_map: dict[str, bool] = {}
     for game_id, events in sorted(games.items()):
         result = _process_game_predictions(events, model,
                                            counterfactuals=args.counterfactuals)
@@ -471,7 +485,7 @@ def main():
 
     # Build output
     model_name = args.name or os.path.splitext(os.path.basename(args.model))[0]
-    output = {
+    output: dict[str, object] = {
         'name': model_name,
         'model_path': args.model,
         'exported_at': datetime.datetime.now().isoformat(),

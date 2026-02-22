@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import time
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -38,7 +39,7 @@ GAMES_PER_PARTITION = 1000
 GAME_ID_COL = 4  # game_id is column index 4 in gameevents CSV
 
 
-def _load_model():
+def _load_model() -> lgb.Booster:
     """Load trained model from disk."""
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(
@@ -47,17 +48,18 @@ def _load_model():
     return lgb.Booster(model_file=MODEL_PATH)
 
 
-def _load_thresholds():
+def _load_thresholds() -> dict[str, float]:
     """Load thresholds from disk, return dict with threshold_99 and threshold_95."""
     if not os.path.exists(THRESHOLD_PATH):
         raise FileNotFoundError(
             f'{THRESHOLD_PATH} not found. '
             'Run `python -m game_quality_classifier.train_quality_classifier` first.')
     with open(THRESHOLD_PATH) as f:
-        return json.load(f)
+        result: dict[str, float] = json.load(f)
+        return result
 
 
-def score_all_shards(model):
+def score_all_shards(model: lgb.Booster) -> pd.DataFrame:
     """Score all unfiltered shards one at a time, return DataFrame."""
     shard_paths = sorted(glob.glob(os.path.join(SOURCE_DIR, 'gameevents_*.csv.gz')))
     print(f'\nScoring {len(shard_paths)} shards...')
@@ -88,7 +90,7 @@ def score_all_shards(model):
     return scores_df
 
 
-def phase_score(threshold_pct=99):
+def phase_score(threshold_pct: int = 99) -> float:
     """Phase 1: Load trained model and score all shards."""
     print('=== Phase 1: Score ===')
     model = _load_model()
@@ -115,7 +117,7 @@ def phase_score(threshold_pct=99):
     return threshold
 
 
-def phase_reshard(threshold=None, threshold_pct=99):
+def phase_reshard(threshold: float | None = None, threshold_pct: int = 99) -> None:
     """Phase 2: Filter and reshard by quality score."""
     print('=== Phase 2: Reshard ===')
 
@@ -149,19 +151,19 @@ def phase_reshard(threshold=None, threshold_pct=99):
     _stream_and_repartition(game_to_partition)
 
 
-def _stream_and_repartition(game_to_partition):
+def _stream_and_repartition(game_to_partition: dict[int, int]) -> None:
     """Stream source partitions and write qualifying games to output."""
     # Clear stale output files to ensure idempotency across re-runs
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    stale = [f for f in os.listdir(OUTPUT_DIR) if f.endswith('.csv.gz')]
+    stale = [fname for fname in os.listdir(OUTPUT_DIR) if fname.endswith('.csv.gz')]
     if stale:
         print(f'  Clearing {len(stale)} existing output files in {OUTPUT_DIR}')
-        for f in stale:
-            os.remove(os.path.join(OUTPUT_DIR, f))
+        for fname in stale:
+            os.remove(os.path.join(OUTPUT_DIR, fname))
 
-    open_writers = {}  # partition_num -> (gzip_file, csv_writer)
-    header = None
-    games_written = set()
+    open_writers: dict[int, tuple[Any, Any]] = {}
+    header: list[str] | None = None
+    games_written: set[int] = set()
     events_written = 0
 
     source_files = sorted(
@@ -181,15 +183,15 @@ def _stream_and_repartition(game_to_partition):
                 if header is None:
                     header = file_header
 
-                current_game_id = None
-                current_buffer = []
+                current_game_id: int | None = None
+                current_buffer: list[list[str]] = []
 
                 for row in reader:
                     game_id = int(row[GAME_ID_COL])
 
                     if game_id != current_game_id:
                         # Flush previous game's buffer
-                        if current_buffer and current_game_id in game_to_partition:
+                        if current_buffer and current_game_id is not None and current_game_id in game_to_partition:
                             _flush_game(
                                 current_game_id, current_buffer,
                                 game_to_partition, open_writers, header,
@@ -203,7 +205,7 @@ def _stream_and_repartition(game_to_partition):
                         current_buffer.append(row)
 
                 # Flush last game in file
-                if current_buffer and current_game_id in game_to_partition:
+                if current_buffer and current_game_id is not None and current_game_id in game_to_partition:
                     _flush_game(
                         current_game_id, current_buffer,
                         game_to_partition, open_writers, header,
@@ -234,7 +236,10 @@ def _stream_and_repartition(game_to_partition):
           f'{len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".csv.gz")])}')
 
 
-def _flush_game(game_id, buffer, game_to_partition, open_writers, header):
+def _flush_game(game_id: int, buffer: list[list[str]],
+                game_to_partition: dict[int, int],
+                open_writers: dict[int, tuple[Any, Any]],
+                header: list[str]) -> None:
     """Write buffered events for a game to its output partition."""
     part_num = game_to_partition[game_id]
 
@@ -249,7 +254,7 @@ def _flush_game(game_id, buffer, game_to_partition, open_writers, header):
     writer.writerows(buffer)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Apply quality classifier to filter/sort unfiltered data')
     parser.add_argument('--score', action='store_true',

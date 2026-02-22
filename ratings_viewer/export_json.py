@@ -9,29 +9,31 @@ Generates ratings_viewer/ratings_history.json from logged_in_games/ data.
 import json
 import os
 import sys
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from compute_ratings import compute_ratings, load_data
+from compute_ratings import compute_ratings, load_data, RatingResult
 
 
-def main():
+def main() -> None:
     usergame, game_cabinets, outcomes = load_data()
 
     print('Computing ratings with history...')
-    result = compute_ratings(
+    result: RatingResult = compute_ratings(
         outcomes, usergame, game_cabinets, record_history=True)
+    assert result.history is not None, 'record_history=True should populate history'
     print(f'  {len(result.history)} games with rating updates')
 
     # Build player index with per-role stats
     # Count games per (user_id, role) from history
-    game_counts = {}  # (user_id, role) -> count
+    game_counts: dict[tuple[Any, str], int] = {}  # (user_id, role) -> count
     for event in result.history:
         for p in event['participants']:
             key = (p['user_id'], p['role'])
             game_counts[key] = game_counts.get(key, 0) + 1
 
-    players = {}
+    players: dict[str, dict[str, Any]] = {}
     for (user_id, role), rating in result.player_ratings.items():
         uid_str = str(user_id)
         if uid_str not in players:
@@ -65,9 +67,9 @@ def main():
         }
 
     # Round floats in game history
-    games = []
+    games: list[dict[str, Any]] = []
     for event in result.history:
-        participants = []
+        participants: list[dict[str, Any]] = []
         for p in event['participants']:
             participants.append({
                 'user_id': p['user_id'],
@@ -86,7 +88,7 @@ def main():
             'participants': participants,
         })
 
-    output = {
+    output: dict[str, Any] = {
         'metadata': {
             'total_games': len(result.history),
             'total_players': len(players),
@@ -96,12 +98,12 @@ def main():
         'cabinet_snapshots': result.cabinet_snapshots,
     }
 
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    output_path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                'ratings_history.json')
     with open(output_path, 'w') as f:
         json.dump(output, f)
 
-    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    size_mb: float = os.path.getsize(output_path) / (1024 * 1024)
     print(f'Wrote {output_path} ({size_mb:.1f} MB)')
     print(f'  {len(players)} players, {len(games)} games')
 

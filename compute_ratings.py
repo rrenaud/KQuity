@@ -16,24 +16,26 @@ import glob
 import gzip
 import os
 import pickle
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from openskill.models import PlackettLuce
 
 
 @dataclass
 class RatingResult:
-    ratings_by_game: dict
-    player_ratings: dict
-    user_names: dict
-    cabinet_anon_ratings: dict
-    history: list | None = None
-    cabinet_snapshots: list | None = None
+    ratings_by_game: dict[int, npt.NDArray[np.float32]]
+    player_ratings: dict[tuple[int, str], Any]
+    user_names: dict[int, str]
+    cabinet_anon_ratings: dict[tuple[str, str], Any]
+    history: list[dict[str, Any]] | None = None
+    cabinet_snapshots: list[dict[str, Any]] | None = None
 
 
-def load_usergame(path='unfiltered_partitioned/usergame.csv'):
+def load_usergame(path: str = 'unfiltered_partitioned/usergame.csv') -> dict[int, dict[int, tuple[int, str]]]:
     """Load usergame.csv -> {game_id: {position_id: (user_id, name)}}."""
-    usergame = {}
+    usergame: dict[int, dict[int, tuple[int, str]]] = {}
     with open(path) as f:
         reader = csv.reader(f)
         next(reader)  # skip header: id, game_id, position_id, user_id, name, scene
@@ -48,9 +50,9 @@ def load_usergame(path='unfiltered_partitioned/usergame.csv'):
     return usergame
 
 
-def load_game_cabinets(path='unfiltered_partitioned/game.csv'):
+def load_game_cabinets(path: str = 'unfiltered_partitioned/game.csv') -> dict[int, str]:
     """Load game.csv -> {game_id: cabinet_name}."""
-    cabinets = {}
+    cabinets: dict[int, str] = {}
     with open(path) as f:
         reader = csv.reader(f)
         next(reader)  # skip header
@@ -61,13 +63,15 @@ def load_game_cabinets(path='unfiltered_partitioned/game.csv'):
     return cabinets
 
 
-def extract_game_outcomes(csv_pattern='logged_in_games/gameevents_*.csv.gz'):
+def extract_game_outcomes(
+    csv_pattern: str = 'logged_in_games/gameevents_*.csv.gz',
+) -> dict[int, tuple[datetime.datetime, str]]:
     """Scan event CSVs to extract game_id -> (timestamp, winner).
 
     Returns dict mapping game_id to (first_event_timestamp, winning_team)
     where winning_team is 'Blue' or 'Gold'.
     """
-    games = {}  # game_id -> {'min_ts': datetime, 'winner': str}
+    games: dict[int, dict[str, Any]] = {}  # game_id -> {'min_ts': datetime, 'winner': str}
 
     for filename in sorted(glob.glob(csv_pattern)):
         opener = gzip.open if filename.endswith('.gz') else open
@@ -96,7 +100,7 @@ def extract_game_outcomes(csv_pattern='logged_in_games/gameevents_*.csv.gz'):
                         games[game_id]['winner'] = winner
 
     # Filter to games with valid outcomes
-    outcomes = {}
+    outcomes: dict[int, tuple[datetime.datetime, str]] = {}
     for game_id, info in games.items():
         if info['winner'] is not None:
             outcomes[game_id] = (info['min_ts'], info['winner'])
@@ -104,12 +108,17 @@ def extract_game_outcomes(csv_pattern='logged_in_games/gameevents_*.csv.gz'):
     return outcomes
 
 
-def _role_for_position(pos):
+def _role_for_position(pos: int) -> str:
     """Return 'queen' for queen positions (1, 2) or 'drone' for workers."""
     return 'queen' if pos in (1, 2) else 'drone'
 
 
-def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
+def compute_ratings(
+    outcomes: dict[int, tuple[datetime.datetime, str]],
+    usergame: dict[int, dict[int, tuple[int, str]]],
+    game_cabinets: dict[int, str],
+    record_history: bool = False,
+) -> RatingResult:
     """Compute OpenSkill ratings chronologically with per-role composite keys.
 
     Each player gets independent ratings for queen and drone roles, keyed by
@@ -140,27 +149,24 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
     # Sort games chronologically
     sorted_games = sorted(outcomes.items(), key=lambda x: x[1][0])
 
-    player_ratings = {}  # (user_id, role) -> PlackettLuceRating
-    user_names = {}  # user_id -> name (most recent)
-    cabinet_anon_ratings = {}  # (cabinet, role) -> PlackettLuceRating
+    player_ratings: dict[tuple[int, str], Any] = {}
+    user_names: dict[int, str] = {}
+    cabinet_anon_ratings: dict[tuple[str, str], Any] = {}
 
     # Cabinet running averages for first-time logged-in player initialization.
-    # Intentionally frequency-weighted (each player-game adds an entry), so
-    # frequent players pull the average toward their skill level. This better
-    # reflects the mu a new player will face at that cabinet.
-    cabinet_mu_sum = {}  # (cabinet_name, role) -> sum of player-game mu values
-    cabinet_mu_count = {}  # (cabinet_name, role) -> count of player-game entries
+    cabinet_mu_sum: dict[tuple[str, str], float] = {}
+    cabinet_mu_count: dict[tuple[str, str], int] = {}
 
-    ratings_by_game = {}
-    history = [] if record_history else None
-    cabinet_snapshots = [] if record_history else None
+    ratings_by_game: dict[int, npt.NDArray[np.float32]] = {}
+    history: list[dict[str, Any]] | None = [] if record_history else None
+    cabinet_snapshots: list[dict[str, Any]] | None = [] if record_history else None
 
     for game_idx, (game_id, (ts, winner)) in enumerate(sorted_games):
         game_users = usergame.get(game_id, {})
         cabinet = game_cabinets.get(game_id, '')
 
         # Compute role-specific cabinet average mu for first-time logged-in players
-        def cabinet_avg_for_role(role):
+        def cabinet_avg_for_role(role: str) -> float:
             key = (cabinet, role)
             if cabinet and key in cabinet_mu_count and cabinet_mu_count[key] > 0:
                 return cabinet_mu_sum[key] / cabinet_mu_count[key]
@@ -195,9 +201,9 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
         blue_positions = [2, 4, 6, 8, 10]
         gold_positions = [1, 3, 5, 7, 9]
 
-        def build_team(positions):
-            keys = []
-            ratings = []
+        def build_team(positions: list[int]) -> tuple[list[tuple[Any, ...]], list[Any]]:
+            keys: list[tuple[Any, ...]] = []
+            ratings: list[Any] = []
             for pos in positions:
                 role = _role_for_position(pos)
                 if pos in game_users:
@@ -232,7 +238,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
         result = model.rate(teams=teams)
 
         # Separate results into player updates and anonymous updates
-        anon_updates = {}  # (cabinet, role) -> [(mu, sigma)]
+        anon_updates: dict[tuple[str, str], list[tuple[float, float]]] = {}
         for team_idx in range(2):
             for i, rating_key in enumerate(team_keys[team_idx]):
                 new_rating = result[team_idx][i]
@@ -267,8 +273,10 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
                 cabinet_mu_count[cab_key] += 1
 
         if record_history:
+            assert history is not None
+            assert cabinet_snapshots is not None
             # Only record logged-in participants in game events
-            participants = []
+            participants: list[dict[str, Any]] = []
             all_positions = [(pos, 'blue') for pos in blue_positions] + \
                             [(pos, 'gold') for pos in gold_positions]
             for pos, team in all_positions:
@@ -295,7 +303,7 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
 
             # Sample cabinet snapshots every 500 games
             if game_idx % 500 == 499 or game_idx == len(sorted_games) - 1:
-                snap = {'timestamp': ts.isoformat(), 'ratings': {}}
+                snap: dict[str, Any] = {'timestamp': ts.isoformat(), 'ratings': {}}
                 for (cab, role), r in cabinet_anon_ratings.items():
                     snap['ratings'][f'{cab}_{role}'] = {
                         'mu': round(r.mu, 2),
@@ -313,13 +321,16 @@ def compute_ratings(outcomes, usergame, game_cabinets, record_history=False):
     )
 
 
-def evaluate_prediction(ratings_by_game, outcomes):
+def evaluate_prediction(
+    ratings_by_game: dict[int, npt.NDArray[np.float32]],
+    outcomes: dict[int, tuple[datetime.datetime, str]],
+) -> tuple[float, npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Compute correlation between team rating advantage and win rate.
 
     Returns (pearson_r, advantages, actuals) arrays.
     """
-    advantages = []
-    actuals = []
+    advantages: list[float] = []
+    actuals: list[float] = []
     for game_id, (ts, winner) in outcomes.items():
         if game_id not in ratings_by_game:
             continue
@@ -330,19 +341,20 @@ def evaluate_prediction(ratings_by_game, outcomes):
         advantages.append(blue_avg - gold_avg)
         actuals.append(1.0 if winner == 'Blue' else 0.0)
 
-    advantages = np.array(advantages)
-    actuals = np.array(actuals)
-    corr = np.corrcoef(advantages, actuals)[0, 1]
-    return corr, advantages, actuals
+    advantages_arr = np.array(advantages)
+    actuals_arr = np.array(actuals)
+    corr = float(np.corrcoef(advantages_arr, actuals_arr)[0, 1])
+    return corr, advantages_arr, actuals_arr
 
 
-def print_mu_over_time(history, player_ratings):
+def print_mu_over_time(history: list[dict[str, Any]],
+                       player_ratings: dict[tuple[int, str], Any]) -> None:
     """Print table and save chart of mean mu over time.
 
     Reveals rating deflation caused by mu leaking to untracked anonymous players.
     """
-    player_mu = {}  # (user_id, role) -> current mu
-    snapshots = []  # (game_index, date, n_players, mean_mu)
+    player_mu: dict[tuple[int, str], float] = {}
+    snapshots: list[tuple[int, str, int, float]] = []  # (game_index, date, n_players, mean_mu)
 
     sample_interval = max(1, len(history) // 80)  # ~80 rows
 
@@ -407,7 +419,6 @@ def print_mu_over_time(history, player_ratings):
         ax1.grid(True, alpha=0.3)
         fig.tight_layout()
 
-        import os
         chart_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                   'mu_over_time.png')
         fig.savefig(chart_path, dpi=120)
@@ -417,7 +428,10 @@ def print_mu_over_time(history, player_ratings):
         print('  (matplotlib not available, skipping chart)')
 
 
-def print_validation(ratings_by_game, player_ratings, user_names, outcomes):
+def print_validation(ratings_by_game: dict[int, npt.NDArray[np.float32]],
+                     player_ratings: dict[tuple[int, str], Any],
+                     user_names: dict[int, str],
+                     outcomes: dict[int, tuple[datetime.datetime, str]]) -> None:
     """Print full validation stats."""
     # Top-rated players by queen and drone separately
     queen_ratings = {k: v for k, v in player_ratings.items() if k[1] == 'queen'}
@@ -461,7 +475,11 @@ def print_validation(ratings_by_game, player_ratings, user_names, outcomes):
     print(f'\n  Pearson correlation: {corr:.4f}')
 
 
-def load_data():
+def load_data() -> tuple[
+    dict[int, dict[int, tuple[int, str]]],
+    dict[int, str],
+    dict[int, tuple[datetime.datetime, str]],
+]:
     """Load all input data (expensive I/O, do once)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -483,7 +501,7 @@ def load_data():
     return usergame, game_cabinets, outcomes
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description='Compute player skill ratings')
     parser.add_argument('--output', type=str, default='ratings_queen_drone.pkl',
@@ -505,6 +523,7 @@ def main():
     print(f'Saved ratings to {output_path}')
 
     print('\n=== Rating Deflation ===')
+    assert result.history is not None
     print_mu_over_time(result.history, result.player_ratings)
 
     print('\n=== Validation ===')

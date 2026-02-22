@@ -5,7 +5,7 @@ from map_structure import MapStructureInfos
 
 
 class MapStructureInfosTest(unittest.TestCase):
-    def test_get_map_info(self):
+    def test_get_map_info(self) -> None:
         map_structure_infos = MapStructureInfos()
         map_structure_info = map_structure_infos.get_map_info(preprocess.Map.map_day, True)
 

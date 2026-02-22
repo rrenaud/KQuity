@@ -16,16 +16,16 @@ from eval_metrics import (
 
 class ConstantModel:
     """Mock model that always predicts the same probability."""
-    def __init__(self, p):
+    def __init__(self, p: float) -> None:
         self.p = p
 
-    def predict(self, X):
+    def predict(self, X: np.ndarray) -> np.ndarray:
         return np.full(len(X), self.p)
 
 
 class TestStandardMetrics(unittest.TestCase):
 
-    def test_perfect_predictions(self):
+    def test_perfect_predictions(self) -> None:
         labels = np.array([1, 1, 0, 0], dtype=np.float64)
         # Near-perfect predictions (not exactly 0/1 to avoid log(0))
         predictions = np.array([0.999, 0.999, 0.001, 0.001])
@@ -35,7 +35,7 @@ class TestStandardMetrics(unittest.TestCase):
         self.assertLess(m['log_loss'], 0.01)
         self.assertLess(m['brier_score'], 0.001)
 
-    def test_uniform_predictions(self):
+    def test_uniform_predictions(self) -> None:
         labels = np.array([1, 0, 1, 0], dtype=np.float64)
         predictions = np.array([0.5, 0.5, 0.5, 0.5])
         m = compute_standard_metrics(predictions, labels)
@@ -44,7 +44,7 @@ class TestStandardMetrics(unittest.TestCase):
         # AUC is 0.5 for random predictions
         self.assertAlmostEqual(m['auc_roc'], 0.5)
 
-    def test_single_class_labels_auc_nan(self):
+    def test_single_class_labels_auc_nan(self) -> None:
         labels = np.array([1, 1, 1, 1], dtype=np.float64)
         predictions = np.array([0.6, 0.7, 0.8, 0.9])
         m = compute_standard_metrics(predictions, labels)
@@ -55,7 +55,7 @@ class TestStandardMetrics(unittest.TestCase):
 
 class TestCalibrationMetrics(unittest.TestCase):
 
-    def test_perfectly_calibrated(self):
+    def test_perfectly_calibrated(self) -> None:
         # Predictions exactly match empirical frequency in each bin
         rng = np.random.RandomState(42)
         n = 10000
@@ -66,14 +66,14 @@ class TestCalibrationMetrics(unittest.TestCase):
         # ECE should be small for a large sample
         self.assertLess(m['ece'], 0.05)
 
-    def test_systematically_off(self):
+    def test_systematically_off(self) -> None:
         # Always predict 0.9 but true rate is 0.5
         predictions = np.full(1000, 0.9)
         labels = np.array([1, 0] * 500, dtype=np.float64)
         m = compute_calibration_metrics(predictions, labels, n_bins=10)
         self.assertGreater(m['ece'], 0.3)
 
-    def test_bin_counts_sum_to_n(self):
+    def test_bin_counts_sum_to_n(self) -> None:
         rng = np.random.RandomState(123)
         n = 500
         predictions = rng.uniform(0, 1, n)
@@ -84,7 +84,7 @@ class TestCalibrationMetrics(unittest.TestCase):
 
 class TestTemporalMetrics(unittest.TestCase):
 
-    def test_single_bin_matches_scalar(self):
+    def test_single_bin_matches_scalar(self) -> None:
         predictions = np.array([0.6, 0.7, 0.8, 0.3])
         labels = np.array([1, 1, 0, 0], dtype=np.float64)
         timestamps = np.array([10, 20, 30, 40], dtype=np.float32)
@@ -96,7 +96,7 @@ class TestTemporalMetrics(unittest.TestCase):
         self.assertAlmostEqual(m['bin_brier_score'][0], scalar['brier_score'], places=5)
         self.assertAlmostEqual(m['bin_accuracy'][0], scalar['accuracy'], places=5)
 
-    def test_bin_counts_sum_to_n(self):
+    def test_bin_counts_sum_to_n(self) -> None:
         rng = np.random.RandomState(42)
         n = 300
         predictions = rng.uniform(0, 1, n)
@@ -105,7 +105,7 @@ class TestTemporalMetrics(unittest.TestCase):
         m = compute_temporal_metrics(predictions, labels, timestamps)
         self.assertEqual(sum(m['bin_counts']), n)
 
-    def test_empty_bin_gives_nan(self):
+    def test_empty_bin_gives_nan(self) -> None:
         predictions = np.array([0.5, 0.5])
         labels = np.array([1, 0], dtype=np.float64)
         timestamps = np.array([100.0, 200.0], dtype=np.float32)
@@ -119,21 +119,21 @@ class TestTemporalMetrics(unittest.TestCase):
 
 class TestKQMetrics(unittest.TestCase):
 
-    def _make_states(self, n, eggs_val=1):
+    def _make_states(self, n: int, eggs_val: int = 1) -> np.ndarray:
         """Create dummy 52-feature states with blue eggs at column 0."""
         rng = np.random.RandomState(42)
         states = rng.uniform(-1, 1, (n, 52)).astype(np.float32)
         states[:, 0] = eggs_val  # blue eggs
         return states
 
-    def test_constant_model_zero_inversions(self):
+    def test_constant_model_zero_inversions(self) -> None:
         model = ConstantModel(0.5)
         states = self._make_states(200)
         labels = np.zeros(200, dtype=np.float64)
         m = compute_kq_metrics(model, states, labels, sample_size=100)
         self.assertEqual(m['egg_inversion_rate'], 0.0)
 
-    def test_constant_half_symmetry_zero(self):
+    def test_constant_half_symmetry_zero(self) -> None:
         # A constant 0.5 model has P(X) + P(swap(X)) = 0.5 + 0.5 = 1.0 exactly
         model = ConstantModel(0.5)
         states = self._make_states(100)
@@ -141,7 +141,7 @@ class TestKQMetrics(unittest.TestCase):
         m = compute_kq_metrics(model, states, labels)
         self.assertAlmostEqual(m['symmetry_deviation'], 0.0, places=5)
 
-    def test_constant_biased_high_symmetry_deviation(self):
+    def test_constant_biased_high_symmetry_deviation(self) -> None:
         # A constant 0.9 model has P(X)+P(swap(X)) = 0.9+0.9 = 1.8, deviation = 0.8
         model = ConstantModel(0.9)
         states = self._make_states(100)
@@ -149,7 +149,7 @@ class TestKQMetrics(unittest.TestCase):
         m = compute_kq_metrics(model, states, labels)
         self.assertAlmostEqual(m['symmetry_deviation'], 0.8, places=5)
 
-    def test_maxed_eggs_excluded(self):
+    def test_maxed_eggs_excluded(self) -> None:
         model = ConstantModel(0.5)
         # All states have eggs=2, should all be excluded
         states = self._make_states(50, eggs_val=2)
@@ -161,7 +161,7 @@ class TestKQMetrics(unittest.TestCase):
 
 class TestTimestampEmission(unittest.TestCase):
 
-    def test_timestamps_returned(self):
+    def test_timestamps_returned(self) -> None:
         test_dir = os.path.join(os.path.dirname(__file__), 'tests')
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
         if not os.path.exists(test_dir):

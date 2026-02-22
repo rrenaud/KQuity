@@ -8,26 +8,28 @@ using heuristics:
 """
 
 import json
-import pandas as pd
-from datetime import timedelta
 from collections import defaultdict
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Set, FrozenSet
+from datetime import date, timedelta
+from typing import Any
+
+import numpy as np
+import pandas as pd  # type: ignore[import-untyped]
 
 
 class UnionFind:
     """Union-Find data structure for clustering."""
 
-    def __init__(self, items):
-        self.parent = {item: item for item in items}
-        self.rank = {item: 0 for item in items}
+    def __init__(self, items: list[float]) -> None:
+        self.parent: dict[float, float] = {item: item for item in items}
+        self.rank: dict[float, int] = {item: 0 for item in items}
 
-    def find(self, x):
+    def find(self, x: float) -> float:
         if self.parent[x] != x:
             self.parent[x] = self.find(self.parent[x])  # Path compression
         return self.parent[x]
 
-    def union(self, x, y):
+    def union(self, x: float, y: float) -> None:
         px, py = self.find(x), self.find(y)
         if px == py:
             return
@@ -38,9 +40,9 @@ class UnionFind:
         if self.rank[px] == self.rank[py]:
             self.rank[px] += 1
 
-    def get_clusters(self) -> Dict:
+    def get_clusters(self) -> dict[float, list[float]]:
         """Return dict mapping root -> list of items in cluster."""
-        clusters = {}
+        clusters: dict[float, list[float]] = {}
         for item in self.parent:
             root = self.find(item)
             if root not in clusters:
@@ -58,11 +60,11 @@ class TournamentMetadata:
     num_games: int
     num_matches: int  # Number of match series
     num_teams: int
-    teams: List[str]
+    teams: list[str]
     primary_cabinet: str
-    cabinets: List[str]
+    cabinets: list[str]
     is_weekend: bool
-    match_ids: List[float]  # tournament_match_ids in this tournament
+    match_ids: list[float]  # tournament_match_ids in this tournament
 
 
 def extract_match_info(tournament_games: pd.DataFrame) -> pd.DataFrame:
@@ -74,7 +76,7 @@ def extract_match_info(tournament_games: pd.DataFrame) -> pd.DataFrame:
         max_date=('start_time', 'max'),
     ).reset_index()
 
-    def get_teams(group) -> FrozenSet[str]:
+    def get_teams(group: pd.DataFrame) -> frozenset[str]:
         teams = set(group['blue_team'].dropna()) | set(group['gold_team'].dropna())
         return frozenset(teams)
 
@@ -88,7 +90,7 @@ def extract_match_info(tournament_games: pd.DataFrame) -> pd.DataFrame:
     return match_info
 
 
-def cluster_matches(match_info: pd.DataFrame) -> Dict[float, int]:
+def cluster_matches(match_info: pd.DataFrame) -> dict[float, int]:
     """
     Cluster tournament matches into tournaments.
 
@@ -98,41 +100,41 @@ def cluster_matches(match_info: pd.DataFrame) -> Dict[float, int]:
     uf = UnionFind(match_info['tournament_match_id'].tolist())
 
     # Rule 1: Same cabinet + within ±1 day → merge
-    cabinet_date_index = defaultdict(list)
+    cabinet_date_index: defaultdict[tuple[Any, date], list[float]] = defaultdict(list)
     for _, row in match_info.iterrows():
         cabinet_date_index[(row['cabinet_id'], row['date'])].append(row['tournament_match_id'])
 
     for _, row in match_info.iterrows():
         match_id = row['tournament_match_id']
         cabinet = row['cabinet_id']
-        date = row['date']
+        match_date = row['date']
 
         for delta in [timedelta(days=0), timedelta(days=1), timedelta(days=-1)]:
-            check_date = date + delta
+            check_date = match_date + delta
             for other_id in cabinet_date_index.get((cabinet, check_date), []):
                 if other_id != match_id:
                     uf.union(match_id, other_id)
 
     # Rule 2: Same team name + within ±1 day → merge
-    team_date_index = defaultdict(list)
+    team_date_index: defaultdict[tuple[str, date], list[float]] = defaultdict(list)
     for _, row in match_info.iterrows():
         for team in row['teams']:
             team_date_index[(team, row['date'])].append(row['tournament_match_id'])
 
     for _, row in match_info.iterrows():
         match_id = row['tournament_match_id']
-        date = row['date']
+        match_date = row['date']
 
         for team in row['teams']:
             for delta in [timedelta(days=0), timedelta(days=1), timedelta(days=-1)]:
-                check_date = date + delta
+                check_date = match_date + delta
                 for other_id in team_date_index.get((team, check_date), []):
                     if other_id != match_id:
                         uf.union(match_id, other_id)
 
     # Build mapping from match_id to cluster_id
     clusters = uf.get_clusters()
-    match_to_tournament = {}
+    match_to_tournament: dict[float, int] = {}
     for tournament_id, (root, match_ids) in enumerate(clusters.items()):
         for match_id in match_ids:
             match_to_tournament[match_id] = tournament_id
@@ -142,8 +144,8 @@ def cluster_matches(match_info: pd.DataFrame) -> Dict[float, int]:
 
 def compute_tournament_metadata(
     tournament_games: pd.DataFrame,
-    match_to_tournament: Dict[float, int]
-) -> List[TournamentMetadata]:
+    match_to_tournament: dict[float, int],
+) -> list[TournamentMetadata]:
     """Compute metadata for each clustered tournament."""
 
     # Add tournament_id to games
@@ -155,7 +157,7 @@ def compute_tournament_metadata(
         games['day_of_week'] = games['start_time'].dt.dayofweek
         games['is_weekend'] = games['day_of_week'].isin([5, 6])
 
-    tournaments = []
+    tournaments: list[TournamentMetadata] = []
 
     for tournament_id, group in games.groupby('tournament_id'):
         # Get all teams
@@ -165,8 +167,8 @@ def compute_tournament_metadata(
         cabinets = group['cabinet_name'].dropna().unique().tolist()
 
         # Primary cabinet (most common)
-        primary_cabinet = group['cabinet_name'].mode()
-        primary_cabinet = primary_cabinet.iloc[0] if len(primary_cabinet) > 0 else None
+        primary_cabinet_mode = group['cabinet_name'].mode()
+        primary_cabinet: str = str(primary_cabinet_mode.iloc[0]) if len(primary_cabinet_mode) > 0 else 'unknown'
 
         # Weekend determination (majority of games)
         is_weekend = group['is_weekend'].sum() > (len(group) / 2)
@@ -192,7 +194,7 @@ def compute_tournament_metadata(
     return tournaments
 
 
-def cluster_tournaments(games_df: pd.DataFrame) -> tuple:
+def cluster_tournaments(games_df: pd.DataFrame) -> tuple[dict[float, int], list[TournamentMetadata]]:
     """
     Main entry point: cluster tournament matches into tournaments.
 
@@ -223,9 +225,8 @@ def cluster_tournaments(games_df: pd.DataFrame) -> tuple:
     return match_to_tournament, tournaments
 
 
-def _convert_to_native(obj):
+def _convert_to_native(obj: Any) -> Any:
     """Convert numpy types to native Python types for JSON serialization."""
-    import numpy as np
     if isinstance(obj, dict):
         return {k: _convert_to_native(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -240,10 +241,10 @@ def _convert_to_native(obj):
 
 
 def save_clustering(
-    match_to_tournament: Dict[float, int],
-    tournaments: List[TournamentMetadata],
-    output_path: str = "tournament_clustering.json"
-):
+    match_to_tournament: dict[float, int],
+    tournaments: list[TournamentMetadata],
+    output_path: str = "tournament_clustering.json",
+) -> None:
     """Save clustering results to JSON file."""
     data = {
         "match_to_tournament": {str(k): v for k, v in match_to_tournament.items()},
@@ -258,18 +259,18 @@ def save_clustering(
     print(f"  - {len(tournaments):,} tournaments")
 
 
-def load_clustering(input_path: str = "tournament_clustering.json") -> tuple:
+def load_clustering(input_path: str = "tournament_clustering.json") -> tuple[dict[float, int], list[TournamentMetadata]]:
     """Load clustering results from JSON file."""
     with open(input_path, 'r') as f:
         data = json.load(f)
 
-    match_to_tournament = {float(k): v for k, v in data["match_to_tournament"].items()}
-    tournaments = [TournamentMetadata(**t) for t in data["tournaments"]]
+    match_to_tournament: dict[float, int] = {float(k): v for k, v in data["match_to_tournament"].items()}
+    tournaments: list[TournamentMetadata] = [TournamentMetadata(**t) for t in data["tournaments"]]
 
     return match_to_tournament, tournaments
 
 
-def main():
+def main() -> None:
     """Run clustering on game.csv and save results."""
     import argparse
 

@@ -10,9 +10,11 @@ import time
 import tracemalloc
 
 import numpy as np
+import numpy.typing as npt
+from typing import Any, Callable
 
 
-def run_existing(csv_path):
+def run_existing(csv_path: str) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     from preprocess import iterate_events_from_csv, iterate_game_events_with_state, create_game_states_matrix
     from map_structure import MapStructureInfos
 
@@ -23,13 +25,13 @@ def run_existing(csv_path):
     return states, labels
 
 
-def run_fast(csv_path):
+def run_fast(csv_path: str) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     from fast_materialize import fast_materialize
     states, labels, _, _ = fast_materialize(csv_path)
     return states, labels
 
 
-def measure_peak_memory(func, csv_path):
+def measure_peak_memory(func: Callable[[str], tuple[npt.NDArray[Any], npt.NDArray[Any]]], csv_path: str) -> tuple[tuple[npt.NDArray[Any], npt.NDArray[Any]], float]:
     """Run func and return (result, peak_memory_MB) using tracemalloc."""
     gc.collect()
     tracemalloc.start()
@@ -39,7 +41,7 @@ def measure_peak_memory(func, csv_path):
     return result, peak / (1024 * 1024)
 
 
-def profile_and_time(func, csv_path, name, num_runs=3):
+def profile_and_time(func: Callable[[str], tuple[npt.NDArray[Any], npt.NDArray[Any]]], csv_path: str, name: str, num_runs: int = 3) -> tuple[npt.NDArray[Any], npt.NDArray[Any], float, float]:
     # Wall-clock timing
     times = []
     result = None
@@ -50,6 +52,7 @@ def profile_and_time(func, csv_path, name, num_runs=3):
         times.append(elapsed)
     median_time = sorted(times)[len(times) // 2]
 
+    assert result is not None
     states, labels = result
 
     # Memory measurement (separate run to avoid interference)
@@ -78,7 +81,7 @@ def profile_and_time(func, csv_path, name, num_runs=3):
     return states, labels, median_time, peak_mb
 
 
-def main():
+def main() -> None:
     test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tests')
     csv_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
     expected_path = os.path.join(test_dir, 'benchmark_expected.npz')

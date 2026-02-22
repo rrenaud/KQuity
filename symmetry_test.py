@@ -19,6 +19,7 @@ from preprocess import (
     iterate_events_from_csv,
     iterate_events_by_game_and_normalize_time,
     vectorize_game_state,
+    GameEvent,
     GameState,
     VictoryEvent,
     get_map_start,
@@ -30,7 +31,7 @@ import map_structure
 class TestSwapTeamsRoundtrip(unittest.TestCase):
     """swap(swap(X, y)) == (X, y)"""
 
-    def test_roundtrip_random(self):
+    def test_roundtrip_random(self) -> None:
         rng = np.random.RandomState(42)
         X = rng.randn(100, 52).astype(np.float32)
         y = rng.randint(0, 2, size=100).astype(np.int8)
@@ -41,7 +42,7 @@ class TestSwapTeamsRoundtrip(unittest.TestCase):
         np.testing.assert_array_almost_equal(X3, X, decimal=6)
         np.testing.assert_array_equal(y3, y)
 
-    def test_roundtrip_benchmark(self):
+    def test_roundtrip_benchmark(self) -> None:
         """Roundtrip on actual benchmark data."""
         test_dir = os.path.join(os.path.dirname(__file__), 'tests')
         expected_path = os.path.join(test_dir, 'benchmark_expected.npz')
@@ -63,7 +64,7 @@ class TestSwapTeamsRoundtrip(unittest.TestCase):
 class TestSwapTeamsSpotChecks(unittest.TestCase):
     """Verify specific feature positions are correctly swapped."""
 
-    def _make_vector(self):
+    def _make_vector(self) -> np.ndarray:
         """Create a recognizable feature vector."""
         X = np.zeros((1, 52), dtype=np.float32)
         # Blue team: eggs=2, food=3, vanilla=1, speed=0
@@ -97,7 +98,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
 
         return X
 
-    def test_team_stats_swap(self):
+    def test_team_stats_swap(self) -> None:
         X = self._make_vector()
         y = np.array([1], dtype=np.int8)  # Blue wins
 
@@ -115,7 +116,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
         self.assertAlmostEqual(X2[0, 22], 1.0)  # was blue vanilla
         self.assertAlmostEqual(X2[0, 23], 0.0)  # was blue speed
 
-    def test_maiden_control_flips(self):
+    def test_maiden_control_flips(self) -> None:
         X = self._make_vector()
         y = np.array([1], dtype=np.int8)
 
@@ -128,7 +129,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
         self.assertAlmostEqual(X2[0, 43], -1.0)  # was +1
         self.assertAlmostEqual(X2[0, 44], 1.0)   # was -1
 
-    def test_map_unchanged(self):
+    def test_map_unchanged(self) -> None:
         X = self._make_vector()
         y = np.array([1], dtype=np.int8)
 
@@ -136,7 +137,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
 
         np.testing.assert_array_equal(X2[0, 45:49], X[0, 45:49])
 
-    def test_snail_negated(self):
+    def test_snail_negated(self) -> None:
         X = self._make_vector()
         y = np.array([1], dtype=np.int8)
 
@@ -145,7 +146,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
         self.assertAlmostEqual(X2[0, 49], -0.3)
         self.assertAlmostEqual(X2[0, 50], -0.1)
 
-    def test_berries_unchanged(self):
+    def test_berries_unchanged(self) -> None:
         X = self._make_vector()
         y = np.array([1], dtype=np.int8)
 
@@ -153,7 +154,7 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
 
         self.assertAlmostEqual(X2[0, 51], 0.5)
 
-    def test_label_flips(self):
+    def test_label_flips(self) -> None:
         X = self._make_vector()
 
         _, y2_blue = swap_teams(X, np.array([1], dtype=np.int8))
@@ -163,7 +164,10 @@ class TestSwapTeamsSpotChecks(unittest.TestCase):
         self.assertEqual(y2_gold[0], 1)  # Gold win -> Blue win
 
 
-def _materialize_single_game(game_events, map_structure_infos):
+def _materialize_single_game(
+    game_events: list[GameEvent],
+    map_structure_infos: map_structure.MapStructureInfos,
+) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
     """Materialize feature vectors for a single game's events (slow path).
 
     Returns (states, labels) numpy arrays, or (None, None) if invalid.
@@ -200,7 +204,7 @@ class TestCrossVerification(unittest.TestCase):
     3. Assert results match
     """
 
-    def test_feature_swap_matches_event_swap(self):
+    def test_feature_swap_matches_event_swap(self) -> None:
         """For benchmark games, verify feature swap == event swap + materialize."""
         test_dir = os.path.join(os.path.dirname(__file__), 'tests')
         benchmark_path = os.path.join(test_dir, 'benchmark_events_*.csv.gz')
@@ -226,6 +230,7 @@ class TestCrossVerification(unittest.TestCase):
                 continue
             if orig_X is None:
                 continue
+            assert orig_y is not None
 
             swapped_X, swapped_y = swap_teams(orig_X, orig_y)
 
@@ -237,6 +242,7 @@ class TestCrossVerification(unittest.TestCase):
                 continue
             if event_X is None:
                 continue
+            assert event_y is not None
 
             total_games_tested += 1
 
@@ -263,20 +269,20 @@ class TestCrossVerification(unittest.TestCase):
 class TestSwapPermConstants(unittest.TestCase):
     """Verify the swap constants are well-formed."""
 
-    def test_perm_is_valid_permutation(self):
+    def test_perm_is_valid_permutation(self) -> None:
         self.assertEqual(sorted(SWAP_PERM), list(range(52)))
 
-    def test_perm_is_involution(self):
+    def test_perm_is_involution(self) -> None:
         """Double-applying the permutation should be identity."""
         double = [SWAP_PERM[SWAP_PERM[i]] for i in range(52)]
         self.assertEqual(double, list(range(52)))
 
-    def test_sign_is_involution(self):
+    def test_sign_is_involution(self) -> None:
         """SWAP_SIGN * SWAP_SIGN == 1 everywhere."""
         np.testing.assert_array_equal(SWAP_SIGN * SWAP_SIGN,
                                       np.ones(52, dtype=np.float32))
 
-    def test_sign_values(self):
+    def test_sign_values(self) -> None:
         """Only features 40-44 and 49-50 should be -1."""
         for i in range(52):
             if i in range(40, 45) or i in range(49, 51):

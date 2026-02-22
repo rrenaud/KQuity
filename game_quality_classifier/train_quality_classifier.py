@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import shutil
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -43,7 +44,7 @@ TOURNAMENT_PATH = os.path.join(REPO_ROOT, 'late_tournament_games/late_tournament
 DEFAULT_SIZE = 16000  # Max training examples per class
 
 
-def load_or_compute(name, csv_path, recompute=False):
+def load_or_compute(name: str, csv_path: str, recompute: bool = False) -> pd.DataFrame:
     """Load cached features or compute from CSVs."""
     cache_path = f'{CACHE_DIR}/{name}.parquet'
     if not recompute and os.path.exists(cache_path):
@@ -59,7 +60,7 @@ def load_or_compute(name, csv_path, recompute=False):
     return df
 
 
-DEFAULT_PARAMS = {
+DEFAULT_PARAMS: dict[str, str | int | float] = {
     'objective': 'binary',
     'metric': 'auc',
     'num_leaves': 127,
@@ -69,10 +70,12 @@ DEFAULT_PARAMS = {
 }
 
 
-def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
-                       df_unfiltered_all, df_logged_in_all, df_tournament,
-                       features, verbose=True, params_override=None,
-                       random_state=42, bag_fraction=1.0):
+def train_and_evaluate(df_unfiltered_train: pd.DataFrame, df_logged_in_train: pd.DataFrame,
+                       df_unfiltered_all: pd.DataFrame, df_logged_in_all: pd.DataFrame,
+                       df_tournament: pd.DataFrame,
+                       features: list[str], verbose: bool = True,
+                       params_override: dict[str, Any] | None = None,
+                       random_state: int = 42, bag_fraction: float = 1.0) -> dict[str, Any]:
     """Train model and return metrics dict.
 
     Args:
@@ -105,10 +108,10 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
         params.update(params_override)
 
     num_boost_round = 500
-    if params.get('learning_rate', 0.05) < 0.05:
+    if float(params.get('learning_rate', 0.05)) < 0.05:
         num_boost_round = 2000
 
-    callbacks = [lgb.early_stopping(stopping_rounds=20, verbose=verbose)]
+    callbacks: list[Any] = [lgb.early_stopping(stopping_rounds=20, verbose=verbose)]
     model = lgb.train(
         params, train_data, num_boost_round=num_boost_round,
         valid_sets=[val_data], callbacks=callbacks,
@@ -146,8 +149,9 @@ def train_and_evaluate(df_unfiltered_train, df_logged_in_train,
     return results
 
 
-def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
-                     df_logged_in_clean, df_tournament, features):
+def run_self_distill(df_unfiltered_clean: pd.DataFrame, df_unfiltered_eval: pd.DataFrame,
+                     df_logged_in: pd.DataFrame, df_logged_in_clean: pd.DataFrame,
+                     df_tournament: pd.DataFrame, features: list[str]) -> None:
     """Self-distillation pipeline: curate positives, train bagged ensemble.
 
     Uses the existing saved model to prune low-quality >=9-login games and
@@ -172,7 +176,7 @@ def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
     # Score base games with existing quality model, remove bottom 10%
     # (Experiment 8: pruning mislabeled positives)
     existing_model = lgb.Booster(model_file=MODEL_PATH)
-    base_scores = existing_model.predict(df_base[features].values)
+    base_scores = np.asarray(existing_model.predict(df_base[features].values))
     p10_threshold = np.percentile(base_scores, 10)
     keep_top90 = base_scores >= p10_threshold
     df_base_pruned = df_base[keep_top90].reset_index(drop=True)
@@ -185,7 +189,7 @@ def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
     # (Experiment 9: +2000 is the sweet spot before quality degrades)
     keep_8 = np.array([len(usergame.get(gid, {})) == 8 for gid in game_ids])
     df_login8 = df_logged_in_clean[keep_8].reset_index(drop=True)
-    login8_scores = existing_model.predict(df_login8[features].values)
+    login8_scores = np.asarray(existing_model.predict(df_login8[features].values))
     sort_idx = np.argsort(-login8_scores)
     df_login8 = df_login8.iloc[sort_idx].reset_index(drop=True)
     login8_scores = login8_scores[sort_idx]
@@ -203,7 +207,7 @@ def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
     # Train N models with bagging, collect per-seed and ensemble results
     # (Experiment 10: bagged ensemble beats every individual model)
     n_seeds = 10
-    all_results = {m: [] for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']}
+    all_results: dict[str, list[Any]] = {m: [] for m in ['auc', 'log_loss', 'unf_pass_99', 'unf_pass_95']}
     all_tournament_scores = []
     all_unfiltered_scores = []
     all_logged_in_scores = []
@@ -280,7 +284,7 @@ def run_self_distill(df_unfiltered_clean, df_unfiltered_eval, df_logged_in,
     print(f'\nPlot saved to {plot_path}')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Train game quality classifier')
     parser.add_argument('--recompute', action='store_true',
                         help='Recompute features from CSVs (delete cache)')
@@ -363,7 +367,7 @@ def main():
         }
         current_defaults = {**lgb_defaults, **DEFAULT_PARAMS}
 
-        sweep_params = [
+        sweep_params: list[tuple[str, list[int | float]]] = [
             # Tier 1
             ('num_leaves', [7, 15, 23, 31, 47, 63, 95, 127, 191, 255]),
             ('min_child_samples', [5, 10, 20, 35, 50, 75, 100, 150, 200, 300]),

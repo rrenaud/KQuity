@@ -20,7 +20,7 @@ NUM_SHARDS = 20
 MAX_GAMES = 10_000
 
 
-def _total_csv_size():
+def _total_csv_size() -> int:
     import glob
     total = 0
     for f in glob.glob(CSV_GLOB):
@@ -28,7 +28,7 @@ def _total_csv_size():
     return total
 
 
-def _total_shard_size():
+def _total_shard_size() -> int:
     import glob
     total = 0
     for f in glob.glob(SHARD_GLOB):
@@ -36,7 +36,7 @@ def _total_shard_size():
     return total
 
 
-def main():
+def main() -> None:
     print('=' * 60)
     print(f'Parallel Codec Materialization Benchmark (max {MAX_GAMES:,} games)')
     print('=' * 60)

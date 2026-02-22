@@ -13,9 +13,10 @@ Usage:
 
 import argparse
 import json
+from typing import Any
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Merge prediction files into chapter JSON for the viewer')
     parser.add_argument('--chapters', required=True,
@@ -28,10 +29,10 @@ def main():
 
     # Load chapter data
     with open(args.chapters) as f:
-        chapter_data = json.load(f)
+        chapter_data: dict[str, Any] = json.load(f)
 
     # Load prediction files
-    prediction_sets = []
+    prediction_sets: list[dict[str, Any]] = []
     for pred_path in args.predictions:
         with open(pred_path) as f:
             prediction_sets.append(json.load(f))
@@ -39,14 +40,14 @@ def main():
               f"({len(prediction_sets[-1]['games'])} games)")
 
     # Augment each chapter with model_timelines
-    augmented = 0
+    augmented: int = 0
     for ch in chapter_data['chapters']:
-        game_id = str(ch['game_id'])
+        game_id: str = str(ch['game_id'])
         # video_time = game_relative_t + chapter['start_time'] + 1
         # because chapter['start_time'] = max(0, game_start_video_seconds - 1)
-        video_offset = ch['start_time'] + 1
+        video_offset: float = ch['start_time'] + 1
 
-        model_timelines = {}
+        model_timelines: dict[str, list[dict[str, float]]] = {}
         for pred_set in prediction_sets:
             game_preds = pred_set['games'].get(game_id)
             if game_preds is None:

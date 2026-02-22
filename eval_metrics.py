@@ -4,16 +4,24 @@ Computes standard, calibration, temporal, and KQ-specific domain metrics
 from a model and game data (or raw predictions/labels).
 """
 
+from typing import Any, Protocol
+
 import numpy as np
+import numpy.typing as npt
 import sklearn.metrics
 
 from fast_materialize import fast_materialize
 from symmetry import swap_teams
 
 
+class Predictor(Protocol):
+    def predict(self, X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]: ...
+
+
 # --- Standard metrics ---
 
-def compute_standard_metrics(predictions, labels):
+def compute_standard_metrics(predictions: npt.NDArray[np.float64],
+                             labels: npt.NDArray[np.float64]) -> dict[str, float]:
     """Compute standard binary classification metrics.
 
     Args:
@@ -43,7 +51,9 @@ def compute_standard_metrics(predictions, labels):
 
 # --- Calibration metrics ---
 
-def compute_calibration_metrics(predictions, labels, n_bins=10):
+def compute_calibration_metrics(predictions: npt.NDArray[np.float64],
+                                labels: npt.NDArray[np.float64],
+                                n_bins: int = 10) -> dict[str, Any]:
     """Compute expected calibration error (ECE) with equal-width bins.
 
     Args:
@@ -93,10 +103,13 @@ def compute_calibration_metrics(predictions, labels, n_bins=10):
 
 # --- Temporal metrics ---
 
-DEFAULT_TIME_BINS = [5, 30, 60, 90, 120, 180, 300, float('inf')]
+DEFAULT_TIME_BINS: list[float] = [5, 30, 60, 90, 120, 180, 300, float('inf')]
 
 
-def compute_temporal_metrics(predictions, labels, timestamps, time_bins=None):
+def compute_temporal_metrics(predictions: npt.NDArray[np.float64],
+                             labels: npt.NDArray[np.float64],
+                             timestamps: npt.NDArray[np.float32],
+                             time_bins: list[float] | None = None) -> dict[str, Any]:
     """Compute metrics binned by game time.
 
     Args:
@@ -148,7 +161,10 @@ def compute_temporal_metrics(predictions, labels, timestamps, time_bins=None):
 
 # --- KQ-specific metrics ---
 
-def compute_kq_metrics(model, states, labels, *, sample_size=5000):
+def compute_kq_metrics(model: Predictor,
+                       states: npt.NDArray[np.float32],
+                       labels: npt.NDArray[np.float64],
+                       *, sample_size: int = 5000) -> dict[str, float | int]:
     """Compute KQ domain-specific metrics: egg inversions and symmetry deviation.
 
     Args:
@@ -178,7 +194,7 @@ def compute_kq_metrics(model, states, labels, *, sample_size=5000):
         egg_inversion_rate = 0.0
 
     # Symmetry deviation: |P(X) + P(swap(X)) - 1| should be 0 for perfect symmetry.
-    swap_X, _ = swap_teams(states, labels)
+    swap_X, _ = swap_teams(states, labels)  # type: ignore[arg-type]
     p_orig = model.predict(states)
     p_swap = model.predict(swap_X)
     symmetry_deviation = float(np.mean(np.abs(p_orig + p_swap - 1.0)))
@@ -192,9 +208,10 @@ def compute_kq_metrics(model, states, labels, *, sample_size=5000):
 
 # --- Top-level orchestrator ---
 
-def evaluate(model, csv_pattern, *, ratings_by_game=None,
-             drop_state_probability=0.0, sample_size=5000,
-             n_calibration_bins=10):
+def evaluate(model: Predictor, csv_pattern: str, *,
+             ratings_by_game: dict[int, npt.NDArray[np.float32]] | None = None,
+             drop_state_probability: float = 0.0, sample_size: int = 5000,
+             n_calibration_bins: int = 10) -> dict[str, Any]:
     """Full evaluation: materialize data, predict, compute all metrics.
 
     Args:
@@ -228,7 +245,7 @@ def evaluate(model, csv_pattern, *, ratings_by_game=None,
 
 # --- Display utility ---
 
-def print_metrics(metrics, name=''):
+def print_metrics(metrics: dict[str, Any], name: str = '') -> None:
     """Print formatted summary of evaluation metrics."""
     header = f"Evaluation: {name}" if name else "Evaluation Results"
     print(f"\n{'=' * 60}")
