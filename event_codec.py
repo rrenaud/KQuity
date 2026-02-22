@@ -520,7 +520,7 @@ def read_packed_games(path: str) -> collections.abc.Iterator[tuple[int, bytes]]:
             yield game_id, data
 
 
-def _read_csv_games(csv_glob: str) -> tuple[dict[int, list[tuple[object, str, str]]], list[int]]:
+def _read_csv_games(csv_glob: str) -> tuple[dict[int, list[tuple[datetime.datetime, str, str]]], list[int]]:
     """Read games from CSV/gzip files into a dict keyed by game_id.
 
     Returns:
@@ -530,7 +530,7 @@ def _read_csv_games(csv_glob: str) -> tuple[dict[int, list[tuple[object, str, st
     import csv as csv_mod
     import gzip
 
-    games: dict[int, list[tuple[object, str, str]]] = {}
+    games: dict[int, list[tuple[datetime.datetime, str, str]]] = {}
     game_order: list[int] = []
     for filename in sorted(glob.glob(csv_glob)):
         opener = gzip.open if filename.endswith('.gz') else open
@@ -550,7 +550,7 @@ def _read_csv_games(csv_glob: str) -> tuple[dict[int, list[tuple[object, str, st
     return games, game_order
 
 
-def _encode_games(games: dict[int, list[tuple[object, str, str]]],
+def _encode_games(games: dict[int, list[tuple[datetime.datetime, str, str]]],
                   game_order: list[int]) -> tuple[list[tuple[int, bytes]], int]:
     """Encode parsed games into binary, returning (entries, rejected_count).
 
@@ -559,7 +559,7 @@ def _encode_games(games: dict[int, list[tuple[object, str, str]]],
     entries: list[tuple[int, bytes]] = []
     rejected = 0
     for game_id in game_order:
-        encoded = encode_game(list(games[game_id]))  # type: ignore[arg-type]
+        encoded = encode_game(list(games[game_id]))
         if encoded is None:
             rejected += 1
             continue

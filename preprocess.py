@@ -8,7 +8,7 @@ import os
 import pathlib
 import pickle
 import random
-from collections.abc import Iterator, Iterable
+from collections.abc import Callable, Iterator, Iterable
 from typing import Any, TypeAlias
 
 import dateutil.parser
@@ -475,7 +475,7 @@ def parse_event(raw_event_row: dict[str, str]) -> GameEvent | None:
                         'glance',
                         'enteredGameScreen', 'signInPlayer', 'signOutPlayer',
                         }
-    dispatcher: dict[str, Any] = {
+    dispatcher: dict[str, Callable[[list[str]], GameEvent]] = {
                   'berryDeposit': BerryDepositEvent,
                   'berryKickIn': BerryKickInEvent,
                   'carryFood': CarryFoodEvent,
@@ -501,7 +501,7 @@ def parse_event(raw_event_row: dict[str, str]) -> GameEvent | None:
     event = dispatcher[event_type](payload_values)
     event.timestamp = dateutil.parser.isoparse(raw_event_row['timestamp'])
     event.game_id = int(raw_event_row['game_id'])
-    return event  # type: ignore[no-any-return]
+    return event
 
 
 def normalize_times(events: GameEventsList) -> GameEventsList:
@@ -767,7 +767,7 @@ def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIter
                               drop_state_probability: float = 0.0,
                               noisy: bool = False,
                               ratings_by_game: dict[int, npt.NDArray[np.float32]] | None = None,
-                              ) -> tuple[GameStatesMatrix, npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+                              ) -> tuple[GameStatesMatrix, npt.NDArray[np.int8], npt.NDArray[np.int64]]:
     vectorized_states: list[GameStateVector] = []
     labels: list[int] = []
     game_ids: list[int] = []
@@ -785,11 +785,12 @@ def create_game_states_matrix(game_states_with_full_game: StatesWithFullGameIter
                 game_ratings = ratings_by_game.get(game_id)
             vectorized_states.append(vectorize_game_state(game_state, event, game_ratings))
             last_event = all_game_events[-1]
-            assert isinstance(last_event, VictoryEvent)
+            if not isinstance(last_event, VictoryEvent):
+                raise TypeError(f"Expected VictoryEvent, got {type(last_event).__name__}")
             labels.append(1 if last_event.winning_team == Team.BLUE else 0)
             game_ids.append(game_id)
 
-    return np.vstack(vectorized_states), np.array(labels), np.array(game_ids, dtype=np.int64)
+    return np.vstack(vectorized_states), np.array(labels, dtype=np.int8), np.array(game_ids, dtype=np.int64)
 
 
 def materialize_game_state_matrix(csv_path: str, drop_state_probability: float, expt_name: str) -> None:

@@ -10,7 +10,7 @@ import csv
 import gzip
 import os
 import time
-from typing import Any
+from typing import Any, IO
 
 
 def compute_login_counts(usergame_csv_path: str) -> dict[int, int]:
@@ -76,7 +76,7 @@ def stream_and_repartition(game_to_partition: dict[int, int]) -> None:
     """Stream source partitions and write events to output partitions."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    open_writers: dict[int, tuple[gzip.GzipFile, Any]] = {}  # partition_num -> (gzip_file, csv_writer)
+    open_writers: dict[int, tuple[IO[str], Any]] = {}  # partition_num -> (gzip_file, csv_writer)
     header: list[str] | None = None
     games_written: set[int] = set()
     events_written: int = 0
@@ -150,7 +150,7 @@ def _flush_game(
     game_id: int,
     buffer: list[list[str]],
     game_to_partition: dict[int, int],
-    open_writers: dict[int, tuple[gzip.GzipFile, Any]],
+    open_writers: dict[int, tuple[IO[str], Any]],
     header: list[str],
 ) -> None:
     """Write buffered events for a game to its output partition."""
@@ -161,7 +161,7 @@ def _flush_game(
         gz_file = gzip.open(outpath, 'wt')
         writer = csv.writer(gz_file)
         writer.writerow(header)
-        open_writers[part_num] = (gz_file, writer)  # type: ignore[assignment]
+        open_writers[part_num] = (gz_file, writer)
 
     _, writer = open_writers[part_num]
     writer.writerows(buffer)

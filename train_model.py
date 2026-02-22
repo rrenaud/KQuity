@@ -293,9 +293,9 @@ def materialize_partition_range(
             game_states_iter = iterate_game_events_with_state(events, map_structure_infos)
 
             try:
-                states, labels_i64, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
+                states, labels, _ = create_game_states_matrix(game_states_iter, drop_prob, noisy=False)
                 all_states.append(states)
-                all_labels.append(labels_i64.astype(np.int8))
+                all_labels.append(labels)
             except Exception as e:
                 print(f"    Error processing {csv_path}: {e}")
 
