@@ -174,7 +174,7 @@ def _compute_counterfactuals(
 
 
 def _compute_egg_grid(
-    w: list[list[list[bool]]], eggs: list[int], food_count: list[int],
+    w: list[list[list[bool]]], food_count: list[int],
     maiden_states: list[int], map_idx: int, snail_x: float,
     snail_vel: float, snail_last_ts: float, rel_ts: float,
     berries_avail: int, gold_sym: float,
@@ -278,7 +278,7 @@ def _vectorize_game(
     cf_entries: list[tuple[int, str, list[float] | None]] = [] if counterfactuals else []
     # For egg grid: list of (event_idx, 9 feature vectors, [current_blue_eggs, current_gold_eggs])
     eg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
-    # For berry grid: list of (event_idx, 16 feature vectors, [current_blue_food, current_gold_food])
+    # For berry grid: list of (event_idx, 25 feature vectors, [current_blue_food, current_gold_food])
     bg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
 
     for dt, event_type, values_str in raw_events:
@@ -303,7 +303,7 @@ def _vectorize_game(
                 for name, vec_or_list in cfs:
                     cf_entries.append((event_idx, name, vec_or_list))
                 eg_vecs = _compute_egg_grid(
-                    w, eggs, food_count, maiden_states,
+                    w, food_count, maiden_states,
                     map_idx, snail_x, snail_vel, snail_last_ts,
                     rel_ts, berries_avail, gold_sym)
                 eg_entries.append((event_idx, eg_vecs, list(eggs)))
