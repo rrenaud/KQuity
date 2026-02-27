@@ -26,6 +26,7 @@ import datetime
 import glob
 import gzip
 import json
+import multiprocessing
 import os
 import sys
 from typing import Any
@@ -172,14 +173,65 @@ def _compute_counterfactuals(
     return results
 
 
-def _process_game_predictions(
-    raw_events: list[tuple[datetime.datetime, str, str]],
-    model: lgb.Booster,
-    counterfactuals: bool = False,
-) -> tuple[list[dict[str, Any]], bool] | None:
-    """Process one game's events, return (predictions, gold_on_left) tuple.
+def _compute_egg_grid(
+    w: list[list[list[bool]]], food_count: list[int],
+    maiden_states: list[int], map_idx: int, snail_x: float,
+    snail_vel: float, snail_last_ts: float, rel_ts: float,
+    berries_avail: int, gold_sym: float,
+) -> list[list[float] | None]:
+    """Compute feature vectors for all 9 (blue_eggs, gold_eggs) combinations.
 
-    Returns None if the game is invalid (no gamestart/mapstart).
+    Returns list of 9 feature vectors indexed as [blue_eggs * 3 + gold_eggs].
+    """
+    vectors: list[list[float] | None] = []
+    for be in range(3):
+        for ge in range(3):
+            ce = [be, ge]
+            vec = _vectorize_counterfactual(
+                w, ce, food_count, maiden_states, map_idx, snail_x,
+                snail_vel, snail_last_ts, rel_ts, berries_avail, gold_sym)
+            vectors.append(vec)
+    return vectors
+
+
+BERRY_DELTAS = [0, 1, 2, 3, 4]
+N_BERRY_DELTAS = len(BERRY_DELTAS)
+
+
+def _compute_berry_grid(
+    w: list[list[list[bool]]], eggs: list[int], food_count: list[int],
+    maiden_states: list[int], map_idx: int, snail_x: float,
+    snail_vel: float, snail_last_ts: float, rel_ts: float,
+    berries_avail: int, gold_sym: float,
+) -> list[list[float] | None]:
+    """Compute feature vectors for berry delta combinations [0..4].
+
+    Each delta adds berries to the current food_count (clamped to 12).
+    Returns list of N_BERRY_DELTAS^2 feature vectors indexed as
+    [blue_delta_idx * N_BERRY_DELTAS + gold_delta_idx].
+    """
+    vectors: list[list[float] | None] = []
+    for bd in BERRY_DELTAS:
+        for gd in BERRY_DELTAS:
+            cfc = [min(12, food_count[0] + bd),
+                   min(12, food_count[1] + gd)]
+            total_delta = (cfc[0] - food_count[0]) + (cfc[1] - food_count[1])
+            cba = max(0, berries_avail - total_delta)
+            vec = _vectorize_counterfactual(
+                w, eggs, cfc, maiden_states, map_idx, snail_x,
+                snail_vel, snail_last_ts, rel_ts, cba, gold_sym)
+            vectors.append(vec)
+    return vectors
+
+
+def _vectorize_game(
+    raw_events: list[tuple[datetime.datetime, str, str]],
+    counterfactuals: bool = False,
+) -> dict[str, Any] | None:
+    """Replay one game's events and produce all feature vectors.
+
+    Returns a dict with vectorized data (no model needed), or None if invalid.
+    This is the CPU-heavy step that benefits from multiprocessing.
     """
     raw_events.sort(key=lambda x: x[0])
 
@@ -224,6 +276,10 @@ def _process_game_predictions(
     timestamps: list[float] = []
     # For counterfactuals: list of (event_idx, event_name, feature_vec_or_list)
     cf_entries: list[tuple[int, str, list[float] | None]] = [] if counterfactuals else []
+    # For egg grid: list of (event_idx, 9 feature vectors, [current_blue_eggs, current_gold_eggs])
+    eg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
+    # For berry grid: list of (event_idx, 25 feature vectors, [current_blue_food, current_gold_food])
+    bg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
 
     for dt, event_type, values_str in raw_events:
         rel_ts = (dt - gamestart_dt).total_seconds()
@@ -246,6 +302,16 @@ def _process_game_predictions(
                     rel_ts, berries_avail, gold_sym)
                 for name, vec_or_list in cfs:
                     cf_entries.append((event_idx, name, vec_or_list))
+                eg_vecs = _compute_egg_grid(
+                    w, food_count, maiden_states,
+                    map_idx, snail_x, snail_vel, snail_last_ts,
+                    rel_ts, berries_avail, gold_sym)
+                eg_entries.append((event_idx, eg_vecs, list(eggs)))
+                bg_vecs = _compute_berry_grid(
+                    w, eggs, food_count, maiden_states,
+                    map_idx, snail_x, snail_vel, snail_last_ts,
+                    rel_ts, berries_avail, gold_sym)
+                bg_entries.append((event_idx, bg_vecs, list(food_count)))
 
         # Apply state mutation (copied from fast_materialize._process_game)
         if event_type == 'spawn':
@@ -340,6 +406,38 @@ def _process_game_predictions(
     if not states:
         return None
 
+    return {
+        'states': states,
+        'timestamps': timestamps,
+        'gold_on_left': gold_on_left,
+        'counterfactuals': counterfactuals,
+        'cf_entries': cf_entries,
+        'eg_entries': eg_entries,
+        'bg_entries': bg_entries,
+    }
+
+
+def _vectorize_game_wrapper(
+    args: tuple[int, list[tuple[datetime.datetime, str, str]], bool],
+) -> tuple[int, dict[str, Any] | None]:
+    """Wrapper for multiprocessing Pool — unpacks args tuple."""
+    game_id, events, counterfactuals = args
+    return game_id, _vectorize_game(events, counterfactuals)
+
+
+def _predict_and_assemble(
+    vec_data: dict[str, Any],
+    model: lgb.Booster,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Run model prediction on vectorized game data and assemble results."""
+    states = vec_data['states']
+    timestamps = vec_data['timestamps']
+    gold_on_left = vec_data['gold_on_left']
+    counterfactuals = vec_data['counterfactuals']
+    cf_entries = vec_data['cf_entries']
+    eg_entries = vec_data['eg_entries']
+    bg_entries = vec_data['bg_entries']
+
     if not counterfactuals or not cf_entries:
         # Simple path: just baseline predictions
         X = np.array(states, dtype=np.float32)
@@ -348,16 +446,26 @@ def _process_game_predictions(
                  for t, p in zip(timestamps, preds)], gold_on_left)
 
     # Counterfactual path: batch all vectors into one predict call
-    # Build combined matrix: baselines first, then all counterfactual vectors
     n_baselines = len(states)
     all_vectors = list(states)
 
-    # Track where each counterfactual's prediction lands in the combined array
     cf_map: list[tuple[int, str, int]] = []
     for event_idx, name, vec in cf_entries:
         start = len(all_vectors)
         all_vectors.append(vec)
         cf_map.append((event_idx, name, start))
+
+    eg_map: list[tuple[int, int, list[int]]] = []
+    for event_idx, eg_vecs, current_eggs in eg_entries:
+        start = len(all_vectors)
+        all_vectors.extend(eg_vecs)
+        eg_map.append((event_idx, start, current_eggs))
+
+    bg_map: list[tuple[int, int, list[int]]] = []
+    for event_idx, bg_vecs, current_food in bg_entries:
+        start = len(all_vectors)
+        all_vectors.extend(bg_vecs)
+        bg_map.append((event_idx, start, current_food))
 
     X = np.array(all_vectors, dtype=np.float32)
     all_preds = model.predict(X)
@@ -370,11 +478,32 @@ def _process_game_predictions(
         if abs(delta) >= 0.001:  # skip negligible
             cf_dicts[event_idx][name] = round(delta, 4)
 
+    # Build per-event egg grid arrays
+    eg_arrays: dict[int, list[float]] = {}
+    ee_arrays: dict[int, list[int]] = {}
+    for event_idx, start, current_eggs in eg_map:
+        eg_arrays[event_idx] = [round(float(all_preds[start + i]), 4) for i in range(9)]
+        ee_arrays[event_idx] = current_eggs
+
+    # Build per-event berry grid arrays
+    n_bg = N_BERRY_DELTAS * N_BERRY_DELTAS
+    bg_arrays: dict[int, list[float]] = {}
+    bc_arrays: dict[int, list[int]] = {}
+    for event_idx, start, current_food in bg_map:
+        bg_arrays[event_idx] = [round(float(all_preds[start + i]), 4) for i in range(n_bg)]
+        bc_arrays[event_idx] = current_food
+
     results: list[dict[str, Any]] = []
     for i, (t, p) in enumerate(zip(timestamps, baseline_preds)):
         entry: dict[str, Any] = {'t': round(t, 2), 'p': round(float(p), 4)}
         if cf_dicts[i]:
             entry['c'] = cf_dicts[i]
+        if i in eg_arrays:
+            entry['eg'] = eg_arrays[i]
+            entry['ee'] = ee_arrays[i]
+        if i in bg_arrays:
+            entry['bg'] = bg_arrays[i]
+            entry['bc'] = bc_arrays[i]
         results.append(entry)
     return results, gold_on_left
 
@@ -470,16 +599,23 @@ def main() -> None:
     games = load_games_from_partitions(args.data_dir, target_game_ids)
     print(f"Found {len(games)} games")
 
-    # Generate predictions
+    # Phase 1: Vectorize all games in parallel (CPU-bound Python)
+    work_items = [(game_id, events, args.counterfactuals)
+                  for game_id, events in sorted(games.items())]
+    n_workers = min(len(work_items), multiprocessing.cpu_count() or 1)
+    print(f"Vectorizing {len(work_items)} games with {n_workers} workers...")
+    with multiprocessing.Pool(n_workers) as pool:
+        vec_results = pool.map(_vectorize_game_wrapper, work_items)
+
+    # Phase 2: Predict sequentially (LightGBM uses threads internally)
     results: dict[str, list[dict[str, Any]]] = {}
     gold_on_left_map: dict[str, bool] = {}
-    for game_id, events in sorted(games.items()):
-        result = _process_game_predictions(events, model,
-                                           counterfactuals=args.counterfactuals)
-        if result is not None:
-            preds, gol = result
-            results[str(game_id)] = preds
-            gold_on_left_map[str(game_id)] = gol
+    for game_id, vec_data in vec_results:
+        if vec_data is None:
+            continue
+        preds, gol = _predict_and_assemble(vec_data, model)
+        results[str(game_id)] = preds
+        gold_on_left_map[str(game_id)] = gol
 
     print(f"Generated predictions for {len(results)} games")
 

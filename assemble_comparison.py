@@ -53,8 +53,13 @@ def main() -> None:
             if game_preds is None:
                 continue
             # Convert game-relative → video-relative timestamps
-            timeline = [{'t': round(pt['t'] + video_offset, 2), 'p': pt['p']}
-                        for pt in game_preds]
+            timeline = []
+            for pt in game_preds:
+                entry = {'t': round(pt['t'] + video_offset, 2), 'p': pt['p']}
+                for key in ('c', 'sx', 'eg', 'ee', 'bg', 'bc'):
+                    if key in pt:
+                        entry[key] = pt[key]
+                timeline.append(entry)
             model_timelines[pred_set['name']] = timeline
 
         if model_timelines:
