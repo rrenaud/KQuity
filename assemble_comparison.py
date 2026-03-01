@@ -56,7 +56,7 @@ def main() -> None:
             timeline = []
             for pt in game_preds:
                 entry = {'t': round(pt['t'] + video_offset, 2), 'p': pt['p']}
-                for key in ('c', 'sx', 'eg', 'ee', 'bg', 'bc'):
+                for key in ('c', 'sx', 'eg', 'ee', 'bg', 'bc', 'sp', 'sc', 'st'):
                     if key in pt:
                         entry[key] = pt[key]
                 timeline.append(entry)

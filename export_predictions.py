@@ -207,14 +207,18 @@ def _compute_berry_grid(
     """Compute feature vectors for berry delta combinations [0..4].
 
     Each delta adds berries to the current food_count (clamped to 12).
-    Returns list of N_BERRY_DELTAS^2 feature vectors indexed as
+    Returns list of N_BERRY_DELTAS^2 entries indexed as
     [blue_delta_idx * N_BERRY_DELTAS + gold_delta_idx].
+    Entries are None for game-over states (food_count >= 12).
     """
     vectors: list[list[float] | None] = []
     for bd in BERRY_DELTAS:
         for gd in BERRY_DELTAS:
             cfc = [min(12, food_count[0] + bd),
                    min(12, food_count[1] + gd)]
+            if cfc[0] >= 12 or cfc[1] >= 12:
+                vectors.append(None)  # game-over state, skip prediction
+                continue
             total_delta = (cfc[0] - food_count[0]) + (cfc[1] - food_count[1])
             cba = max(0, berries_avail - total_delta)
             vec = _vectorize_counterfactual(
@@ -222,6 +226,64 @@ def _compute_berry_grid(
                 snail_vel, snail_last_ts, rel_ts, cba, gold_sym)
             vectors.append(vec)
     return vectors
+
+
+SNAIL_CHUNKS = 12
+# Snail track endpoints in pixel space (hive x-coordinates, same for all maps).
+# Must match mapStructures snail_left/snail_right in the viewer's SnailBar.
+SNAIL_LEFT_PX = 60
+SNAIL_RIGHT_PX = 1860
+SNAIL_TRACK_PX = SNAIL_RIGHT_PX - SNAIL_LEFT_PX
+# Grid positions: 12 evenly-spaced pixel positions along the track
+SNAIL_POSITIONS_PX = [SNAIL_LEFT_PX + (i + 0.5) / SNAIL_CHUNKS * SNAIL_TRACK_PX
+                      for i in range(SNAIL_CHUNKS)]
+
+
+def _snail_px_to_index(px: float) -> int:
+    """Quantize a pixel x-position to a snail bar cell index 0-11."""
+    frac = (px - SNAIL_LEFT_PX) / SNAIL_TRACK_PX
+    idx = int(frac * SNAIL_CHUNKS)
+    return max(0, min(SNAIL_CHUNKS - 1, idx))
+
+
+def _compute_snail_grid(
+    w: list[list[list[bool]]], eggs: list[int], food_count: list[int],
+    maiden_states: list[int], map_idx: int, snail_x: float,
+    snail_vel: float, snail_last_ts: float, rel_ts: float,
+    berries_avail: int, gold_sym: float,
+) -> tuple[list[list[float]], list[float] | None]:
+    """Compute feature vectors for 12 discrete snail positions + 1 takeover.
+
+    Positions are evenly spaced along the track (pixel 60-1860).
+    gold_on_left: pixel 60=gold hive (left), pixel 1860=blue hive (right).
+
+    Returns (position_vectors, takeover_vector) where:
+    - position_vectors: 12 feature vectors with snail at each discrete position
+      (keeping current velocity/owner)
+    - takeover_vector: feature vector with current position but flipped velocity,
+      or None when snail_vel == 0 (takeover is identical to baseline)
+    """
+    vectors: list[list[float]] = []
+    for px in SNAIL_POSITIONS_PX:
+        # gold_on_left: px is the actual pixel position
+        # !gold_on_left: the game mirror flips, so pixel 60 is blue hive
+        # _vectorize_counterfactual handles the gold_sym normalization internally
+        actual_px = px if gold_sym > 0 else (SCREEN_WIDTH - px)
+        # rel_ts passed as both snail_last_ts and event_ts so that
+        # inferred_pos = actual_px + (event_ts - snail_last_ts)*vel = actual_px
+        vec = _vectorize_counterfactual(
+            w, eggs, food_count, maiden_states, map_idx, actual_px,
+            snail_vel, rel_ts, rel_ts, berries_avail, gold_sym)
+        vectors.append(vec)
+
+    # Takeover vector: same position, flipped velocity.
+    # Skip when vel==0 — flipping zero produces identical baseline prediction.
+    if snail_vel == 0.0:
+        return vectors, None
+    takeover_vec = _vectorize_counterfactual(
+        w, eggs, food_count, maiden_states, map_idx, snail_x,
+        -snail_vel, snail_last_ts, rel_ts, berries_avail, gold_sym)
+    return vectors, takeover_vec
 
 
 def _vectorize_game(
@@ -280,6 +342,8 @@ def _vectorize_game(
     eg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
     # For berry grid: list of (event_idx, 25 feature vectors, [current_blue_food, current_gold_food])
     bg_entries: list[tuple[int, list[list[float] | None], list[int]]] = [] if counterfactuals else []
+    # For snail grid: list of (event_idx, 12 position vectors, takeover vector, snail_x, snail_vel, gold_sym)
+    sg_entries: list[tuple[int, list[list[float]], list[float] | None, float, float, float]] = [] if counterfactuals else []
 
     for dt, event_type, values_str in raw_events:
         rel_ts = (dt - gamestart_dt).total_seconds()
@@ -312,6 +376,11 @@ def _vectorize_game(
                     map_idx, snail_x, snail_vel, snail_last_ts,
                     rel_ts, berries_avail, gold_sym)
                 bg_entries.append((event_idx, bg_vecs, list(food_count)))
+                sg_vecs, sg_takeover = _compute_snail_grid(
+                    w, eggs, food_count, maiden_states,
+                    map_idx, snail_x, snail_vel, snail_last_ts,
+                    rel_ts, berries_avail, gold_sym)
+                sg_entries.append((event_idx, sg_vecs, sg_takeover, snail_x, snail_vel, gold_sym))
 
         # Apply state mutation (copied from fast_materialize._process_game)
         if event_type == 'spawn':
@@ -414,6 +483,7 @@ def _vectorize_game(
         'cf_entries': cf_entries,
         'eg_entries': eg_entries,
         'bg_entries': bg_entries,
+        'sg_entries': sg_entries,
     }
 
 
@@ -437,6 +507,7 @@ def _predict_and_assemble(
     cf_entries = vec_data['cf_entries']
     eg_entries = vec_data['eg_entries']
     bg_entries = vec_data['bg_entries']
+    sg_entries = vec_data['sg_entries']
 
     if not counterfactuals or not cf_entries:
         # Simple path: just baseline predictions
@@ -461,11 +532,25 @@ def _predict_and_assemble(
         all_vectors.extend(eg_vecs)
         eg_map.append((event_idx, start, current_eggs))
 
-    bg_map: list[tuple[int, int, list[int]]] = []
+    bg_map: list[tuple[int, int, list[int], list[bool]]] = []
     for event_idx, bg_vecs, current_food in bg_entries:
         start = len(all_vectors)
-        all_vectors.extend(bg_vecs)
-        bg_map.append((event_idx, start, current_food))
+        # Track which positions are None (game-over states) vs valid
+        valid_mask = [v is not None for v in bg_vecs]
+        all_vectors.extend(v for v in bg_vecs if v is not None)
+        bg_map.append((event_idx, start, current_food, valid_mask))
+
+    sg_map: list[tuple[int, int, int | None, float, float, float]] = []
+    for event_idx, sg_vecs, sg_takeover, sx, sv, gsym in sg_entries:
+        pos_start = len(all_vectors)
+        # _vectorize_counterfactual always returns a vector (never None) for
+        # snail positions, so we extend without filtering unlike berry grid.
+        all_vectors.extend(sg_vecs)
+        takeover_idx: int | None = None
+        if sg_takeover is not None:
+            takeover_idx = len(all_vectors)
+            all_vectors.append(sg_takeover)
+        sg_map.append((event_idx, pos_start, takeover_idx, sx, sv, gsym))
 
     X = np.array(all_vectors, dtype=np.float32)
     all_preds = model.predict(X)
@@ -485,13 +570,39 @@ def _predict_and_assemble(
         eg_arrays[event_idx] = [round(float(all_preds[start + i]), 4) for i in range(9)]
         ee_arrays[event_idx] = current_eggs
 
-    # Build per-event berry grid arrays
-    n_bg = N_BERRY_DELTAS * N_BERRY_DELTAS
-    bg_arrays: dict[int, list[float]] = {}
+    # Build per-event berry grid arrays (re-inserting None for game-over states)
+    bg_arrays: dict[int, list[float | None]] = {}
     bc_arrays: dict[int, list[int]] = {}
-    for event_idx, start, current_food in bg_map:
-        bg_arrays[event_idx] = [round(float(all_preds[start + i]), 4) for i in range(n_bg)]
+    for event_idx, start, current_food, valid_mask in bg_map:
+        arr: list[float | None] = []
+        pred_idx = start
+        for is_valid in valid_mask:
+            if is_valid:
+                arr.append(round(float(all_preds[pred_idx]), 4))
+                pred_idx += 1
+            else:
+                arr.append(None)
+        bg_arrays[event_idx] = arr
         bc_arrays[event_idx] = current_food
+
+    # Build per-event snail grid arrays
+    sp_arrays: dict[int, list[float]] = {}
+    sc_arrays: dict[int, int] = {}
+    st_arrays: dict[int, float] = {}
+    for event_idx, pos_start, takeover_idx, sx, sv, gsym in sg_map:
+        sp_arrays[event_idx] = [round(float(all_preds[pos_start + i]), 4) for i in range(SNAIL_CHUNKS)]
+        # Quantize current snail position to track-relative index 0-11
+        baseline_vec = states[event_idx]
+        if baseline_vec is not None:
+            norm_pos = baseline_vec[49]  # snail_pos feature
+            # Recover pixel position: norm_pos = (px / 1920 - 0.5) * gold_sym
+            inferred_px = (norm_pos / gsym + 0.5) * SCREEN_WIDTH
+            # For !gold_on_left (gsym=-1), pixel space is mirrored
+            if gsym < 0:
+                inferred_px = SCREEN_WIDTH - inferred_px
+            sc_arrays[event_idx] = _snail_px_to_index(inferred_px)
+        if takeover_idx is not None:
+            st_arrays[event_idx] = round(float(all_preds[takeover_idx]), 4)
 
     results: list[dict[str, Any]] = []
     for i, (t, p) in enumerate(zip(timestamps, baseline_preds)):
@@ -504,6 +615,14 @@ def _predict_and_assemble(
         if i in bg_arrays:
             entry['bg'] = bg_arrays[i]
             entry['bc'] = bc_arrays[i]
+        if i in sp_arrays:
+            entry['sp'] = sp_arrays[i]
+            # sc absent if baseline_vec was None (shouldn't happen in practice)
+            if i in sc_arrays:
+                entry['sc'] = sc_arrays[i]
+            # st absent when snail is idle (vel==0, takeover == baseline)
+            if i in st_arrays:
+                entry['st'] = st_arrays[i]
         results.append(entry)
     return results, gold_on_left
 
