@@ -45,7 +45,7 @@ class WorkerState(NamedTuple):
 
 BASELINE_WORKER_STATE = WorkerState(4, 0, 0, 0)
 
-_CHARACTER_PRIORITY = ['skull', 'abs', 'stripes', 'checkers']
+CHARACTER_PRIORITY = ['skull', 'abs', 'stripes', 'checkers']
 
 
 def enumerate_team_states() -> list[TeamState]:
@@ -317,7 +317,7 @@ def fit_structured_model(
     return result
 
 
-def _assign_characters(
+def assign_characters(
     state: WorkerState,
 ) -> list[tuple[str, bool, bool]]:
     """Map workers to characters by priority.
@@ -339,11 +339,11 @@ def _assign_characters(
         upgrades.append((False, False))
     return [
         (char, is_war, is_spd)
-        for char, (is_war, is_spd) in zip(_CHARACTER_PRIORITY, upgrades)
+        for char, (is_war, is_spd) in zip(CHARACTER_PRIORITY, upgrades)
     ]
 
 
-def _compute_transitions(
+def compute_transitions(
     worker_states: list[WorkerState],
     values: npt.NDArray[np.float64],
     state_index: dict[WorkerState, int],
@@ -363,7 +363,7 @@ def _compute_transitions(
         src_idx = state_index[state]
         src_val = values[src_idx]
         src_win = _sigmoid(src_val) * 100.0
-        assignments = _assign_characters(state)
+        assignments = assign_characters(state)
         for ci, (_char_type, is_warrior, is_speed) in enumerate(assignments):
             actions = []
 
@@ -664,6 +664,7 @@ def main() -> None:
 
     worker_values = None
     worker_counts = None
+    variant_r2: dict[str, float] = {}
 
     for variant_name, include_eggs, blue_idx, gold_idx in variants:
         if include_eggs:
@@ -679,6 +680,7 @@ def main() -> None:
             blue_idx, gold_idx, logit_p, len(states), baseline_idx)
 
         r2 = compute_r_squared(blue_idx, gold_idx, logit_p, values)
+        variant_r2[variant_name] = r2
 
         if not include_eggs:
             worker_values = values
@@ -693,15 +695,8 @@ def main() -> None:
     print(f"\n{'=' * 70}")
     print("  Summary: R-squared by variant")
     print(f"{'=' * 70}")
-    for variant_name, include_eggs, blue_idx, gold_idx in variants:
-        if include_eggs:
-            states, state_index, baseline_idx = team_states, team_state_index, team_baseline_idx
-        else:
-            states, state_index, baseline_idx = worker_states, worker_state_index, worker_baseline_idx
-        values, counts = solve_team_state_values(
-            blue_idx, gold_idx, logit_p, len(states), baseline_idx)
-        r2 = compute_r_squared(blue_idx, gold_idx, logit_p, values)
-        print(f"  {variant_name:<45s} R²={r2:.4f}")
+    for variant_name, *_ in variants:
+        print(f"  {variant_name:<45s} R²={variant_r2[variant_name]:.4f}")
 
     # --- Save JSON ---
     if args.json and worker_values is not None:

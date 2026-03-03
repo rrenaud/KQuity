@@ -10,8 +10,8 @@ import numpy as np
 import numpy.typing as npt
 
 from analysis.worker_state_values.team_state_value import (
-    WorkerState, _assign_characters, _compute_transitions,
-    _CHARACTER_PRIORITY, build_worker_state_index,
+    WorkerState, assign_characters, compute_transitions,
+    CHARACTER_PRIORITY, build_worker_state_index,
 )
 
 # Map character type to filename suffix in kq_sprites/.
@@ -24,10 +24,7 @@ _CHAR_TO_FILENAME = {
 
 _SPRITE_DIR = Path(__file__).parent.parent.parent / 'kq_sprites'
 
-# Set to False to strip wings from warrior sprites (keeps sword).
-_SHOW_WARRIOR_WINGS = False
-
-# Regex patterns to strip wing elements from warrior SVGs.
+# Regex patterns to strip wing elements from warrior SVGs (sword is kept).
 _WING_RE = re.compile(
     r'<path[^>]*\bd="M16,17h-3[^"]*"[^>]*/>'
     r'|<path[^>]*\bd="M10,18v1h-2[^"]*"[^>]*/>'
@@ -60,7 +57,7 @@ def _load_sprites(
             role = 'warrior' if is_warrior else 'drone'
             path = sprite_dir / f'blue-{role}-{fname}.svg'
             svg_bytes = path.read_bytes()
-            if is_warrior and not _SHOW_WARRIOR_WINGS:
+            if is_warrior:
                 svg_text = svg_bytes.decode('utf-8')
                 svg_text = _WING_RE.sub('', svg_text)
                 svg_bytes = svg_text.encode('utf-8')
@@ -132,7 +129,7 @@ def _render_row(
     win_pct = _sigmoid(val) * 100.0
 
     # Icons with state/char indices for interactivity
-    assignments = _assign_characters(state)
+    assignments = assign_characters(state)
     icons = ''.join(
         _render_worker_icon(ct, iw, isp, sprites,
                             state_idx=int(idx), char_idx=ci)
@@ -195,7 +192,7 @@ def generate_html(
 
     # Compute transitions for hover interactivity
     worker_state_index = build_worker_state_index()
-    transition_data = _compute_transitions(
+    transition_data = compute_transitions(
         worker_states, values, worker_state_index)
 
     # Partition into common and rare states
@@ -244,13 +241,13 @@ def generate_html(
 
     # Build sprites dict for JS: {char_type: {drone: dataURI, warrior: dataURI}}
     sprites_for_js = {}
-    for char_type in _CHARACTER_PRIORITY:
+    for char_type in CHARACTER_PRIORITY:
         sprites_for_js[char_type] = {
             'drone': sprites[(char_type, False)],
             'warrior': sprites[(char_type, True)],
         }
     sprites_json = json.dumps(sprites_for_js, separators=(',', ':'))
-    char_priority_json = json.dumps(_CHARACTER_PRIORITY)
+    char_priority_json = json.dumps(CHARACTER_PRIORITY)
 
     total_obs = int(np.sum(counts))
 
