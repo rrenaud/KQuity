@@ -18,7 +18,7 @@ import sys
 from typing import NamedTuple
 
 # Ensure repo root is on the path so we can import event_codec, etc.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import numpy.typing as npt
@@ -607,7 +607,7 @@ def main() -> None:
 
     # --- Fast path: generate HTML from pre-computed JSON ---
     if args.from_json:
-        from analysis.worker_state_values.html_visualization import generate_html
+        from worker_state_values.html_visualization import generate_html
         states, values, counts, baseline_idx = load_worker_stats_json(
             args.from_json)
         html_path = args.html or 'worker_state_values.html'
@@ -714,7 +714,7 @@ def main() -> None:
 
     # --- HTML visualization ---
     if args.html and worker_values is not None:
-        from analysis.worker_state_values.html_visualization import generate_html
+        from worker_state_values.html_visualization import generate_html
         generate_html(worker_states, worker_values, worker_counts,
                       worker_baseline_idx, args.html)
 

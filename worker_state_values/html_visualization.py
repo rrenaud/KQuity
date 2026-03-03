@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from analysis.worker_state_values.team_state_value import (
+from worker_state_values.team_state_value import (
     WorkerState, assign_characters, compute_transitions,
     CHARACTER_PRIORITY, build_worker_state_index,
 )
@@ -22,7 +22,7 @@ _CHAR_TO_FILENAME = {
     'checkers': 'checks',
 }
 
-_SPRITE_DIR = Path(__file__).parent.parent.parent / 'kq_sprites'
+_SPRITE_DIR = Path(__file__).parent.parent / 'kq_sprites'
 
 # Regex patterns to strip wing elements from warrior SVGs (sword is kept).
 _WING_RE = re.compile(
