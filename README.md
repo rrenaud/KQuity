@@ -12,6 +12,11 @@ A LightGBM classifier that predicts P(gold wins) from 52 in-game state features 
 
 Not all recorded games are competitive — many are casual warm-ups, kids mashing buttons, or half-empty cabinets. The quality classifier separates real games from junk using 69 hand-crafted features computed over the full event stream. It achieves an AUC of ~0.908 using logged-in games as positive examples and the unfiltered population as negatives, with tournament games anchoring the decision threshold. Its primary role is curating clean training data for the win-probability model.
 
+## Analysis
+
+- [Worker State Values](https://rrenaud.github.io/KQuity/) — How much does worker composition matter? Bradley-Terry linearization to isolate the effect of upgrades (warrior, speed drone, speed warrior) on win probability.
+- [Lockout Analysis](lockout_analysis/writeup.md) — When do teams lockout, how long does it last, and does it matter?
+
 ## Documentation
 
 - [Training Guide](docs/training_lightgbm_win_predictor.md) — How the win-probability model is trained end-to-end
