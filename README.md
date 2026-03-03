@@ -14,7 +14,7 @@ Not all recorded games are competitive — many are casual warm-ups, kids mashin
 
 ## Analysis
 
-- [Worker State Values](https://rrenaud.github.io/KQuity/worker_state_values.html) — How much does worker composition matter? Bradley-Terry linearization to isolate the effect of upgrades (warrior, speed drone, speed warrior) on win probability.
+- [Worker State Values](https://rrenaud.github.io/KQuity/worker_state_values/worker_state_values.html) — How much does worker composition matter? Bradley-Terry linearization to isolate the effect of upgrades (warrior, speed drone, speed warrior) on win probability.
 - [Lockout Analysis](lockout_analysis/writeup.md) — When do teams lockout, how long does it last, and does it matter?
 
 ## Documentation

@@ -57,6 +57,7 @@ nav:
     - Ratings Features: ratings_experiments.md
     - Symmetry Augmentation: model_experiments/symmetry_augmentation/report.md
     - Combined Scaling: model_experiments/combined_li_qf/combined_scaling_report.md
+  - Worker State Values: worker_state_values/worker_state_values.html
   - Lockout Analysis: lockout_analysis/writeup.md
   - Curated Game Subsets:
     - Logged-In Games: logged_in_games/README.md
