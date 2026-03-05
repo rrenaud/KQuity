@@ -1,0 +1,1448 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Win-probability model for Killer Queen (arcade)">
+      
+      
+      
+        <link rel="canonical" href="https://rrenaud.github.io/KQuity/game_quality_classifier/quality_classifier_report/">
+      
+      
+        <link rel="prev" href="../../docs/training_lightgbm_win_predictor/">
+      
+      
+        <link rel="next" href="../../model_experiments/rating_based_quality_experiments/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Report - KQuity</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#game-quality-classifier-experiment-report" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="KQuity" class="md-header__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            KQuity
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Report
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="KQuity" class="md-nav__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    KQuity
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/discord_ideas_plausibility_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Ideas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/training_lightgbm_win_predictor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Game Quality Classifier
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Game Quality Classifier
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Report
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-engineering-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Engineering Evolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-pipeline-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Pipeline Improvements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hyperparameter-sweep-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hyperparameter Sweep Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hyperparameter Sweep Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#baseline-old-defaults-num_leaves63-min_child_samples20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline (old defaults): num_leaves=63, min_child_samples=20
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-findings-sweep-with-old-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key findings (sweep with old defaults)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-retuning-defaults-to-num_leaves127-min_child_samples75" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After retuning defaults to num_leaves=127, min_child_samples=75
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#final-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Final Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downstream-validation-win-probability-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downstream Validation: Win-Probability Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downstream-validation-win-probability-training_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downstream Validation: Win-Probability Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-methodological-lesson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Methodological Lesson
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/rating_based_quality_experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rating-Based Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Win Prob Model Experiments
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Win Prob Model Experiments
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/data_quality_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ratings_experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ratings Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/symmetry_augmentation/report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symmetry Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/combined_li_qf/combined_scaling_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Combined Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../worker_state_values/worker_state_values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker State Values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../lockout_analysis/writeup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lockout Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Curated Game Subsets
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Curated Game Subsets
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../logged_in_games/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logged-In Games
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quality_filtered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quality Filtered
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-engineering-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Engineering Evolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-pipeline-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Pipeline Improvements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hyperparameter-sweep-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hyperparameter Sweep Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hyperparameter Sweep Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#baseline-old-defaults-num_leaves63-min_child_samples20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline (old defaults): num_leaves=63, min_child_samples=20
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-findings-sweep-with-old-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key findings (sweep with old defaults)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-retuning-defaults-to-num_leaves127-min_child_samples75" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After retuning defaults to num_leaves=127, min_child_samples=75
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#final-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Final Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downstream-validation-win-probability-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downstream Validation: Win-Probability Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#downstream-validation-win-probability-training_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Downstream Validation: Win-Probability Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-methodological-lesson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Methodological Lesson
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="game-quality-classifier-experiment-report">Game Quality Classifier — Experiment Report</h1>
+<h2 id="goal">Goal</h2>
+<p>Build a binary classifier to distinguish competitive Killer Queen games from
+junk/practice/button-check games, using only in-game event features (no login
+metadata at inference time).</p>
+<p><strong>Labels</strong>: games with lots of hivemind logins = 1 (proxy for quality), unfiltered games = 0 (mixed).
+<strong>Validation anchor</strong>: late tournament games should almost all pass the quality filter.</p>
+<h2 id="architecture">Architecture</h2>
+<p>LightGBM binary classifier. 69 hand-crafted features from game event streams.
+Training: 16K games per class (32K total), 80/20 train/val split. Early stopping
+on validation AUC.</p>
+<h2 id="feature-engineering-evolution">Feature Engineering Evolution</h2>
+<table>
+<thead>
+<tr>
+<th>Commit</th>
+<th>Features</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ceecec5</td>
+<td>41</td>
+<td>Initial: duration, counts, rates, engagement, gate triples</td>
+</tr>
+<tr>
+<td>3d90bb3</td>
+<td>51</td>
+<td>+10 per-cabinet-position first-event features</td>
+</tr>
+<tr>
+<td>bb8ffca</td>
+<td>61</td>
+<td>+per-team and per-PID first maiden use</td>
+</tr>
+<tr>
+<td>6be5314</td>
+<td>77</td>
+<td>+time_to_6_carry, per-maiden and per-maiden-per-team counts</td>
+</tr>
+<tr>
+<td>5b0f7b2</td>
+<td>65</td>
+<td>Replace per-maiden counts with time-to-Nth-bless features</td>
+</tr>
+<tr>
+<td>b98ebb7</td>
+<td>63</td>
+<td>Remove frac_to_first_kill and frac_to_first_carry</td>
+</tr>
+<tr>
+<td>166bbdd</td>
+<td>66</td>
+<td>+snail escape count, rate, and time-to-first</td>
+</tr>
+<tr>
+<td>17746f9</td>
+<td>69</td>
+<td>+get-off-snail count, rate, and time-to-first</td>
+</tr>
+</tbody>
+</table>
+<p>Feature categories (69 total):
+- Basic game info (10): duration, event count, bot count, victory condition, map
+- Event counts (12): kills, carries, deposits, blesses, snail actions
+- Event rates (10): per-second rates for the above
+- Temporal (7): time-to-first for key game actions
+- Engagement (4): active player count, worker objective engagement
+- Gate triples (2): fastest 3-gate-touch window
+- Per-cabinet first event (10): first action timing per position
+- Per-team/PID maiden use (10): maiden engagement by team and player
+- Time-to-Nth milestones (4): carry and bless progression markers</p>
+<h2 id="data-pipeline-improvements">Data Pipeline Improvements</h2>
+<p><strong>Tournament leakage removal</strong> (d77ea21): Tournament games appeared in both
+logged_in and unfiltered datasets. Removed from training to prevent inflated metrics.</p>
+<p><strong>Data size sweep</strong> (869f36b): Swept 1K–32K training size. 16K per class chosen
+as default (diminishing returns beyond this).</p>
+<p><strong>Separate eval data</strong> (7dc349e): Previously, unfiltered pass-rate metrics were
+computed on data overlapping with training, artificially deflating Unf@95% (7-15%
+vs true ~21%). Now uses separate eval shards (X02, X03) distinct from training
+shards (X00, X01).</p>
+<p><strong>Temporal stride</strong> (7dc349e): Shards are time-ordered. Changed from contiguous
+(000-019) to strided (X00, X01 for X=0-9) selection for better temporal coverage
+across the full dataset.</p>
+<h2 id="hyperparameter-sweep-results">Hyperparameter Sweep Results</h2>
+<p>Swept 6 LightGBM params one-at-a-time, 16K training per class, 69 features,
+evaluated on held-out unfiltered data.</p>
+<h3 id="baseline-old-defaults-num_leaves63-min_child_samples20">Baseline (old defaults): num_leaves=63, min_child_samples=20</h3>
+<pre><code>Param                     Value     AUC  LogLoss  Unf@99%  Unf@95%
+num_leaves                   63  0.9050   0.3453   27.9%   22.3%
+min_child_samples            20  0.9050   0.3453   27.9%   22.3%
+</code></pre>
+<h3 id="key-findings-sweep-with-old-defaults">Key findings (sweep with old defaults)</h3>
+<p><strong>num_leaves</strong>: AUC peaked at 23 leaves (0.9074) but Unf filtering was flat
+(20-22% across all values). Higher leaf counts slightly worse AUC.</p>
+<p><strong>min_child_samples</strong>: Clear improvement from 20→75-100 (AUC 0.905→0.908,
+LogLoss 0.345→0.342). Higher values regularize against noisy proxy labels.</p>
+<p><strong>learning_rate</strong>: 0.01-0.03 slightly better than 0.05 (LogLoss improvement),
+with auto-scaled num_boost_round=2000.</p>
+<p><strong>feature_fraction</strong>: Mild improvement at 0.5-0.7 (decorrelates trees with
+partially-redundant features).</p>
+<p><strong>bagging_fraction=0.9</strong>: Small AUC/LogLoss improvement.</p>
+<p><strong>reg_lambda=10</strong>: Best AUC (0.9088) in initial sweep.</p>
+<h3 id="after-retuning-defaults-to-num_leaves127-min_child_samples75">After retuning defaults to num_leaves=127, min_child_samples=75</h3>
+<pre><code>Param                     Value     AUC  LogLoss  Unf@99%  Unf@95%
+num_leaves                  127  0.9078   0.3432   29.3%   22.2%  &lt;- current
+num_leaves                   95  0.9089   0.3413   28.3%   21.4%  &lt;- slightly better
+min_child_samples            75  0.9078   0.3432   29.3%   22.2%  &lt;- current
+min_child_samples           100  0.9075   0.3435   29.4%   21.8%
+</code></pre>
+<p>Resweep showed all params landing in a narrow band (AUC 0.904-0.909, Unf@95%
+20.5-22.5%). The model is near its ceiling with this feature set and label noise.</p>
+<h2 id="final-configuration">Final Configuration</h2>
+<pre><code class="language-python">DEFAULT_PARAMS = {
+    'objective': 'binary',
+    'metric': 'auc',
+    'num_leaves': 127,
+    'min_child_samples': 75,
+    'learning_rate': 0.05,
+    'verbose': -1,
+}
+# num_boost_round=500 (2000 if learning_rate &lt; 0.05), early_stopping=20
+</code></pre>
+<h2 id="current-performance">Current Performance</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Validation AUC</td>
+<td>~0.908</td>
+</tr>
+<tr>
+<td>Validation LogLoss</td>
+<td>~0.343</td>
+</tr>
+<tr>
+<td>Unfiltered pass @ 99% tournament recall</td>
+<td>~28%</td>
+</tr>
+<tr>
+<td>Unfiltered pass @ 95% tournament recall</td>
+<td>~22%</td>
+</tr>
+</tbody>
+</table>
+<p>Interpretation: at a threshold that catches 99% of tournament games, ~28% of
+unfiltered games also pass (the rest are filtered as low-quality). At a stricter
+95% tournament recall threshold, ~22% of unfiltered pass.</p>
+<h2 id="downstream-validation-win-probability-training">Downstream Validation: Win-Probability Training</h2>
+<p>To test whether the classifier identifies games that are actually more useful
+for training, we compared win-probability models trained on quality-filtered
+(QF) vs logged-in (LI) game data at multiple scales (5K-40K games, 10 variance
+runs each). See <a href="../../model_experiments/data_quality_report/">data_quality_report.md</a>
+for full results and plots.</p>
+<p><strong>Exclusive comparison (equal-states)</strong>: QF-exclusive games (high-quality
+anonymous games the classifier found) consistently outperform LI-exclusive
+games (logged-in games the classifier rejected) on log loss, AUC-ROC, accuracy,
+and symmetry deviation. This validates that the classifier captures a real
+quality signal beyond login status — it can find good training data among
+anonymous games that the login heuristic misses, and correctly rejects
+logged-in games that happen to be low quality.</p>
+<p><strong>Caveat</strong>: The exclusive comparison doesn't directly measure the marginal
+value of quality filtering on top of login filtering (i.e., would adding
+QF-exclusive games to the logged-in pool improve the model?). It establishes
+that the classifier's quality signal is genuine, but the additive benefit
+remains untested.</p>
+<p><strong>Non-exclusive comparison</strong>: QF outperforms LI across all scales tested
+(5K-20K). Since both datasets are similar in size (~182-183K games), this
+comparison is less confounded and provides additional evidence that
+quality-filtered data produces better models.</p>
+<h2 id="downstream-validation-win-probability-training_1">Downstream Validation: Win-Probability Training</h2>
+<p>To test whether quality filtering actually produces better training data, we
+compared win-probability models trained on quality_filtered (QF) vs
+logged_in_games (LI) datasets. Both datasets are ~182-183K games with ~108K
+overlap; each has ~75K exclusive games.</p>
+<p><strong>Exclusive experiment (equal-states)</strong>: Trained only on games unique to each
+dataset, subsampling to equalize state counts. QF-exclusive outperforms
+LI-exclusive on log loss, AUC-ROC, accuracy, and symmetry deviation at every
+scale tested (5K-40K games, 10 variance runs each).</p>
+<p><strong>Interpretation</strong>: QF-exclusive games are anonymous games the classifier
+identified as high-quality from event features alone. LI-exclusive games are
+logged-in games the classifier rejected. The experiment shows the classifier
+finds good training data that the login heuristic misses — its quality signal
+is genuine and not just a proxy for login status. Prior results established
+that logged-in games outperform random unfiltered games, so login is already a
+quality proxy; the classifier captures something beyond that.</p>
+<p><strong>Limitation</strong>: The exclusive comparison doesn't measure the marginal value of
+quality filtering on top of login filtering (e.g., would adding QF-exclusive
+games to the logged-in pool help?). That remains a future experiment.</p>
+<p>Full results: <a href="../../model_experiments/data_quality_report/">model_experiments/data_quality_report.md</a></p>
+<h2 id="key-methodological-lesson">Key Methodological Lesson</h2>
+<p>The original eval setup (scoring unfiltered data that overlapped with training)
+produced artificially optimistic filtering numbers. With num_leaves=255, the old
+setup showed Unf@95%=7.3% — but with held-out eval data the true number was
+~22%. This was the single biggest correction in the experiment series: always
+evaluate on data the model has never seen.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

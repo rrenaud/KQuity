@@ -1,0 +1,1374 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Win-probability model for Killer Queen (arcade)">
+      
+      
+      
+        <link rel="canonical" href="https://rrenaud.github.io/KQuity/docs/discord_ideas_plausibility_report/">
+      
+      
+        <link rel="prev" href="../..">
+      
+      
+        <link rel="next" href="../training_lightgbm_win_predictor/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Discord Ideas - KQuity</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#plausibility-report-data-addressable-topics-in-kq-discord" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="KQuity" class="md-header__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            KQuity
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Discord Ideas
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="KQuity" class="md-nav__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    KQuity
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Ideas
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Ideas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-victory-condition-distribution-by-map-full-military-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Victory Condition Distribution by Map / Full Military Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-gate-control-correlation-with-wins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Gate Control Correlation with Wins
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-map-specific-opening-strategies-dusk-day-twilight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Map-Specific Opening Strategies (Dusk, Day, Twilight)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-snail-strategy-duration-and-guard-positioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Snail Strategy, Duration, and Guard Positioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-team-composition-states-and-full-flex-meta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Team Composition States and Full Flex Meta
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-queen-playstyle-kd-and-the-queen-weak-era" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Queen Playstyle, K/D, and the "Queen-Weak Era"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-game-duration-by-map-and-famine-mechanics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Game Duration by Map and Famine Mechanics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-queen-egg-maiden-resource-equivalence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Queen Egg (Maiden) Resource Equivalence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-berry-economy-and-berry-kicking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Berry Economy and Berry Kicking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-game-state-categorization-framework-9-states-and-strategic-volatility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Game State Categorization Framework (9 States) and Strategic Volatility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-player-career-progression-drone-warrior-queen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Player Career Progression (Drone → Warrior → Queen)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training_lightgbm_win_predictor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Game Quality Classifier
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Game Quality Classifier
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../game_quality_classifier/quality_classifier_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/rating_based_quality_experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rating-Based Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Win Prob Model Experiments
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Win Prob Model Experiments
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/data_quality_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ratings_experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ratings Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/symmetry_augmentation/report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symmetry Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_experiments/combined_li_qf/combined_scaling_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Combined Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../worker_state_values/worker_state_values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker State Values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../lockout_analysis/writeup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lockout Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Curated Game Subsets
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Curated Game Subsets
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../logged_in_games/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logged-In Games
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quality_filtered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quality Filtered
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-victory-condition-distribution-by-map-full-military-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Victory Condition Distribution by Map / Full Military Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-gate-control-correlation-with-wins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Gate Control Correlation with Wins
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-map-specific-opening-strategies-dusk-day-twilight" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Map-Specific Opening Strategies (Dusk, Day, Twilight)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-snail-strategy-duration-and-guard-positioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Snail Strategy, Duration, and Guard Positioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-team-composition-states-and-full-flex-meta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Team Composition States and Full Flex Meta
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-queen-playstyle-kd-and-the-queen-weak-era" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Queen Playstyle, K/D, and the "Queen-Weak Era"
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-game-duration-by-map-and-famine-mechanics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Game Duration by Map and Famine Mechanics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-queen-egg-maiden-resource-equivalence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Queen Egg (Maiden) Resource Equivalence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-berry-economy-and-berry-kicking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Berry Economy and Berry Kicking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-game-state-categorization-framework-9-states-and-strategic-volatility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Game State Categorization Framework (9 States) and Strategic Volatility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-player-career-progression-drone-warrior-queen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Player Career Progression (Drone → Warrior → Queen)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="plausibility-report-data-addressable-topics-in-kq-discord">Plausibility Report: Data-Addressable Topics in KQ Discord</h1>
+<p>Analysis of 108 chunks (~5,318 messages, Aug 2022 - Feb 2026) from the Killer Queen gameplay-general Discord channel. Topics are clustered by theme and all are plausible to answer with HiveMind event data.</p>
+<hr />
+<h3 id="1-victory-condition-distribution-by-map-full-military-strategy">1. Victory Condition Distribution by Map / Full Military Strategy</h3>
+<p>The single most discussed strategic topic in the entire Discord. Players debate whether full military (all warriors, no objective runner) is viable, on which maps, and whether objective play (berries/snail) reliably beats pure military.</p>
+<ul>
+<li><strong>Chunks</strong>: 0-2, 9-17, 27-35, 36-37, 63-71, 90</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>8/19/22 10:49 AM -- 4:38 PM</code> (initial queen playstyle / victory type debate)</li>
+<li><code>8/24/22 -- 9/16/22</code> (lockout map strategy, snail vs berry dominance)</li>
+<li><code>10/6/22 -- 10/19/22</code> (full mil on Day, snail riding vs military)</li>
+<li><code>12/12/23 -- 3/17/24</code> (Dusk/Day openers, full mil effectiveness revisited)</li>
+<li><code>6/6/25 3:03 PM -- 5:27 PM</code> (objective programs vs military meta, queen-weak era)</li>
+<li><strong>Total messages</strong>: ~250+</li>
+<li><strong>Distinct users</strong>: ~55+ (woodie, Prashant, JoshB, Jess [SF], BrianM [SF], Hel [SF], Galgo, Alacrity, CalculusHw, Le Chiffre, Elyse [SLC], Kevin J [PDX], Mario [DFW], richard [nyc], TJ [CHA], Felix [SF], lizz, loproto [SEA], Jeff [SLC], Blue Chris [SF], Marshall, rrenaud, tyler [nyc], Line Rider 0 [sf], and many more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"Full mil is a transition state you use to get 3 speed warrior + speed drone" (JoshB)</li>
+<li>"full mil is basically used to transition to exodia, and works best on day since obj is slow out the gate" (Galgo)</li>
+<li>"the problem with it is that there is no way to 'bank' your advantage, outside of queen kills" (BrianM [SF])</li>
+<li>"Objective programs reliably beat this [over-prioritized speed warriors]." (woodie)</li>
+<li>"im really skeptical of berries being good on this map. I have a feeling snail will be dominant again" (Prashant)</li>
+<li><strong>Data approach</strong>: Filter games by map. Compare victory type distribution (military/economic/snail) per map. Detect "full mil" phases by identifying periods where all 4 non-queen players have wings (all spawned as warriors via useMaiden events), specifically in the early/mid game (not late-game famine prep when berries are scarce). Compare win rates for games with early full-mil phases vs mixed compositions, stratified by map. Track how the meta has shifted over time.</li>
+</ul>
+<hr />
+<h3 id="2-gate-control-correlation-with-wins">2. Gate Control Correlation with Wins</h3>
+<p>A massive, contentious debate: does controlling more gates actually cause you to win, or is it just correlated? Players argue about whether gate control matters during famine, whether it's "circular," and what warrior count means for gate value.</p>
+<ul>
+<li><strong>Chunks</strong>: 13-17, 21-22, 37, 94-97, 102-104</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>9/7/22 -- 9/16/22</code> (gate positioning on lockout, queen vulnerability near gates)</li>
+<li><code>9/18/22 -- 10/4/22</code> (gate control stats, lockout mechanics)</li>
+<li><code>10/19/22 1:41 PM -- 2:16 PM</code> (lockout advantage banking)</li>
+<li><code>7/26/25 -- 8/3/25</code> (gate control during famine — 110-msg mega-thread)</li>
+<li><code>1/21/26 9:07 AM -- 11:45 AM</code> (gate control % vs win rate — 150-msg debate)</li>
+<li><strong>Total messages</strong>: ~350+</li>
+<li><strong>Distinct users</strong>: ~40+ (Asher, Marshall, woodie, Sky [nyc], Elyse [SLC], JoshB, Jess [SF], Blue Chris [SF], Prashant, BrianM [SF], Don [PDX], Le Chiffre, Ram, Jeff [SLC], nebunez, tyler [nyc], coppola [CHI], richard [nyc], rrenaud, CalculusHw, and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"gate control to win % always felt a bit circular to me...I had like 90% gate control and just lost" (Don)</li>
+<li>"Attaining lockout on day is a soft-banked advantage. At least as banked as a good chunk of snail progress" (Jess [SF])</li>
+<li>"gates fundamentally don't do anything during famine so in that sense gate control doesn't matter for the entire duration of famine" (Asher)</li>
+<li>"1-3 warrior count during a normal game state is not much implied progress at all if you have gate control... It's a lot of implied progress during famine" (woodie)</li>
+<li><strong>Data approach</strong>: For each game, estimate gate control from warrior spawn patterns (which gates warriors form at). Correlate gate control % at various game-time marks with eventual win/loss. Segment by: famine vs non-famine, warrior parity vs advantage, map, and score closeness. Run regression on gate% vs win probability.</li>
+</ul>
+<hr />
+<h3 id="3-map-specific-opening-strategies-dusk-day-twilight">3. Map-Specific Opening Strategies (Dusk, Day, Twilight)</h3>
+<p>Players intensely debate optimal openers: high-mid vs low-mid on Dusk, wrap opens on Twilight, 2-2 berry vs 3-1 snail splits, and how openers interact with map geometry.</p>
+<ul>
+<li><strong>Chunks</strong>: 43, 65-67, 101</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>1/27/23 10:00 AM -- 11:17 AM</code> (two-berry opening strategies on Dusk)</li>
+<li><code>1/11/24 -- 3/7/24</code> (Dusk high-mid vs low-mid, full mil on Day, 2-2 berry viability)</li>
+<li><code>1/15/26 -- 1/21/26</code> (Twilight wrap open vs speed gate strategies)</li>
+<li><strong>Total messages</strong>: ~185+</li>
+<li><strong>Distinct users</strong>: ~35+ (Le Chiffre, Elyse [SLC], Jeff [SLC], Carlitos, Ram, Prashant, JoshB, woodie, Marshall, Sky [nyc], Alacrity, rrenaud, TJ [CHA], Abby [bmore], Blue Chris [SF], nebunez, dee [nyc], CalculusHw, Mario [DFW], Showtime, alicemyslime [NYC], richard [nyc], and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"High mid open you can reach far gate before first vanilla, low mid you can't" (woodie)</li>
+<li>"I think mid is always better and every team I've played on since 2018 has opened high mid" (Prashant)</li>
+<li>"if you run two top berries in dusk open, you cede snail till past nub. its very not cheap" (Prashant)</li>
+<li>"wrap open was really strong against enemy queen opening near speed" (Blue Chris)</li>
+<li><strong>Data approach</strong>: Classify opening strategy from first 30 seconds of event data: early berryDeposit clustering = berry open, early playerKill clustering = military open, gate tag order = wrap vs direct. Compare win rates by opener type per map. Analyze mirror matchups vs asymmetric openers.</li>
+</ul>
+<hr />
+<h3 id="4-snail-strategy-duration-and-guard-positioning">4. Snail Strategy, Duration, and Guard Positioning</h3>
+<p>A perennial topic: how long to ride snail, when to dismount, how speed warriors should cycle through to clear snail, and how vanguard/rearguard positioning affects snail progression.</p>
+<ul>
+<li><strong>Chunks</strong>: 22-26, 27-35, 54, 60, 66, 84-85, 97</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>10/3/22 -- 10/19/22</code> (snail riding duration, speed warrior cycling, enemy denial)</li>
+<li><code>3/3/23 -- 3/23/23</code> (speed obj on Night, snail position strategy)</li>
+<li><code>6/13/23 -- 7/20/23</code> (warrior roles relative to snail, inside/outside rotation)</li>
+<li><code>3/4/24 -- 3/7/24</code> (snail vs berry tradeoffs on Night)</li>
+<li><code>4/15/25 -- 5/6/25</code> (famine strategy, snail pushing during famine)</li>
+<li><code>7/31/25 -- 8/3/25</code> (vanguard/rearguard positioning, Night stage 1→2 transition)</li>
+<li><strong>Total messages</strong>: ~170+</li>
+<li><strong>Distinct users</strong>: ~30+ (JoshB, Elyse [SLC], Blue Chris [SF], Prashant, Galgo, Line Rider 0 [sf], Jess [SF], CalculusHw, woodie, rrenaud, Jc [CIN], dee [nyc], Leo [NYC], Le Chiffre, coppola [CHI], and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"riding the snail is gold here. makes so much pressure. even those few extra inches" (Prashant)</li>
+<li>"Speed warriors should constantly be cycling through the snail and clearing it out" (woodie)</li>
+<li>"The #1 spot where this community is really bad about establishing a vanguard is when snail moves from stage 1 to stage 2 on Night" (woodie)</li>
+<li>"when it comes to moving snail... everything to do with whoever currently has warrior advantage" (woodie)</li>
+<li><strong>Data approach</strong>: Aggregate getOnSnail/getOffSnail events per game. Compute ride duration, dismount frequency, snail position progress rate. Key analysis: detect "speed snail to speed warrior" transitions where a player rides snail with speed buff, dismounts, and then gets a playerKill shortly after (indicating they converted from snail rider to combat warrior). Measure frequency and win rate of this pattern vs teams that keep a dedicated snail rider. Analyze by map.</li>
+</ul>
+<hr />
+<h3 id="5-team-composition-states-and-full-flex-meta">5. Team Composition States and Full Flex Meta</h3>
+<p>The community is evolving from simple W-D (warrior-drone) notation to SW-VW-SD-VD (speed warrior, vanilla warrior, speed drone, vanilla drone). Debate rages about whether "full flex" teams (everyone can play every role) are the future or impractical.</p>
+<ul>
+<li><strong>Chunks</strong>: 23-25, 27-28, 46-47, 54-62</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>10/4/22 -- 10/18/22</code> (full flex effectiveness, dedicated obj vs flex)</li>
+<li><code>1/31/23 -- 2/21/23</code> (full flex as meta, Bob strats team example)</li>
+<li><code>3/3/23 -- 12/12/23</code> (SW-VW-SD-VD notation, speed buff importance, team comp states)</li>
+<li><strong>Total messages</strong>: ~115+</li>
+<li><strong>Distinct users</strong>: ~30+ (JoshB, Jess [SF], CalculusHw, Elyse [SLC], Blue Chris [SF], Prashant, Alacrity, Le Chiffre, BrianM [SF], Felix [SF], Aquafox, woodie, Monopoli, Mario [DFW], TheAwfulDin (Ryan), dee [nyc], loproto [SEA], Jc [CIN], lizz, Lex, Line Rider 0 [sf], and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"Increasingly it's becoming more important to consider how many speed buffs each team has" (JoshB)</li>
+<li>"full flex is TAS only, the communication alone adds so much difficulty" (CalculusHw)</li>
+<li>"the best implementation of a full flex team to date was the Bob strats team" (Alacrity)</li>
+<li><strong>Data approach</strong>: From useMaiden events (maiden_speed vs maiden_warrior), classify each player's buff type per game. Build SW-VW-SD-VD state vectors at key game moments. Correlate composition states with victory type and win rate. Measure "flex" via entropy: compute how evenly snail movement, berry deposits, and speed warrior time are distributed across drones on a team. High entropy = full flex (everyone does everything), low entropy = dedicated roles. Correlate flex entropy with win rate to test whether full-flex teams actually outperform specialist teams.</li>
+</ul>
+<hr />
+<h3 id="6-queen-playstyle-kd-and-the-queen-weak-era">6. Queen Playstyle, K/D, and the "Queen-Weak Era"</h3>
+<p>Players debate power queen vs facilitatory queen, whether we're in a "queen-weak era" where warriors kill queens too easily, and whether queen focus should be gate control or warrior elimination.</p>
+<ul>
+<li><strong>Chunks</strong>: 0-2, 90-91, 99</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>8/19/22 10:49 AM -- 4:38 PM</code> (power queen vs facilitatory queen, NYC playstyle)</li>
+<li><code>6/6/25 -- 7/16/25</code> (queen-weak era claim, warrior K/D dominance)</li>
+<li><code>8/7/25 -- 10/17/25</code> (gate control priority vs warrior elimination, queen J-dive role)</li>
+<li><strong>Total messages</strong>: ~80+</li>
+<li><strong>Distinct users</strong>: ~35+ (woodie, Mario [DFW], Prashant, Asher, Kevin J [PDX], Ram, Marshall, Abby [bmore], Blue Chris [SF], DaemonXI [DEN], Don [PDX], Elyse [SLC], Jay Ryan [MPLS], Jeff [SLC], Jess [SF], Le Chiffre, Sky [nyc], Will, coppola [CHI], mel b [pdx], rrenaud, Jason [CHA], JoshB, Felix [SF], lizz, loproto [SEA], Hel [SF], richard [nyc], and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"I think we are in a queen-weak era where most warriors are better at killing queens than queens are at resisting strikes" (woodie)</li>
+<li>"queens are still significantly stronger than warriors... strong queens going something like 30-9 over 5 games" (Asher)</li>
+<li>"your job as the queen isn't to kill warriors and you go if you have to on your way to a gate" (Jess)</li>
+<li>"But New York almost entirely succeeds through Facilitating play" (woodie)</li>
+<li><strong>Data approach</strong>: Compute queen K/D ratio (queen kills warriors vs warriors kill queen) from playerKill events filtering by position 1,6. Track this ratio over time to see if there's a shift. Correlate queen kill efficiency with gate control and win rate. Compare across maps and skill tiers.</li>
+</ul>
+<h3 id="7-game-duration-by-map-and-famine-mechanics">7. Game Duration by Map and Famine Mechanics</h3>
+<p>How long do games last per map? What's the longest Day game? How often does famine occur in tournaments?</p>
+<ul>
+<li><strong>Chunks</strong>: 71-72, 91</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>3/15/24 -- 4/12/24</code> (longest Day map games, famine timer history)</li>
+<li><code>6/6/25 -- 7/16/25</code> (famine frequency at GDC, Coronation finals pain)</li>
+<li><strong>Total messages</strong>: ~55+</li>
+<li><strong>Distinct users</strong>: ~20+ (JoshB, Lex, Marshall, Carlitos, Hel [SF], Jess [SF], TheAwfulDin (Ryan), dnb303, EWOK, Le Chiffre, Ram, Jc [CIN], coppola [CHI], Bueno, Felix [SF], tyler [nyc], Ammar, and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"KQ26...28 minutes, 21 seconds" (Hel, citing longest pre-famine-timer game)</li>
+<li>"GDC had far more famines per series than any other tournament" (claim to verify)</li>
+<li><strong>Data approach</strong>: Compute game duration from gamestart→victory timestamps. Group by map, compute mean/median/percentiles. Count famine frequency (games where all berries deposited). Compare pre/post famine timer eras.</li>
+</ul>
+<hr />
+<h3 id="8-queen-egg-maiden-resource-equivalence">8. Queen Egg (Maiden) Resource Equivalence</h3>
+<p>How much is a queen life worth in terms of berries or snail progress? Players attempt to quantify the exchange rate.</p>
+<ul>
+<li><strong>Chunks</strong>: 100</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>10/17/25 -- 1/20/26</code> (queen egg value debate, "1 egg = 4 berries" claim)</li>
+<li><strong>Total messages</strong>: ~50</li>
+<li><strong>Distinct users</strong>: 17 (Abby [bmore], Asher, Blue Chris [SF], Clarky, Don [PDX], EliAzizy, Galgo, Jeff [SLC], JoshB, TJ [CHA], Will, alicemyslime [NYC], coppola [CHI], obo (jeff|sea), rrenaud, tyler [nyc], woodie)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"in an average skill 2025 portland scene game, the 1 queen egg would be worth about 4 berries" (Don)</li>
+<li>"it's 1/3 of the progress for each objective" (response)</li>
+<li><strong>Data approach</strong>: Use win_probability field from events. Measure the change in win probability when a queen dies (blessMaiden events for egg loss) vs when N berries are deposited. Derive empirical "exchange rate" between queen lives and berry/snail progress.</li>
+</ul>
+<hr />
+<h3 id="9-berry-economy-and-berry-kicking">9. Berry Economy and Berry Kicking</h3>
+<p>How effective is berry kicking? Does berry deposit rate correlate with wins? What about multi-person berry runs?</p>
+<ul>
+<li><strong>Chunks</strong>: 2-3, 28-35, 45, 87-88</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>8/19/22 12:59 PM -- 8/22/22</code> (berry kick technique, Monopoli's mapping)</li>
+<li><code>10/18/22 -- 10/19/22</code> (berry economy, multi-person runs)</li>
+<li><code>1/27/23 -- 1/31/23</code> (berry kick meta as objective path)</li>
+<li><code>5/7/25 -- 5/27/25</code> (NY1's Day Berry strategy, hidden objective placement)</li>
+<li><strong>Total messages</strong>: ~35+</li>
+<li><strong>Distinct users</strong>: ~20+ (Jess [SF], BrianM [SF], JoshB, Monopoli, rrenaud, Elyse [SLC], Galgo, bigdr00, smokefucius, Blue Chris [SF], Felix [SF], woodie, and more)</li>
+<li><strong>Key quotes</strong>:</li>
+<li>"You just gotta go for a lot of berry kicks... Ignore winning, get kick-ins" (Jess [SF])</li>
+<li>"NY1's 3-1 Day Berry has been super fascinating to look at" (rrenaud)</li>
+<li><strong>Data approach</strong>: Analyze berryKickIn event frequency by map, team, and location. Correlate berry deposit rate with win probability. Compare games with high kick-in counts vs low. Track which teams rely on kicks vs standard deposits.</li>
+</ul>
+<hr />
+<h3 id="10-game-state-categorization-framework-9-states-and-strategic-volatility">10. Game State Categorization Framework (9 States) and Strategic Volatility</h3>
+<p>Asher's framework: Neutral, You're Wiped, They're Wiped, etc. Can we classify game events into these states and measure win probability per state? This is novel analysis that hasn't been done before but is very feasible — all the inputs (warrior counts, berry progress, snail position, queen lives) are derivable from event data.</p>
+<ul>
+<li><strong>Chunks</strong>: 105-106</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>1/21/26 -- 2/6/26</code> (game state framework proposal, volatility/positional debt discussion)</li>
+<li><strong>Total messages</strong>: ~100</li>
+<li><strong>Distinct users</strong>: ~30+ (Asher, Brian Aston, Clarky, Don [PDX], Elyse [SLC], Jc [CIN], Jeff [SLC], JoshB, Marshall, Monopoli, QweenBilly, Sky [nyc], coppola [CHI], Abby [bmore], Alacrity, Blue Chris [SF], Ram, rrenaud, smokefucius, tyler [nyc], woodie, and more)</li>
+<li><strong>Data approach</strong>: Build a state classifier from event sequences: warrior counts (from playerKill/spawn events), berry counts (from berryDeposit), snail position (from getOnSnail/snailEat), gate control (from warrior spawn locations), queen lives remaining. Reconstruct game state at every event timestamp. Measure win probability per state and transition probabilities between states. Test if high-volatility games (frequent state changes) favor one strategy over another. This would be a genuinely new contribution to KQ analytics.</li>
+</ul>
+<h3 id="11-player-career-progression-drone-warrior-queen">11. Player Career Progression (Drone → Warrior → Queen)</h3>
+<p>Do players follow the traditional progression path? How long does it take? Do players who skip steps perform worse?</p>
+<ul>
+<li><strong>Chunks</strong>: 58-60</li>
+<li><strong>Conversation bursts</strong>:</li>
+<li><code>4/7/23 -- 7/20/23</code> (skipping drone→warrior→queen path, queen development)</li>
+<li><strong>Total messages</strong>: ~5</li>
+<li><strong>Distinct users</strong>: 4 (lizz, Jess [SF], Prashant, alicemyslime [NYC])</li>
+<li><strong>Key quote</strong>: "How do people feel about skipping the whole drone→warrior→first speed→and then→Queen process?" (lizz)</li>
+<li><strong>Data approach</strong>: Track each player's spawn positions (1,6=queen, 2-5/7-10=warrior/drone) across games chronologically using playernames events. Map each player's role distribution over time to see if they follow drone→warrior→queen progression. Compare win rates of players who followed traditional progression vs those who skipped roles.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

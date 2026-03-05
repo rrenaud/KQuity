@@ -1,0 +1,2189 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Win-probability model for Killer Queen (arcade)">
+      
+      
+      
+        <link rel="canonical" href="https://rrenaud.github.io/KQuity/model_experiments/rating_based_quality_experiments/">
+      
+      
+        <link rel="prev" href="../../game_quality_classifier/quality_classifier_report/">
+      
+      
+        <link rel="next" href="../data_quality_report/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Rating-Based Quality - KQuity</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#rating-based-quality-classifier-experiments" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="KQuity" class="md-header__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            KQuity
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Rating-Based Quality
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="KQuity" class="md-nav__button md-logo" aria-label="KQuity" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    KQuity
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rrenaud/KQuity" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rrenaud/KQuity
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/discord_ideas_plausibility_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Ideas
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs/training_lightgbm_win_predictor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Game Quality Classifier
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Game Quality Classifier
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../game_quality_classifier/quality_classifier_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rating-Based Quality
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rating-Based Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#background-the-data-quality-problem-in-killer-queen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background: The Data Quality Problem in Killer Queen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background: The Data Quality Problem in Killer Queen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-we-need-a-quality-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we need a quality classifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-labeling-trick-logins-as-a-proxy-for-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The labeling trick: logins as a proxy for quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features-69-per-game-summaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features: 69 per-game summaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model and evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#understanding-the-tournament-anchored-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding the tournament-anchored threshold
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-question-these-experiments-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The question these experiments address
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experimental-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experimental Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-1-rating-sorted-positives-old-cache-shards-000-019" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 1: Rating-sorted positives (old cache, shards 000-019)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-2-fair-comparison-on-wider-cache-shards-000-039" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 2: Fair comparison on wider cache (shards 000-039)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-3-rating-based-union-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 3: Rating-based union filters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-4-does-rating-matter-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 4: Does rating matter at all?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Experiment 4: Does rating matter at all?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rating-distribution-analysis-8-login-games" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rating distribution analysis (&gt;=8 login games):
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-5-login-threshold-is-what-matters-1k-20k-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 5: Login threshold is what matters (1K-20K sweep)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-6-bootstrapping-with-quality-filtered-games" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 6: Bootstrapping with quality-filtered games
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-7-seed-variance-test-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 7: Seed variance test (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-8-self-distillation-pruning-low-scoring-positives-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 8: Self-distillation — pruning low-scoring positives (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-9-adding-high-scoring-8-login-games-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 9: Adding high-scoring 8-login games (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-10-bagged-ensemble-for-free-10-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 10: Bagged ensemble for free (10 models)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-what-worked-and-what-didnt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary: What worked and what didn't
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Summary: What worked and what didn&#39;t">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failed-approaches-experiments-1-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed approaches (Experiments 1-7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-worked-experiments-8-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What worked (Experiments 8-10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-lessons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Win Prob Model Experiments
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Win Prob Model Experiments
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_quality_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ratings_experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ratings Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../symmetry_augmentation/report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Symmetry Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../combined_li_qf/combined_scaling_report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Combined Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../worker_state_values/worker_state_values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker State Values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../lockout_analysis/writeup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lockout Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Curated Game Subsets
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Curated Game Subsets
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../logged_in_games/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logged-In Games
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quality_filtered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quality Filtered
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#background-the-data-quality-problem-in-killer-queen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background: The Data Quality Problem in Killer Queen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background: The Data Quality Problem in Killer Queen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-we-need-a-quality-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why we need a quality classifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-labeling-trick-logins-as-a-proxy-for-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The labeling trick: logins as a proxy for quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features-69-per-game-summaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features: 69 per-game summaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model and evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#understanding-the-tournament-anchored-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding the tournament-anchored threshold
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-question-these-experiments-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The question these experiments address
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experimental-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experimental Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-1-rating-sorted-positives-old-cache-shards-000-019" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 1: Rating-sorted positives (old cache, shards 000-019)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-2-fair-comparison-on-wider-cache-shards-000-039" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 2: Fair comparison on wider cache (shards 000-039)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-3-rating-based-union-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 3: Rating-based union filters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-4-does-rating-matter-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 4: Does rating matter at all?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Experiment 4: Does rating matter at all?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rating-distribution-analysis-8-login-games" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rating distribution analysis (&gt;=8 login games):
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-5-login-threshold-is-what-matters-1k-20k-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 5: Login threshold is what matters (1K-20K sweep)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-6-bootstrapping-with-quality-filtered-games" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 6: Bootstrapping with quality-filtered games
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-7-seed-variance-test-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 7: Seed variance test (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-8-self-distillation-pruning-low-scoring-positives-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 8: Self-distillation — pruning low-scoring positives (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-9-adding-high-scoring-8-login-games-10-seeds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 9: Adding high-scoring 8-login games (10 seeds)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experiment-10-bagged-ensemble-for-free-10-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment 10: Bagged ensemble for free (10 models)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-what-worked-and-what-didnt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary: What worked and what didn't
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Summary: What worked and what didn&#39;t">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failed-approaches-experiments-1-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failed approaches (Experiments 1-7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-worked-experiments-8-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What worked (Experiments 8-10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-lessons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key lessons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="rating-based-quality-classifier-experiments">Rating-Based Quality Classifier Experiments</h1>
+<p><strong>Date</strong>: 2026-02-15</p>
+<h2 id="background-the-data-quality-problem-in-killer-queen">Background: The Data Quality Problem in Killer Queen</h2>
+<h3 id="why-we-need-a-quality-classifier">Why we need a quality classifier</h3>
+<p>KQuity is a win-probability model for Killer Queen arcade: given a partial game state (berry counts, snail position, kills, etc.), predict P(gold wins). The model is trained on game event streams — timestamped sequences of in-game actions logged by cabinets.</p>
+<p>The problem is data quality. Cabinets log <em>every</em> game, including:
+- Button-check games where someone tests the controls for 10 seconds
+- 1v1 or 2v2 games with 6-8 empty positions
+- Games where one side is AFK or a small child mashing buttons
+- Practice/warmup games that don't reflect real competitive play</p>
+<p>Training a win-probability model on this data teaches it to predict the outcome of garbage games, not competitive ones. We need a way to filter down to games that look like real, competitive Killer Queen — but we don't have explicit labels for "this was a real game."</p>
+<h3 id="the-labeling-trick-logins-as-a-proxy-for-quality">The labeling trick: logins as a proxy for quality</h3>
+<p>Killer Queen cabinets support optional player logins. Most casual/random games are fully anonymous. When players log in, it's usually because they're regulars or competing seriously. So games with many logged-in players are likely competitive.</p>
+<p>This gives us a noisy but useful labeling scheme:
+- <strong>Positive examples</strong>: Games from <code>logged_in_games/</code> — games with multiple logged-in players, sorted by login count (most logins first).
+- <strong>Negative examples</strong>: Games from <code>unfiltered_partitioned/</code> — all games, including the junk. Since the vast majority of games are anonymous/casual, this is mostly negative.
+- <strong>Validation</strong>: Tournament games (from organized competitive events) should almost all pass the quality filter. We anchor our thresholds to 99% and 95% tournament recall.</p>
+<p>The classifier never sees login counts as a feature — it must learn to distinguish quality from the <em>gameplay itself</em>, so it generalizes to anonymous games too.</p>
+<h3 id="features-69-per-game-summaries">Features: 69 per-game summaries</h3>
+<p>Each game's event stream is collapsed into 69 hand-crafted features that capture what competitive Killer Queen looks like:</p>
+<ul>
+<li><strong>Basic</strong> (10): Duration, event count, bot count, victory condition (military/economic/snail), map.</li>
+<li><strong>Action counts</strong> (12): Total kills, queen kills, berry carries/deposits/kick-ins, maiden blesses/uses, snail rides/eats/escapes.</li>
+<li><strong>Rates</strong> (10): Actions per second — kill rate, carry rate, bless rate, etc. Competitive games have higher action density.</li>
+<li><strong>Temporal milestones</strong> (7): Time to first kill, first carry, first bless, first maiden use, first snail ride. Real games hit these milestones quickly; button-check games may never.</li>
+<li><strong>Engagement</strong> (4): Active player count, workers who never touched an objective, max event share (one player doing everything = not a real game), time until the last worker engages.</li>
+<li><strong>Gate coordination</strong> (2): Minimum time window to bless 3 different maidens — a signature of coordinated play.</li>
+<li><strong>Per-cabinet activity</strong> (10): Whether each of the 10 cabinet positions generated events. Empty positions signal an incomplete lobby.</li>
+<li><strong>Per-position maiden use</strong> (10): First maiden use per team and per player position — competitive games have multiple players using maidens.</li>
+<li><strong>Milestone depth</strong> (4): Time to 6th carry, 3rd/5th/10th bless — games that reach deep milestones are almost certainly real.</li>
+</ul>
+<h3 id="model-and-evaluation">Model and evaluation</h3>
+<p>The classifier is a LightGBM gradient-boosted tree (127 leaves, min 75 samples/leaf, lr=0.05). Trained on balanced positive/negative sets, validated with a stratified 80/20 split.</p>
+<p><strong>Key evaluation metrics:</strong>
+- <strong>AUC</strong>: Discriminative power on the held-out validation set.
+- <strong>Logged-in pass rate</strong>: What fraction of logged-in games pass? Should be high, since most logged-in games are genuinely competitive.
+- <strong>Unfiltered pass rate @ X% tournament recall</strong>: The primary operational metric. Explained in detail below.</p>
+<h3 id="understanding-the-tournament-anchored-threshold">Understanding the tournament-anchored threshold</h3>
+<p>We don't have ground-truth labels for "competitive game" across the full population. But we do have 693 tournament games — games from organized competitive events that are unambiguously high quality. These serve as our anchor.</p>
+<p>The evaluation works like this:</p>
+<ol>
+<li>
+<p><strong>Score every game.</strong> The classifier assigns a quality score (0 to 1) to every game: all tournament games, all unfiltered games, all logged-in games.</p>
+</li>
+<li>
+<p><strong>Set the threshold using tournament recall.</strong> We pick a recall target — say 95% — and find the score threshold where exactly 95% of tournament games pass. This gives us a threshold calibrated to real competitive games. At 99% recall, the threshold is more permissive (letting almost all tournament games through); at 95%, it's stricter (allowing a few tournament games to be filtered out in exchange for tighter filtering overall).</p>
+</li>
+<li>
+<p><strong>Measure the unfiltered pass rate at that threshold.</strong> Now apply that same threshold to the full unfiltered population (~1M games, mostly junk). The fraction that passes is the "unfiltered pass rate." Lower is better — it means the classifier is rejecting more junk while still catching real competitive games.</p>
+</li>
+</ol>
+<p><strong>Interpreting the numbers:</strong> The best model in these experiments (&gt;=9 logins, 10-seed average) achieved:
+- <strong>Unf@99%: 28.7%</strong> — At a threshold where 99% of tournament games pass, 28.7% of all games also pass. We're keeping nearly every real competitive game but also letting through about 29% of the general population. Many of these are probably decent games that just happen to be anonymous.
+- <strong>Unf@95%: 20.6%</strong> — At a stricter threshold where 95% of tournament games pass (sacrificing 5% of tournament games), only 20.6% of all games pass. This is a more aggressive filter that produces a cleaner dataset at the cost of slightly more false negatives on tournament-quality games.</p>
+<p><strong>The precision-recall tradeoff:</strong> Think of tournament games as confirmed positives. The 99% threshold prioritizes recall (miss almost no good games) at the cost of precision (more junk sneaks through). The 95% threshold trades 4pp of recall for a meaningful precision improvement — the filtered population shrinks from ~29% to ~21% of all games.</p>
+<p><strong>Why this matters for the downstream win-probability model:</strong> The quality-filtered dataset feeds into training the win-probability model. Every junk game in that dataset adds noise — the model wastes capacity learning to predict outcomes of games that don't resemble real play. Dropping unf@95% from 22% to 20% means the filtered dataset is ~10% cleaner, which compounds when you're training on hundreds of thousands of game states.</p>
+<h3 id="the-question-these-experiments-address">The question these experiments address</h3>
+<p>The existing classifier uses login count as the sole ordering for positive examples (most logins first). Could we do better by incorporating player <em>skill ratings</em>? An OpenSkill (Plackett-Luce) rating system tracks each player's mu across games, with composite (user_id, role) keys for queen vs drone. If we select positive examples from games where the <em>rated skill</em> of players is high — not just the count of logins — we might get a purer set of competitive games.</p>
+<p><strong>Hypothesis</strong>: Skill-rated selection should outperform login-count sorting because it captures both "players cared enough to log in" and "the players who logged in are actually good."</p>
+<p><strong>Result</strong>: Ratings didn't help. The only thing that mattered was requiring more logins per game. All rating-based selection criteria performed at or below a simple login-count threshold.</p>
+<hr />
+<h2 id="experimental-setup">Experimental Setup</h2>
+<ul>
+<li><strong>Positives</strong>: Varied per experiment (different login thresholds, rating filters, and combinations).</li>
+<li><strong>Negatives</strong>: Always 16K unfiltered games (time-strided shards across the hundreds digit for temporal coverage).</li>
+<li><strong>Rating system</strong>: OpenSkill Plackett-Luce ratings computed chronologically from <code>logged_in_games/</code>. Each of 10 positions gets pre-game mu; anonymous positions default to ~25 mu. Output: <code>ratings_by_game: {game_id: np.array(10)}</code>.</li>
+<li><strong><code>anon=min</code> imputation</strong>: When computing avg_mu for a game, anonymous positions are assigned the minimum mu of the logged-in players in that game (rather than the default ~25).</li>
+<li><strong>Tournament holdout</strong>: 693 tournament games excluded from all training sets. Used only for threshold calibration.</li>
+</ul>
+<h2 id="experiment-1-rating-sorted-positives-old-cache-shards-000-019">Experiment 1: Rating-sorted positives (old cache, shards 000-019)</h2>
+<p>Initial cache had 18,906 logged-in games (all with &gt;=7 logins from the first 20 shards sorted by login count).</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Positive N</th>
+<th>AUC</th>
+<th>Log Loss</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+<th>Log@99%</th>
+<th>Log@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Baseline</strong> (login sort)</td>
+<td>16,000</td>
+<td>0.9073</td>
+<td>0.3439</td>
+<td>29.0%</td>
+<td>21.9%</td>
+<td>98.8%</td>
+<td>94.6%</td>
+</tr>
+<tr>
+<td><strong>HR all logins</strong> (sort by avg_mu)</td>
+<td>16,000</td>
+<td>0.9094</td>
+<td>0.3362</td>
+<td>28.3%</td>
+<td>20.2%</td>
+<td>98.8%</td>
+<td>93.1%</td>
+</tr>
+<tr>
+<td><strong>HR &gt;=8, anon=min</strong></td>
+<td>12,318</td>
+<td>0.9138</td>
+<td>0.3405</td>
+<td>27.9%</td>
+<td>22.8%</td>
+<td>98.2%</td>
+<td>94.7%</td>
+</tr>
+<tr>
+<td><strong>HR &gt;=6, anon=min</strong></td>
+<td>16,000*</td>
+<td>0.9109</td>
+<td>0.3372</td>
+<td>26.8%</td>
+<td>20.3%</td>
+<td>98.0%</td>
+<td>92.5%</td>
+</tr>
+</tbody>
+</table>
+<p>*&gt;=6 filter passed all 18,663 games since cache only contained &gt;=7; effectively just changed anon imputation + rating sort.</p>
+<p><strong>Takeaway</strong>: &gt;=8 logins had the best AUC (0.9138), but this cache couldn't distinguish whether ratings or the login threshold drove the improvement.</p>
+<h2 id="experiment-2-fair-comparison-on-wider-cache-shards-000-039">Experiment 2: Fair comparison on wider cache (shards 000-039)</h2>
+<p>Recomputed cache with 36,871 logged-in games (including games with 5-7 logins) for fair comparison.</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Positive N</th>
+<th>AUC</th>
+<th>Log Loss</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+<th>Log@99%</th>
+<th>Log@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Baseline</strong> (login sort)</td>
+<td>16,000</td>
+<td>0.8865</td>
+<td>0.3755</td>
+<td>28.7%</td>
+<td>22.3%</td>
+<td>96.0%</td>
+<td>88.3%</td>
+</tr>
+<tr>
+<td><strong>HR &gt;=8, anon=min</strong></td>
+<td>12,318</td>
+<td>0.9138</td>
+<td>0.3405</td>
+<td>27.9%</td>
+<td>22.8%</td>
+<td>94.8%</td>
+<td>88.6%</td>
+</tr>
+<tr>
+<td><strong>HR &gt;=6, anon=min</strong></td>
+<td>16,000</td>
+<td>0.9073</td>
+<td>0.3470</td>
+<td>29.0%</td>
+<td>20.8%</td>
+<td>96.2%</td>
+<td>85.9%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: On the same cache, &gt;=8 clearly beat baseline (+2.7pp AUC). &gt;=6 was middling. But is the improvement from ratings or just requiring more logins?</p>
+<h2 id="experiment-3-rating-based-union-filters">Experiment 3: Rating-based union filters</h2>
+<p>Tried combining login thresholds with queen rating filters to find games with skilled players even if not everyone logged in.</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Positive N</th>
+<th>AUC</th>
+<th>Log Loss</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Baseline (login sort)</td>
+<td>16,000</td>
+<td>0.8865</td>
+<td>0.3755</td>
+<td>28.7%</td>
+<td>22.3%</td>
+</tr>
+<tr>
+<td>HR &gt;=8</td>
+<td>12,318</td>
+<td>0.9138</td>
+<td>0.3405</td>
+<td>27.9%</td>
+<td>22.8%</td>
+</tr>
+<tr>
+<td><strong>(&gt;=6 &amp; mu&gt;25) | (10 logins)</strong></td>
+<td>11,711</td>
+<td>0.9093</td>
+<td>0.3502</td>
+<td>31.4%</td>
+<td>21.5%</td>
+</tr>
+<tr>
+<td><strong>(&gt;=6 &amp; queen&gt;25) | (10 logins)</strong></td>
+<td>16,000</td>
+<td>0.9081</td>
+<td>0.3460</td>
+<td>28.4%</td>
+<td>20.0%</td>
+</tr>
+<tr>
+<td><strong>(&gt;=6 &amp; queen&gt;30) | (10 logins)</strong></td>
+<td>8,556</td>
+<td>0.9114</td>
+<td>0.3409</td>
+<td>29.0%</td>
+<td>21.2%</td>
+</tr>
+<tr>
+<td><strong>(&gt;=8) | (&gt;=6 &amp; queen&gt;30)</strong></td>
+<td>16,000</td>
+<td>0.9086</td>
+<td>0.3451</td>
+<td>28.7%</td>
+<td>21.7%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: Every union variant performed worse than the simple &gt;=8 login filter. Adding games with 6-7 logins — even those with high queen ratings — diluted the positive set. Queen mu &gt; 25 was too loose (most queens are near 25); queen mu &gt; 30 was more selective but the selected games still underperformed pure &gt;=8.</p>
+<h2 id="experiment-4-does-rating-matter-at-all">Experiment 4: Does rating matter at all?</h2>
+<p>The &gt;=8 login filter produces 12,318 games, which is below the 16K training cap. So <strong>all</strong> &gt;=8 games are used regardless of rating sort order — the rating-based sorting has zero effect.</p>
+<h3 id="rating-distribution-analysis-8-login-games">Rating distribution analysis (&gt;=8 login games):</h3>
+<table>
+<thead>
+<tr>
+<th>Percentile</th>
+<th>avg_mu</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>p5</td>
+<td>21.68</td>
+</tr>
+<tr>
+<td>p25</td>
+<td>23.68</td>
+</tr>
+<tr>
+<td>p50 (median)</td>
+<td>24.69</td>
+</tr>
+<tr>
+<td>p75</td>
+<td>25.74</td>
+</tr>
+<tr>
+<td>p95</td>
+<td>27.28</td>
+</tr>
+<tr>
+<td>mean</td>
+<td>24.65</td>
+</tr>
+<tr>
+<td>std</td>
+<td>1.75</td>
+</tr>
+</tbody>
+</table>
+<p>The drop from median to p25 is only <strong>1.0 mu</strong> — about 0.28 sigma per player. Averaging 10 positions compresses individual variation (std=3.59) to std=1.75 across games. The rating system doesn't have enough dynamic range to meaningfully differentiate lobbies within the &gt;=8 login pool.</p>
+<h2 id="experiment-5-login-threshold-is-what-matters-1k-20k-sweep">Experiment 5: Login threshold is what matters (1K-20K sweep)</h2>
+<p>Swept positive set size from 1K to 20K in 1K steps, sorted by (login count desc, avg_mu desc).</p>
+<table>
+<thead>
+<tr>
+<th>N</th>
+<th>Min Logins</th>
+<th>AUC</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1,000</td>
+<td>10</td>
+<td>0.9373</td>
+<td>29.2%</td>
+<td>19.8%</td>
+</tr>
+<tr>
+<td>2,000</td>
+<td>10</td>
+<td>0.9318</td>
+<td>30.2%</td>
+<td>20.5%</td>
+</tr>
+<tr>
+<td>3,000</td>
+<td>9</td>
+<td>0.9319</td>
+<td>29.3%</td>
+<td>20.0%</td>
+</tr>
+<tr>
+<td>4,000</td>
+<td>9</td>
+<td>0.9283</td>
+<td>28.8%</td>
+<td>20.7%</td>
+</tr>
+<tr>
+<td>5,000</td>
+<td>9</td>
+<td>0.9189</td>
+<td>26.8%</td>
+<td>20.4%</td>
+</tr>
+<tr>
+<td>6,000</td>
+<td>9</td>
+<td>0.9193</td>
+<td>28.6%</td>
+<td>20.6%</td>
+</tr>
+<tr>
+<td>7,000</td>
+<td>8</td>
+<td>0.9176</td>
+<td>29.0%</td>
+<td>20.4%</td>
+</tr>
+<tr>
+<td>8,000</td>
+<td>8</td>
+<td>0.9187</td>
+<td>30.1%</td>
+<td>21.6%</td>
+</tr>
+<tr>
+<td>9,000</td>
+<td>8</td>
+<td>0.9182</td>
+<td>29.0%</td>
+<td>21.4%</td>
+</tr>
+<tr>
+<td>10,000</td>
+<td>8</td>
+<td>0.9153</td>
+<td>28.7%</td>
+<td>22.3%</td>
+</tr>
+<tr>
+<td>11,000</td>
+<td>8</td>
+<td>0.9121</td>
+<td>28.7%</td>
+<td>21.8%</td>
+</tr>
+<tr>
+<td>12,000</td>
+<td>8</td>
+<td>0.9115</td>
+<td>29.0%</td>
+<td>23.3%</td>
+</tr>
+<tr>
+<td>13,000</td>
+<td>7</td>
+<td>0.9120</td>
+<td>28.0%</td>
+<td>21.3%</td>
+</tr>
+<tr>
+<td>14,000</td>
+<td>7</td>
+<td>0.9111</td>
+<td>28.3%</td>
+<td>21.3%</td>
+</tr>
+<tr>
+<td>15,000</td>
+<td>7</td>
+<td>0.9101</td>
+<td>29.8%</td>
+<td>22.0%</td>
+</tr>
+<tr>
+<td>16,000</td>
+<td>7</td>
+<td>0.9088</td>
+<td>28.7%</td>
+<td>20.8%</td>
+</tr>
+<tr>
+<td>17,000</td>
+<td>7</td>
+<td>0.9078</td>
+<td>29.6%</td>
+<td>20.8%</td>
+</tr>
+<tr>
+<td>18,000</td>
+<td>7</td>
+<td>0.9069</td>
+<td>29.7%</td>
+<td>21.7%</td>
+</tr>
+<tr>
+<td>19,000</td>
+<td>7</td>
+<td>0.9025</td>
+<td>28.1%</td>
+<td>21.8%</td>
+</tr>
+<tr>
+<td>20,000</td>
+<td>7</td>
+<td>0.9015</td>
+<td>28.5%</td>
+<td>22.9%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: AUC declines monotonically as noisier (fewer-login) games enter the positive set. Unf@99% is flat (~29%) regardless of size. Unf@95% is lowest (~20%) at 1-5K and drifts up. The inflated AUC at small sizes reflects class imbalance, not better generalization. Sweet spot is around 4-6K positives (&gt;=9 logins).</p>
+<h2 id="experiment-6-bootstrapping-with-quality-filtered-games">Experiment 6: Bootstrapping with quality-filtered games</h2>
+<p>Used 6,272 games with &gt;=9 logins as a base, then added quality-filtered games (from the existing classifier, sorted by quality score desc) in doubling increments.</p>
+<table>
+<thead>
+<tr>
+<th>QF Added</th>
+<th>Total</th>
+<th>AUC</th>
+<th>Log Loss</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>6,272</td>
+<td>0.9204</td>
+<td>0.3050</td>
+<td>28.8%</td>
+<td>21.6%</td>
+</tr>
+<tr>
+<td>+1,000</td>
+<td>7,272</td>
+<td>0.9234</td>
+<td>0.3097</td>
+<td>29.0%</td>
+<td>21.5%</td>
+</tr>
+<tr>
+<td>+2,000</td>
+<td>8,272</td>
+<td>0.9196</td>
+<td>0.3167</td>
+<td>28.6%</td>
+<td>20.9%</td>
+</tr>
+<tr>
+<td>+4,000</td>
+<td>10,272</td>
+<td>0.9147</td>
+<td>0.3268</td>
+<td>28.8%</td>
+<td>21.7%</td>
+</tr>
+<tr>
+<td>+8,000</td>
+<td>14,272</td>
+<td>0.9234</td>
+<td>0.3136</td>
+<td>29.2%</td>
+<td>22.1%</td>
+</tr>
+<tr>
+<td>+16,000</td>
+<td>22,272</td>
+<td>0.9050</td>
+<td>0.3119</td>
+<td>29.1%</td>
+<td>22.8%</td>
+</tr>
+<tr>
+<td>+32,000</td>
+<td>38,272</td>
+<td>0.8858</td>
+<td>0.2735</td>
+<td>29.9%</td>
+<td>23.3%</td>
+</tr>
+<tr>
+<td>+64,000</td>
+<td>70,272</td>
+<td>0.8969</td>
+<td>0.1983</td>
+<td>29.3%</td>
+<td>22.8%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: Adding QF games didn't help. AUC degraded past +4K. The +2K result (20.9% unf@95%) looked promising but turned out to be seed noise (see below). Circularity problem: QF games were selected by the current classifier, reinforcing existing biases rather than adding new signal.</p>
+<h2 id="experiment-7-seed-variance-test-10-seeds">Experiment 7: Seed variance test (10 seeds)</h2>
+<p>Repeated the base (&gt;=9 logins) vs +2K QF comparison across 10 random seeds to assess whether the +2K improvement was real.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>AUC</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Base (&gt;=9 logins)</strong></td>
+<td>0.9239 +/- 0.0018</td>
+<td>28.7% +/- 0.6%</td>
+<td><strong>20.6% +/- 0.5%</strong></td>
+</tr>
+<tr>
+<td><strong>+2K quality-filtered</strong></td>
+<td>0.9235 +/- 0.0020</td>
+<td>28.6% +/- 0.5%</td>
+<td>21.3% +/- 0.6%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: The distributions completely overlap on AUC and unf@99%. On unf@95%, the +2K variant is ~1 std worse. The earlier single-seed +2K result of 20.9% was within noise. Adding quality-filtered games provides no benefit.</p>
+<h2 id="experiment-8-self-distillation-pruning-low-scoring-positives-10-seeds">Experiment 8: Self-distillation — pruning low-scoring positives (10 seeds)</h2>
+<p>The existing quality classifier can identify suspicious games even among &gt;=9 login positives. We scored all 6,272 base games with the existing model and removed the bottom 10% (628 games scoring below 0.129). These are likely button-checks or aborted games where a group of regulars happened to be logged in.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>N</th>
+<th>AUC</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Base (&gt;=9 logins)</strong></td>
+<td>6,272</td>
+<td>0.9239 +/- 0.0018</td>
+<td>28.7% +/- 0.6%</td>
+<td>20.6% +/- 0.5%</td>
+</tr>
+<tr>
+<td><strong>Pruned (drop bottom 10%)</strong></td>
+<td>5,644</td>
+<td><strong>0.9386 +/- 0.0025</strong></td>
+<td><strong>28.2% +/- 0.5%</strong></td>
+<td><strong>20.3% +/- 0.3%</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Takeaway</strong>: First real improvement that survived multi-seed validation. AUC jumps +1.5pp with completely non-overlapping distributions (pruned won all 10 seeds). The operational metrics improve modestly but consistently, and variance on unf@95% shrinks from 0.5% to 0.3%. Removing mislabeled positives cleans up the training signal significantly.</p>
+<h2 id="experiment-9-adding-high-scoring-8-login-games-10-seeds">Experiment 9: Adding high-scoring 8-login games (10 seeds)</h2>
+<p>With a cleaner &gt;=9 base, we tested whether high-confidence 8-login games (as scored by the existing classifier) could add useful training data. Scored all 6,046 8-login games, sorted by quality score descending, and added the top N.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>N</th>
+<th>AUC</th>
+<th>Unf@99%</th>
+<th>Unf@95%</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pruned &gt;=9 only</td>
+<td>5,644</td>
+<td>0.9386 +/- 0.0025</td>
+<td>28.2% +/- 0.5%</td>
+<td>20.3% +/- 0.3%</td>
+</tr>
+<tr>
+<td>+500 login8</td>
+<td>6,144</td>
+<td>0.9438 +/- 0.0026</td>
+<td>28.6% +/- 0.9%</td>
+<td>20.5% +/- 0.5%</td>
+</tr>
+<tr>
+<td>+1000 login8</td>
+<td>6,644</td>
+<td>0.9472 +/- 0.0026</td>
+<td>28.8% +/- 0.6%</td>
+<td>20.5% +/- 0.3%</td>
+</tr>
+<tr>
+<td><strong>+2000 login8</strong></td>
+<td><strong>7,644</strong></td>
+<td><strong>0.9508 +/- 0.0026</strong></td>
+<td><strong>28.4% +/- 0.5%</strong></td>
+<td><strong>20.5% +/- 0.4%</strong></td>
+</tr>
+<tr>
+<td>+4000 login8</td>
+<td>9,644</td>
+<td>0.9457 +/- 0.0024</td>
+<td>28.5% +/- 0.8%</td>
+<td>20.5% +/- 0.5%</td>
+</tr>
+</tbody>
+</table>
+<p>8-login quality scores: mean=0.37, p10=0.07, p50=0.33, p90=0.73.</p>
+<p><strong>Takeaway</strong>: +2000 is the sweet spot — AUC peaks at 0.9508 (+1.2pp over pruned-only), completely non-overlapping across seeds. Unf@95% holds flat at ~20.5%. At +4000, AUC drops back as we exhaust the high-confidence 8-login games (median score is only 0.33). Unlike the quality-filtered experiment (Exp 6), this works because we're cherry-picking from a different distribution (8-login games) rather than reinforcing the classifier's own output.</p>
+<h2 id="experiment-10-bagged-ensemble-for-free-10-models">Experiment 10: Bagged ensemble for free (10 models)</h2>
+<p>Since we were already training 10 models across seeds for variance estimation, we added 80% bootstrap bagging to each and averaged their predictions as an ensemble.</p>
+<p><strong>Individual bagged models</strong> (mean +/- std over 10 seeds):</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Individual Models</th>
+<th>Ensemble of 10</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AUC</td>
+<td>0.9478 +/- 0.0029</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Unf@99%</td>
+<td>28.9% +/- 0.6%</td>
+<td><strong>27.9%</strong></td>
+</tr>
+<tr>
+<td>Unf@95%</td>
+<td>21.0% +/- 0.4%</td>
+<td><strong>19.6%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The ensemble's averaged predictions beat every single individual model on both operational metrics. The unf@95% of <strong>19.6%</strong> is the best result across all experiments — a 1.4pp improvement over the individual model mean, achieved with zero additional training cost.</p>
+<p><strong>Why it works</strong>: Each bagged model sees a different 80% bootstrap sample of the training data, producing slightly different decision boundaries. Averaging smooths out per-model noise and produces sharper, better-calibrated score distributions. The tournament threshold becomes more precise when computed on averaged scores.</p>
+<hr />
+<h2 id="summary-what-worked-and-what-didnt">Summary: What worked and what didn't</h2>
+<h3 id="failed-approaches-experiments-1-7">Failed approaches (Experiments 1-7)</h3>
+<ul>
+<li><strong>Skill ratings for positive selection</strong>: No meaningful dynamic range. Averaging 10 positions compresses individual variation to std=1.75 across games, with only 1.0 mu separating median from p25.</li>
+<li><strong>Queen rating filters</strong>: Too loose (mu&gt;25) or too selective (mu&gt;30), neither improved on login-count thresholds.</li>
+<li><strong>Union filters</strong>: Combining login thresholds with rating filters diluted the positive set.</li>
+<li><strong>Adding quality-filtered games</strong>: Circularity problem — games selected by the current classifier reinforce existing biases. Multi-seed testing revealed the apparent +2K improvement was seed noise.</li>
+</ul>
+<h3 id="what-worked-experiments-8-10">What worked (Experiments 8-10)</h3>
+<p>The final pipeline that achieved the best results:</p>
+<ol>
+<li><strong>Start with &gt;=9 login games</strong> (6,272 games)</li>
+<li><strong>Prune bottom 10%</strong> by existing classifier score — removes 628 mislabeled positives (→ 5,644)</li>
+<li><strong>Add top 2,000 8-login games</strong> by classifier score — cherry-picks high-confidence games from a noisier pool (→ 7,644)</li>
+<li><strong>Train 10 models</strong> with 80% bootstrap bagging, different seeds</li>
+<li><strong>Average predictions</strong> across all 10 for the ensemble</li>
+</ol>
+<p><strong>Final ensemble: 27.9% unf@99%, 19.6% unf@95%</strong> (vs baseline: 28.7% unf@99%, 22.3% unf@95%).</p>
+<h3 id="key-lessons">Key lessons</h3>
+<ol>
+<li>
+<p><strong>Login count is the dominant positive signal.</strong> Requiring &gt;=9 logins was the single most impactful choice. Ratings added nothing beyond what login count already captured.</p>
+</li>
+<li>
+<p><strong>Self-distillation works when the classifier is already decent.</strong> Using the existing model to prune bad positives and select good 8-login games both helped, because the model is good enough at spotting junk even if it's imperfect.</p>
+</li>
+<li>
+<p><strong>More data only helps if it's clean.</strong> Adding 2K cherry-picked 8-login games helped; adding 4K (dipping into lower-quality ones) hurt. Adding quality-filtered games (circular) didn't help at all.</p>
+</li>
+<li>
+<p><strong>Bagged ensembles are free.</strong> If you're already training multiple models for variance estimation, averaging their predictions gives a strictly better classifier at no cost.</p>
+</li>
+<li>
+<p><strong>Always validate with multiple seeds.</strong> Several experiments showed apparent 1-2pp improvements that vanished under multi-seed testing (e.g., the +2K QF result in Exp 6). The seed variance on unf@95% is +/- 0.4-0.6%, so any claimed improvement under ~1pp needs multi-seed confirmation.</p>
+</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
