@@ -11,7 +11,7 @@ import numpy.typing as npt
 
 from worker_state_values.team_state_value import (
     WorkerState, assign_characters, compute_transitions,
-    CHARACTER_PRIORITY, build_worker_state_index,
+    CHARACTER_PRIORITY, build_worker_state_index, enumerate_worker_states,
 )
 
 # Map character type to filename suffix in kq_sprites/.
@@ -38,8 +38,8 @@ _LIGHTNING_PATH = (
 # Directory containing static CSS/JS files.
 _STATIC_DIR = Path(__file__).parent / 'static'
 
-# States with fewer observations than this are shown in a dimmed "rare" section.
-_RARE_THRESHOLD = 10_000
+# States below this fraction of total tab observations go in the "low frequency" section.
+_RARE_FRACTION = 0.001  # 0.1%
 
 
 def _load_sprites(
@@ -105,30 +105,20 @@ def _render_worker_icon(
     return ''.join(parts)
 
 
-def _sigmoid(x: float) -> float:
-    """Logistic sigmoid: 1 / (1 + exp(-x))."""
-    return 1.0 / (1.0 + np.exp(-x))
-
-
 def _render_row(
     idx: int,
     worker_states: list[WorkerState],
-    values: npt.NDArray[np.float64],
-    counts: npt.NDArray[np.int64],
-    baseline_idx: int,
+    count: int,
     sprites: dict[tuple[str, bool], str],
-    val_min: float,
-    val_range: float,
+    win_pct: float,
+    freq_pct: float,
+    win_min: float,
+    win_range: float,
     is_rare: bool,
 ) -> str:
     """Render a single table row for a worker state."""
     state = worker_states[idx]
-    val = float(values[idx])
-    cnt = int(counts[idx])
-    is_baseline = int(idx) == baseline_idx
-    win_pct = _sigmoid(val) * 100.0
 
-    # Icons with state/char indices for interactivity
     assignments = assign_characters(state)
     icons = ''.join(
         _render_worker_icon(ct, iw, isp, sprites,
@@ -136,47 +126,91 @@ def _render_row(
         for ci, (ct, iw, isp) in enumerate(assignments)
     )
 
-    baseline_mark = (' <span style="color:#ffeb3b;font-size:11px;">'
-                     '★</span>') if is_baseline else ''
-
-    # Bar: 0% = min value, 100% = max value
-    bar_pct = (val - val_min) / val_range * 100
-    # Color: red at bottom, green at top
-    t = (val - val_min) / val_range
+    bar_pct = (win_pct - win_min) / win_range * 100
+    t = (win_pct - win_min) / win_range
     r = int(244 * (1 - t) + 76 * t)
     g = int(67 * (1 - t) + 175 * t)
     b = int(54 * (1 - t) + 80 * t)
     bar_color = f'rgb({r},{g},{b})'
-
-    # Row background tint
     tint = f'rgba({r},{g},{b},0.08)'
 
     classes = 'state-row'
-    if is_baseline:
-        classes += ' baseline'
     if is_rare:
         classes += ' rare'
     return (
         f'<tr class="{classes}" data-state-idx="{int(idx)}"'
         f' style="background:{tint};">'
-        f'<td class="icons">{icons}{baseline_mark}</td>'
+        f'<td class="icons">{icons}</td>'
         f'<td class="bar-cell">'
         f'<div class="bar-container">'
         f'<div class="bar-fill" style="width:{bar_pct:.1f}%;'
         f'background:{bar_color};"></div>'
         f'</div></td>'
         f'<td class="win-pct">{win_pct:.1f}%</td>'
-        f'<td class="count">{cnt:,}</td>'
+        f'<td class="count" style="color:#555;">{freq_pct:.2f}%</td>'
+        f'<td class="count">{count:,}</td>'
         f'</tr>'
     )
 
 
+def _render_tab_content(
+    worker_states: list[WorkerState],
+    counts_arr: npt.NDArray[np.int64],
+    win_pcts: npt.NDArray[np.float64],
+    sprites: dict[tuple[str, bool], str],
+    win_min: float,
+    win_range: float,
+) -> str:
+    """Render a full table for one tab (sorted by win%, split at 0.1% freq)."""
+    total = int(np.sum(counts_arr))
+    rare_thresh = _RARE_FRACTION * total
+
+    sorted_indices = list(np.argsort(-win_pcts))
+    common = [i for i in sorted_indices if counts_arr[i] >= rare_thresh]
+    rare   = [i for i in sorted_indices if counts_arr[i] <  rare_thresh]
+
+    rows: list[str] = []
+    for idx in common:
+        freq_pct = counts_arr[idx] / total * 100
+        rows.append(_render_row(
+            idx, worker_states, int(counts_arr[idx]), sprites,
+            float(win_pcts[idx]), freq_pct, win_min, win_range, is_rare=False))
+
+    if rare:
+        rare_count = sum(int(counts_arr[i]) for i in rare)
+        rare_pct = rare_count / total * 100
+        rows.append(
+            f'<tr class="rare-separator"><td colspan="5">'
+            f'Low frequency states ({len(rare)}) &mdash; fewer than 0.1% of '
+            f'observations each &mdash; '
+            f'{rare_count:,} / {total:,} total ({rare_pct:.2f}%)'
+            f'</td></tr>')
+        for idx in rare:
+            freq_pct = counts_arr[idx] / total * 100
+            rows.append(_render_row(
+                idx, worker_states, int(counts_arr[idx]), sprites,
+                float(win_pcts[idx]), freq_pct, win_min, win_range, is_rare=True))
+
+    header = (
+        '<table><thead><tr>'
+        '<th>Workers</th>'
+        '<th></th>'
+        '<th style="text-align:right;">Win%</th>'
+        '<th style="text-align:right;">Freq%</th>'
+        '<th style="text-align:right;">Count</th>'
+        '</tr></thead><tbody>'
+    )
+    return header + '\n'.join(rows) + '</tbody></table>'
+
+
 def generate_html(
     worker_states: list[WorkerState],
-    values: npt.NDArray[np.float64],
     counts: npt.NDArray[np.int64],
-    baseline_idx: int,
+    win_prob: npt.NDArray[np.float64],
     path: str,
+    win_prob_per_map: dict[str, list[float]] | None = None,
+    counts_per_map: dict[str, list[int]] | None = None,
+    n_games: int | None = None,
 ) -> None:
     """Generate HTML visualization of worker state values.
 
@@ -185,71 +219,87 @@ def generate_html(
     same directory as the output file.
     """
     sprites = _load_sprites()
-    sorted_indices = np.argsort(-values)  # descending
-    val_min = float(np.min(values))
-    val_max = float(np.max(values))
-    val_range = val_max - val_min or 1.0
+    overall_win_pcts = win_prob * 100.0
 
     # Compute transitions for hover interactivity
     worker_state_index = build_worker_state_index()
-    transition_data = compute_transitions(
-        worker_states, values, worker_state_index)
+    transition_data = compute_transitions(worker_states, win_prob, worker_state_index)
 
-    # Partition into common and rare states
-    common_indices = [i for i in sorted_indices if counts[i] >= _RARE_THRESHOLD]
-    rare_indices = [i for i in sorted_indices if counts[i] < _RARE_THRESHOLD]
+    # Build one tab pane per view (Overall + 4 maps if data available)
+    map_names = ['day', 'night', 'dusk', 'twilight']
+    has_map_data = (win_prob_per_map is not None and counts_per_map is not None)
 
-    rows: list[str] = []
-    for idx in common_indices:
-        rows.append(_render_row(
-            idx, worker_states, values, counts, baseline_idx,
-            sprites, val_min, val_range, is_rare=False))
+    tab_specs: list[tuple[str, str]] = [('overall', 'Overall')]
+    if has_map_data:
+        tab_specs += [(m, m.capitalize()) for m in map_names]
 
-    if rare_indices:
-        n_rare = len(rare_indices)
-        rare_count = sum(int(counts[i]) for i in rare_indices)
-        total_count = int(np.sum(counts))
-        rare_pct = rare_count / total_count * 100
-        rows.append(
-            f'<tr class="rare-separator"><td colspan="4">'
-            f'Rare states ({n_rare}) &mdash; fewer than '
-            f'{_RARE_THRESHOLD:,} observations each, '
-            f'{rare_count:,} / {total_count:,} total observations '
-            f'({rare_pct:.2f}%)'
-            f'</td></tr>')
-        for idx in rare_indices:
-            rows.append(_render_row(
-                idx, worker_states, values, counts, baseline_idx,
-                sprites, val_min, val_range, is_rare=True))
+    # Compute global win range from common states only (>= 0.1% threshold),
+    # across all tabs, so the bar scale is consistent when switching tabs
+    # and rare outliers don't blow out the scale.
+    common_win_pcts: list[float] = []
+    for tid, _ in tab_specs:
+        if tid == 'overall':
+            c_arr_scale = counts
+            w_pcts_scale = overall_win_pcts
+        else:
+            c_arr_scale = np.array(counts_per_map[tid], dtype=np.int64)  # type: ignore[index]
+            w_pcts_scale = np.array(win_prob_per_map[tid]) * 100.0       # type: ignore[index]
+        rare_thresh = _RARE_FRACTION * int(np.sum(c_arr_scale))
+        common_win_pcts.extend(w_pcts_scale[c_arr_scale >= rare_thresh].tolist())
+    global_win_min = float(min(common_win_pcts))
+    global_win_max = float(max(common_win_pcts))
+    global_win_range = global_win_max - global_win_min or 1.0
 
-    table_rows = '\n'.join(rows)
+    tab_buttons = '\n  '.join(
+        f'<button class="tab-btn{" active" if i == 0 else ""}" data-tab="{tid}">'
+        f'{label}</button>'
+        for i, (tid, label) in enumerate(tab_specs)
+    )
 
-    # Legend icons — show each character as a drone
+    tab_panes: list[str] = []
+    for i, (tid, _label) in enumerate(tab_specs):
+        active = ' active' if i == 0 else ''
+        if tid == 'overall':
+            c_arr = counts
+            w_pcts = overall_win_pcts
+        else:
+            c_arr = np.array(counts_per_map[tid], dtype=np.int64)  # type: ignore[index]
+            w_pcts = np.array(win_prob_per_map[tid]) * 100.0        # type: ignore[index]
+        table_html = _render_tab_content(
+            worker_states, c_arr, w_pcts, sprites, global_win_min, global_win_range)
+        tab_panes.append(
+            f'<div class="tab-pane{active}" id="tab-{tid}">\n{table_html}\n</div>')
+
+    tab_panes_html = '\n'.join(tab_panes)
+
+    # Legend icons
     sz = 32
-    char_skull = _render_worker_icon('skull', False, False, sprites, sz)
-    char_abs = _render_worker_icon('abs', False, False, sprites, sz)
-    char_stripes = _render_worker_icon('stripes', False, False, sprites, sz)
-    char_checkers = _render_worker_icon('checkers', False, False, sprites, sz)
-
-    # Upgrade variants using skull as example
-    legend_drone = _render_worker_icon('skull', False, False, sprites, sz)
-    legend_speed = _render_worker_icon('skull', False, True, sprites, sz)
-    legend_warrior = _render_worker_icon('skull', True, False, sprites, sz)
-    legend_sw = _render_worker_icon('skull', True, True, sprites, sz)
+    char_skull   = _render_worker_icon('skull',    False, False, sprites, sz)
+    char_abs     = _render_worker_icon('abs',      False, False, sprites, sz)
+    char_stripes = _render_worker_icon('stripes',  False, False, sprites, sz)
+    char_checkers= _render_worker_icon('checkers', False, False, sprites, sz)
+    legend_drone  = _render_worker_icon('skull', False, False, sprites, sz)
+    legend_speed  = _render_worker_icon('skull', False, True,  sprites, sz)
+    legend_warrior= _render_worker_icon('skull', True,  False, sprites, sz)
+    legend_sw     = _render_worker_icon('skull', True,  True,  sprites, sz)
 
     transition_json = json.dumps(transition_data, separators=(',', ':'))
-
-    # Build sprites dict for JS: {char_type: {drone: dataURI, warrior: dataURI}}
-    sprites_for_js = {}
-    for char_type in CHARACTER_PRIORITY:
-        sprites_for_js[char_type] = {
-            'drone': sprites[(char_type, False)],
-            'warrior': sprites[(char_type, True)],
-        }
+    sprites_for_js = {
+        ct: {'drone': sprites[(ct, False)], 'warrior': sprites[(ct, True)]}
+        for ct in CHARACTER_PRIORITY
+    }
     sprites_json = json.dumps(sprites_for_js, separators=(',', ':'))
     char_priority_json = json.dumps(CHARACTER_PRIORITY)
+    win_probs_json = json.dumps([round(float(p), 6) for p in win_prob], separators=(',', ':'))
+    map_win_probs_json = json.dumps(
+        {m: [round(float(v), 6) for v in win_prob_per_map[m]] for m in map_names}
+        if win_prob_per_map else {},
+        separators=(',', ':'))
 
     total_obs = int(np.sum(counts))
+    games_blurb = (f'{n_games:,} quality-filtered Killer Queen games'
+                   if n_games is not None
+                   else 'quality-filtered Killer Queen games')
 
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -263,41 +313,21 @@ def generate_html(
 <div class="methodology">
   <h2>How this works</h2>
   <p>
-  We trained an AI model on a large set of quality-filtered Killer Queen games
-  to predict each team's chance of winning at any moment during a match, based
-  on 52 different in-game factors.
+  For each worker formation, we computed the empirical win rate: the actual
+  fraction of games won by teams with that formation, across all
+  {total_obs:,} game-state observations from {games_blurb}.
+  Each observation contributes once as blue and once as gold,
+  marginalizing over all other factors (berries, snail, maidens, queen lives, opponents).
   </p>
   <p>
-  To understand how much worker composition alone matters, we isolated its
-  effect by averaging out everything else&mdash;berries, snail position, maiden
-  control, queen lives&mdash;across {total_obs:,} game-state observations.
-  <span style="color:#888;">(Technical detail, safe to skip: we fit
-  <code>logit(P) &approx; f(blue_workers) &minus; f(gold_workers)</code>
-  via OLS on the model's logit predictions, giving each worker state a single
-  scalar value.)</span>
-  The baseline is a team of 4 drones, which is set to exactly 50% (no
-  advantage). The <strong>Win%</strong> column shows how much better or worse
-  a given worker lineup is compared to that baseline, assuming everything else
-  is equal.
-  </p>
-  <p>
-  Hover over a worker icon to see how much the win probability changes when
-  that worker dies or gets upgraded.
+  Hover over a worker icon to see how the win rate changes when that worker
+  dies or gets upgraded, and how the formation performs on each map.
   </p>
 </div>
-<table>
-<thead>
-  <tr>
-    <th>Workers</th>
-    <th></th>
-    <th style="text-align:right;">Win%</th>
-    <th style="text-align:right;">Count</th>
-  </tr>
-</thead>
-<tbody>
-{table_rows}
-</tbody>
-</table>
+<div class="tab-bar">
+  {tab_buttons}
+</div>
+{tab_panes_html}
 <div class="legend" style="margin-top:20px;">
   <div class="legend-section">
     <h3>Characters (priority order)</h3>
@@ -320,6 +350,18 @@ const TRANSITIONS = {transition_json};
 const SPRITES = {sprites_json};
 const CHAR_PRIORITY = {char_priority_json};
 const LIGHTNING_SVG = '{_LIGHTNING_PATH}';
+const STATE_WIN_PROBS = {win_probs_json};
+const STATE_MAP_WIN_PROBS = {map_win_probs_json};
+</script>
+<script>
+document.querySelectorAll('.tab-btn').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  }});
+}});
 </script>
 <script src="worker_state_values.js"></script>
 </body>
