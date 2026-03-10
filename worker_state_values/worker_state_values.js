@@ -7,10 +7,40 @@ const transMap = {};
 TRANSITIONS.forEach(t => {
   transMap[t.src + ":" + t.char] = t;
 });
-const rowByState = {};
-document.querySelectorAll("tr[data-state-idx]").forEach(tr => {
-  rowByState[tr.dataset.stateIdx] = tr;
-});
+
+function getActivePane() {
+  return document.querySelector('.tab-pane.active');
+}
+
+function getRowByState() {
+  const pane = getActivePane();
+  const map = {};
+  if (pane) {
+    pane.querySelectorAll("tr[data-state-idx]").forEach(tr => {
+      map[tr.dataset.stateIdx] = tr;
+    });
+  }
+  return map;
+}
+
+function getActiveWeightMode() {
+  const btn = document.querySelector('.weight-tab.active');
+  return btn ? btn.dataset.weight : 'naive';
+}
+
+function getWinProbs() {
+  if (typeof HAS_WEIGHTING !== 'undefined' && HAS_WEIGHTING && WIN_PROBS_BY_MODE) {
+    return WIN_PROBS_BY_MODE[getActiveWeightMode()] || STATE_WIN_PROBS;
+  }
+  return STATE_WIN_PROBS;
+}
+
+function getMapWinProbs() {
+  if (typeof HAS_WEIGHTING !== 'undefined' && HAS_WEIGHTING && MAP_WIN_PROBS_BY_MODE) {
+    return MAP_WIN_PROBS_BY_MODE[getActiveWeightMode()] || STATE_MAP_WIN_PROBS;
+  }
+  return STATE_MAP_WIN_PROBS;
+}
 
 function clearHighlights() {
   document.querySelectorAll(".highlight-source,.highlight-upgrade,.highlight-death")
@@ -55,10 +85,13 @@ document.addEventListener("mouseover", function(e) {
   if (srcRow) srcRow.classList.add("highlight-source");
 
   const charType = CHAR_PRIORITY[trans.char];
-  const hasMapData = STATE_MAP_WIN_PROBS && Object.keys(STATE_MAP_WIN_PROBS).length > 0;
+  const curWinProbs = getWinProbs();
+  const curMapWinProbs = getMapWinProbs();
+  const hasMapData = curMapWinProbs && Object.keys(curMapWinProbs).length > 0;
 
-  const activeTab = (document.querySelector('.tab-btn.active') || {dataset: {tab: 'overall'}}).dataset.tab;
-  const colActive = col => col === activeTab ? ' tooltip-col-active' : '';
+  const activeMapBtn = document.querySelector('.map-tab.active');
+  const activeMap = activeMapBtn ? activeMapBtn.dataset.map : 'overall';
+  const colActive = col => col === activeMap ? ' tooltip-col-active' : '';
 
   let tooltipHtml = '<table class="tooltip-table"><thead><tr><th></th>'
     + '<th class="' + colActive('overall').trim() + '">Overall</th>';
@@ -79,12 +112,14 @@ document.addEventListener("mouseover", function(e) {
       + tgtIcon
       + '</td>';
 
-    const cls = a.win_delta >= 0 ? 'positive' : 'negative';
-    tooltipHtml += '<td class="tooltip-delta ' + cls + colActive('overall') + '">' + fmtDelta(a.win_delta) + '</td>';
+    // Use current weighting mode's win probs for overall delta
+    const overallDelta = (curWinProbs[a.target] - curWinProbs[trans.src]) * 100;
+    const cls = overallDelta >= 0 ? 'positive' : 'negative';
+    tooltipHtml += '<td class="tooltip-delta ' + cls + colActive('overall') + '">' + fmtDelta(overallDelta) + '</td>';
 
     if (hasMapData) {
       MAP_KEYS.forEach(m => {
-        const probs = STATE_MAP_WIN_PROBS[m];
+        const probs = curMapWinProbs[m];
         if (!probs) { tooltipHtml += '<td>—</td>'; return; }
         const delta = (probs[a.target] - probs[trans.src]) * 100;
         const mcls = delta >= 0 ? 'positive' : 'negative';
@@ -113,16 +148,18 @@ document.addEventListener("mouseover", function(e) {
   tooltip.style.left = left + 'px';
   tooltip.style.top = top + 'px';
 
-  // Highlight target rows + add delta badges (match active tab rows)
+  // Highlight target rows + add delta badges (scoped to active pane)
+  const rowByState = getRowByState();
   trans.actions.forEach(a => {
     const row = rowByState[a.target];
     if (!row) return;
     row.classList.add(a.type === "death" ? "highlight-death" : "highlight-upgrade");
     const winCell = row.querySelector(".win-pct");
     if (winCell) {
+      const overallDelta = (curWinProbs[a.target] - curWinProbs[trans.src]) * 100;
       const badge = document.createElement("span");
-      badge.className = "delta-badge " + (a.win_delta >= 0 ? "positive" : "negative");
-      badge.textContent = TYPE_SYMBOL[a.type] + " " + fmtDelta(a.win_delta);
+      badge.className = "delta-badge " + (overallDelta >= 0 ? "positive" : "negative");
+      badge.textContent = TYPE_SYMBOL[a.type] + " " + fmtDelta(overallDelta);
       winCell.appendChild(badge);
     }
   });
