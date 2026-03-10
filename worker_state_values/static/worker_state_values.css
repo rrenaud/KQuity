@@ -16,6 +16,13 @@ h1 { font-size: 20px; margin-bottom: 16px; font-weight: 600; }
 }
 .methodology p { margin-bottom: 8px; }
 .methodology p:last-child { margin-bottom: 0; }
+.methodology .mode-list {
+  margin: 4px 0 0 8px; padding-left: 16px;
+  list-style: none;
+}
+.methodology .mode-list li {
+  margin-bottom: 3px; text-indent: -4px;
+}
 .methodology code {
   background: #333; padding: 1px 5px; border-radius: 3px;
   font-size: 12px; color: #e0e0e0;
@@ -137,6 +144,9 @@ thead th {
 }
 .tab-bar {
   display: flex; gap: 4px; margin-bottom: 16px;
+}
+.tab-bar.weight-bar {
+  margin-top: -10px; margin-bottom: 16px;
 }
 .tab-btn {
   padding: 5px 14px; border-radius: 5px; cursor: pointer;

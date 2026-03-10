@@ -183,6 +183,8 @@ MAP_FEATURE_OFFSET = 45  # X[:, 45:49] = map one-hot
 
 BATCH_SIZE = 2000  # games per parallel batch
 
+WEIGHTING_MODES = ('naive', 'time', 'unique')
+
 # Per-worker state (set once by _init_worker, reused across tasks)
 _worker_lookup: npt.NDArray[np.int32] | None = None
 _worker_n_states: int = 0
@@ -201,60 +203,124 @@ def _init_worker(
     _worker_drop_prob = drop_prob
 
 
+def _make_empty_accum(
+    n_states: int,
+) -> tuple[
+    npt.NDArray[np.float64],          # win_totals
+    npt.NDArray[np.float64],          # win_ns (sum of weights)
+    list[npt.NDArray[np.float64]],    # map_win_totals[4]
+    list[npt.NDArray[np.float64]],    # map_win_ns[4]
+]:
+    """Create zeroed accumulator arrays for one weighting mode."""
+    return (
+        np.zeros(n_states, dtype=np.float64),
+        np.zeros(n_states, dtype=np.float64),
+        [np.zeros(n_states, dtype=np.float64) for _ in range(4)],
+        [np.zeros(n_states, dtype=np.float64) for _ in range(4)],
+    )
+
+
+def _accumulate_weighted(
+    accum: tuple,
+    worker_blue: npt.NDArray[np.int32],
+    worker_gold: npt.NDArray[np.int32],
+    y_f: npt.NDArray[np.float64],
+    valid: npt.NDArray[np.bool_],
+    map_ids: npt.NDArray,
+    blue_weights: npt.NDArray[np.float64],
+    gold_weights: npt.NDArray[np.float64],
+) -> None:
+    """Add weighted observations into accumulator arrays (in-place)."""
+    win_totals, win_ns, map_win_totals, map_win_ns = accum
+
+    blue_mask = valid & (blue_weights > 0)
+    gold_mask = valid & (gold_weights > 0)
+
+    bw = blue_weights[blue_mask]
+    gw = gold_weights[gold_mask]
+
+    np.add.at(win_totals, worker_blue[blue_mask], y_f[blue_mask] * bw)
+    np.add.at(win_ns, worker_blue[blue_mask], bw)
+    np.add.at(win_totals, worker_gold[gold_mask], (1.0 - y_f[gold_mask]) * gw)
+    np.add.at(win_ns, worker_gold[gold_mask], gw)
+
+    for m_idx in range(4):
+        bm = blue_mask & (map_ids == m_idx)
+        gm = gold_mask & (map_ids == m_idx)
+        bw_m = blue_weights[bm]
+        gw_m = gold_weights[gm]
+        np.add.at(map_win_totals[m_idx], worker_blue[bm], y_f[bm] * bw_m)
+        np.add.at(map_win_ns[m_idx], worker_blue[bm], bw_m)
+        np.add.at(map_win_totals[m_idx], worker_gold[gm], (1.0 - y_f[gm]) * gw_m)
+        np.add.at(map_win_ns[m_idx], worker_gold[gm], gw_m)
+
+
+# BatchResult: dict mapping mode name -> (win_totals, win_ns, map_win_totals, map_win_ns)
+# plus an int n_snapshots
+BatchResult = tuple[dict[str, tuple], int]
+
+
 def _accumulate_batch(
     encoded_games: list[tuple[int, bytes]],
-) -> tuple[
-    npt.NDArray[np.int64],            # counts
-    npt.NDArray[np.float64],          # emp_win_totals   (actual y)
-    npt.NDArray[np.int64],            # emp_win_ns
-    list[npt.NDArray[np.float64]],    # map_emp_win_totals[4]
-    list[npt.NDArray[np.int64]],      # map_emp_win_ns[4]
-    int,                              # n_snapshots
-]:
+) -> BatchResult:
     """Materialize + accumulate empirical win stats for one batch of games.
 
-    Runs entirely in a worker process.  X is local and discarded after
-    accumulation — memory usage is O(batch_size * snapshots * features),
-    not O(total_snapshots).
+    Computes all three weighting modes (naive, time, unique) simultaneously.
+    Runs entirely in a worker process.
     """
     from event_codec import materialize_entries
     n_states = _worker_n_states
 
-    X, y, _gids, _ts = materialize_entries(
+    X, y, gids, ts = materialize_entries(
         encoded_games, drop_state_probability=_worker_drop_prob)
 
-    counts = np.zeros(n_states, dtype=np.int64)
-    emp_win_totals = np.zeros(n_states, dtype=np.float64)
-    emp_win_ns = np.zeros(n_states, dtype=np.int64)
-    map_emp_win_totals = [np.zeros(n_states, dtype=np.float64) for _ in range(4)]
-    map_emp_win_ns = [np.zeros(n_states, dtype=np.int64) for _ in range(4)]
+    accums = {mode: _make_empty_accum(n_states) for mode in WEIGHTING_MODES}
 
     if len(X) == 0:
-        return (counts, emp_win_totals, emp_win_ns,
-                map_emp_win_totals, map_emp_win_ns, 0)
+        return accums, 0
 
-    y_f = y.astype(np.float64)  # 1.0 = blue won, 0.0 = gold won
+    y_f = y.astype(np.float64)
     worker_blue, worker_gold = extract_worker_state_indices(X, _worker_lookup)
     valid = (worker_blue >= 0) & (worker_gold >= 0)
-
-    np.add.at(counts, worker_blue[valid], 1)
-    np.add.at(counts, worker_gold[valid], 1)
-
-    np.add.at(emp_win_totals, worker_blue[valid], y_f[valid])
-    np.add.at(emp_win_ns, worker_blue[valid], 1)
-    np.add.at(emp_win_totals, worker_gold[valid], 1.0 - y_f[valid])
-    np.add.at(emp_win_ns, worker_gold[valid], 1)
-
     map_ids = np.argmax(X[:, MAP_FEATURE_OFFSET:MAP_FEATURE_OFFSET + 4], axis=1)
-    for m_idx in range(4):
-        mask = valid & (map_ids == m_idx)
-        np.add.at(map_emp_win_totals[m_idx], worker_blue[mask], y_f[mask])
-        np.add.at(map_emp_win_ns[m_idx], worker_blue[mask], 1)
-        np.add.at(map_emp_win_totals[m_idx], worker_gold[mask], 1.0 - y_f[mask])
-        np.add.at(map_emp_win_ns[m_idx], worker_gold[mask], 1)
 
-    return (counts, emp_win_totals, emp_win_ns,
-            map_emp_win_totals, map_emp_win_ns, len(X))
+    n = len(X)
+
+    # --- Naive: uniform weight = 1 ---
+    ones = np.ones(n, dtype=np.float64)
+    _accumulate_weighted(accums['naive'], worker_blue, worker_gold,
+                         y_f, valid, map_ids, ones, ones)
+
+    # --- Detect game boundaries (needed for time and unique) ---
+    game_boundary = np.empty(n, dtype=np.bool_)
+    game_boundary[0] = True
+    game_boundary[1:] = gids[1:] != gids[:-1]
+
+    # --- Time weights: duration until next event, 0 at end of game ---
+    time_w = np.zeros(n, dtype=np.float64)
+    time_w[:-1] = ts[1:].astype(np.float64) - ts[:-1].astype(np.float64)
+    # Zero out cross-game durations
+    next_is_boundary = np.empty(n, dtype=np.bool_)
+    next_is_boundary[-1] = True
+    next_is_boundary[:-1] = game_boundary[1:]
+    time_w[next_is_boundary] = 0.0
+    np.maximum(time_w, 0.0, out=time_w)
+
+    _accumulate_weighted(accums['time'], worker_blue, worker_gold,
+                         y_f, valid, map_ids, time_w, time_w)
+
+    # --- Unique weights: 1 only when team's state changed (or first in game) ---
+    blue_changed = np.ones(n, dtype=np.float64)
+    gold_changed = np.ones(n, dtype=np.float64)
+    blue_changed[1:] = np.where(
+        game_boundary[1:] | (worker_blue[1:] != worker_blue[:-1]), 1.0, 0.0)
+    gold_changed[1:] = np.where(
+        game_boundary[1:] | (worker_gold[1:] != worker_gold[:-1]), 1.0, 0.0)
+
+    _accumulate_weighted(accums['unique'], worker_blue, worker_gold,
+                         y_f, valid, map_ids, blue_changed, gold_changed)
+
+    return accums, len(X)
 
 
 def assign_characters(
@@ -359,8 +425,13 @@ def save_worker_stats_json(
     metadata: dict | None = None,
     win_prob_per_map: dict[str, list[float]] | None = None,
     counts_per_map: dict[str, list[int]] | None = None,
+    weighting_modes: dict[str, dict] | None = None,
 ) -> None:
-    """Save worker state counts and win probabilities to JSON."""
+    """Save worker state counts and win probabilities to JSON.
+
+    Top-level counts/win_prob are the naive mode (backward compatible).
+    weighting_modes dict contains per-mode data for naive/time/unique.
+    """
     data: dict = {
         'states': [
             {'n_drone': s.n_drone, 'n_speed_drone': s.n_speed_drone,
@@ -376,6 +447,8 @@ def save_worker_stats_json(
         data['win_prob_per_map'] = win_prob_per_map
     if counts_per_map is not None:
         data['counts_per_map'] = counts_per_map
+    if weighting_modes is not None:
+        data['weighting_modes'] = weighting_modes
     with open(path, 'w') as f:
         json.dump(data, f, indent=2)
     print(f"Worker state stats written to {path}")
@@ -387,7 +460,7 @@ def load_worker_stats_json(
     """Load worker state counts and win probs from JSON.
 
     Returns (states, counts, win_prob, extra) where extra may contain
-    'win_prob_per_map' and 'counts_per_map'.
+    'win_prob_per_map', 'counts_per_map', and 'weighting_modes'.
 
     Supports old JSON format (empirical_win_prob / avg_win_prob keys).
     """
@@ -410,6 +483,8 @@ def load_worker_stats_json(
         extra['win_prob_per_map'] = data['empirical_win_prob_per_map']
     if 'counts_per_map' in data:
         extra['counts_per_map'] = data['counts_per_map']
+    if 'weighting_modes' in data:
+        extra['weighting_modes'] = data['weighting_modes']
     return states, counts, win_prob, extra
 
 
@@ -442,7 +517,8 @@ def main() -> None:
         generate_html(states, counts, win_prob, html_path,
                       win_prob_per_map=extra.get('win_prob_per_map'),
                       counts_per_map=extra.get('counts_per_map'),
-                      n_games=metadata.get('n_games'))
+                      n_games=metadata.get('n_games'),
+                      weighting_modes=extra.get('weighting_modes'))
         return
 
     # --- Worker state machinery (35 states, no eggs) ---
@@ -473,11 +549,7 @@ def main() -> None:
     # --- Parallel streaming accumulation ---
     # Each worker materializes one batch locally, accumulates into O(35) arrays,
     # and returns those — X is never held in memory across batches.
-    worker_counts = np.zeros(n_states, dtype=np.int64)
-    emp_win_totals = np.zeros(n_states, dtype=np.float64)
-    emp_win_ns = np.zeros(n_states, dtype=np.int64)
-    map_emp_win_totals = [np.zeros(n_states, dtype=np.float64) for _ in range(4)]
-    map_emp_win_ns = [np.zeros(n_states, dtype=np.int64) for _ in range(4)]
+    accums = {mode: _make_empty_accum(n_states) for mode in WEIGHTING_MODES}
     n_snapshots = 0
 
     n_workers = args.n_workers
@@ -489,38 +561,68 @@ def main() -> None:
     ) as pool:
         futures = [pool.submit(_accumulate_batch, b) for b in batches]
         for i, fut in enumerate(as_completed(futures), 1):
-            (b_counts, b_emp_wt, b_emp_wn,
-             b_map_ewt, b_map_ewn, n_snap) = fut.result()
-            worker_counts += b_counts
-            emp_win_totals += b_emp_wt
-            emp_win_ns += b_emp_wn
-            for m in range(4):
-                map_emp_win_totals[m] += b_map_ewt[m]
-                map_emp_win_ns[m] += b_map_ewn[m]
+            batch_accums, n_snap = fut.result()
+            for mode in WEIGHTING_MODES:
+                b_wt, b_wn, b_map_wt, b_map_wn = batch_accums[mode]
+                accums[mode][0][:] += b_wt
+                accums[mode][1][:] += b_wn
+                for m in range(4):
+                    accums[mode][2][m][:] += b_map_wt[m]
+                    accums[mode][3][m][:] += b_map_wn[m]
             n_snapshots += n_snap
             print(f"\r  {i}/{len(batches)} batches — {n_snapshots:,} snapshots",
                   end='', flush=True)
     print()
 
-    win_prob = emp_win_totals / np.maximum(emp_win_ns, 1)
-    win_prob_per_map = {
-        m_name: (map_emp_win_totals[m_idx] / np.maximum(map_emp_win_ns[m_idx], 1)).tolist()
-        for m_idx, m_name in enumerate(MAP_NAMES)
-    }
-    counts_per_map = {
-        m_name: map_emp_win_ns[m_idx].tolist()
-        for m_idx, m_name in enumerate(MAP_NAMES)
-    }
+    # --- Compute win probs for all weighting modes ---
+    mode_results: dict[str, dict] = {}
+    for mode in WEIGHTING_MODES:
+        win_totals, win_ns, map_win_totals, map_win_ns = accums[mode]
+        wp = win_totals / np.maximum(win_ns, 1e-12)
+        wp_per_map = {
+            m_name: (map_win_totals[m_idx] / np.maximum(map_win_ns[m_idx], 1e-12)).tolist()
+            for m_idx, m_name in enumerate(MAP_NAMES)
+        }
+        wn_per_map = {
+            m_name: map_win_ns[m_idx].tolist()
+            for m_idx, m_name in enumerate(MAP_NAMES)
+        }
+        mode_results[mode] = {
+            'win_prob': wp,
+            'win_ns': win_ns,
+            'win_prob_per_map': wp_per_map,
+            'win_ns_per_map': wn_per_map,
+        }
 
-    print("\nObservations per map:")
+    # Use naive as the primary/backward-compatible result
+    naive = mode_results['naive']
+    win_prob = naive['win_prob']
+    win_ns = naive['win_ns']
+    worker_counts = win_ns.astype(np.int64)
+
+    print("\nObservations per map (naive):")
     for m_idx, m_name in enumerate(MAP_NAMES):
-        print(f"  {m_name}: {int(np.sum(map_emp_win_ns[m_idx])):,}")
+        print(f"  {m_name}: {int(np.sum(accums['naive'][3][m_idx])):,}")
 
-    print(f"\nTop 5 states by empirical win%:")
-    for i in np.argsort(-win_prob)[:5]:
-        s = worker_states[i]
-        print(f"  {s.n_drone}d {s.n_speed_drone}sd {s.n_warrior}w {s.n_speed_warrior}sw: "
-              f"{win_prob[i]*100:.1f}%  (n={worker_counts[i]:,})")
+    for mode in WEIGHTING_MODES:
+        wp = mode_results[mode]['win_prob']
+        print(f"\nTop 5 states by {mode} win%:")
+        for i in np.argsort(-wp)[:5]:
+            s = worker_states[i]
+            ns = mode_results[mode]['win_ns'][i]
+            print(f"  {s.n_drone}d {s.n_speed_drone}sd {s.n_warrior}w {s.n_speed_warrior}sw: "
+                  f"{wp[i]*100:.1f}%  (weight={ns:,.1f})")
+
+    # --- Build weighting_modes dict for JSON ---
+    weighting_modes_json = {}
+    for mode in WEIGHTING_MODES:
+        mr = mode_results[mode]
+        weighting_modes_json[mode] = {
+            'win_ns': mr['win_ns'].tolist(),
+            'win_prob': mr['win_prob'].tolist(),
+            'win_prob_per_map': mr['win_prob_per_map'],
+            'win_ns_per_map': mr['win_ns_per_map'],
+        }
 
     # --- Save JSON ---
     if args.json:
@@ -533,16 +635,24 @@ def main() -> None:
                 'n_snapshots': n_snapshots,
                 'n_games': n_games_read,
             },
-            win_prob_per_map=win_prob_per_map,
-            counts_per_map=counts_per_map)
+            win_prob_per_map=naive['win_prob_per_map'],
+            counts_per_map={
+                m_name: [int(x) for x in accums['naive'][3][m_idx].tolist()]
+                for m_idx, m_name in enumerate(MAP_NAMES)
+            },
+            weighting_modes=weighting_modes_json)
 
     # --- HTML visualization ---
     if args.html:
         from worker_state_values.html_visualization import generate_html
         generate_html(worker_states, worker_counts, win_prob, args.html,
-                      win_prob_per_map=win_prob_per_map,
-                      counts_per_map=counts_per_map,
-                      n_games=n_games_read)
+                      win_prob_per_map=naive['win_prob_per_map'],
+                      counts_per_map={
+                          m_name: [int(x) for x in accums['naive'][3][m_idx].tolist()]
+                          for m_idx, m_name in enumerate(MAP_NAMES)
+                      },
+                      n_games=n_games_read,
+                      weighting_modes=weighting_modes_json)
 
 
 if __name__ == '__main__':

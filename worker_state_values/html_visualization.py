@@ -108,7 +108,7 @@ def _render_worker_icon(
 def _render_row(
     idx: int,
     worker_states: list[WorkerState],
-    count: int,
+    count: float,
     sprites: dict[tuple[str, bool], str],
     win_pct: float,
     freq_pct: float,
@@ -134,6 +134,12 @@ def _render_row(
     bar_color = f'rgb({r},{g},{b})'
     tint = f'rgba({r},{g},{b},0.08)'
 
+    # Format count: integer format if whole number, else 1 decimal
+    if count == int(count):
+        count_str = f'{int(count):,}'
+    else:
+        count_str = f'{count:,.1f}'
+
     classes = 'state-row'
     if is_rare:
         classes += ' rare'
@@ -148,21 +154,21 @@ def _render_row(
         f'</div></td>'
         f'<td class="win-pct">{win_pct:.1f}%</td>'
         f'<td class="count" style="color:#555;">{freq_pct:.2f}%</td>'
-        f'<td class="count">{count:,}</td>'
+        f'<td class="count">{count_str}</td>'
         f'</tr>'
     )
 
 
 def _render_tab_content(
     worker_states: list[WorkerState],
-    counts_arr: npt.NDArray[np.int64],
+    counts_arr: npt.NDArray,
     win_pcts: npt.NDArray[np.float64],
     sprites: dict[tuple[str, bool], str],
     win_min: float,
     win_range: float,
 ) -> str:
     """Render a full table for one tab (sorted by win%, split at 0.1% freq)."""
-    total = int(np.sum(counts_arr))
+    total = float(np.sum(counts_arr))
     rare_thresh = _RARE_FRACTION * total
 
     sorted_indices = list(np.argsort(-win_pcts))
@@ -171,24 +177,30 @@ def _render_tab_content(
 
     rows: list[str] = []
     for idx in common:
-        freq_pct = counts_arr[idx] / total * 100
+        freq_pct = float(counts_arr[idx]) / total * 100 if total > 0 else 0
         rows.append(_render_row(
-            idx, worker_states, int(counts_arr[idx]), sprites,
+            idx, worker_states, float(counts_arr[idx]), sprites,
             float(win_pcts[idx]), freq_pct, win_min, win_range, is_rare=False))
 
     if rare:
-        rare_count = sum(int(counts_arr[i]) for i in rare)
-        rare_pct = rare_count / total * 100
+        rare_count = sum(float(counts_arr[i]) for i in rare)
+        rare_pct = rare_count / total * 100 if total > 0 else 0
+        if total == int(total):
+            total_str = f'{int(total):,}'
+            rare_str = f'{int(rare_count):,}'
+        else:
+            total_str = f'{total:,.1f}'
+            rare_str = f'{rare_count:,.1f}'
         rows.append(
             f'<tr class="rare-separator"><td colspan="5">'
             f'Low frequency states ({len(rare)}) &mdash; fewer than 0.1% of '
             f'observations each &mdash; '
-            f'{rare_count:,} / {total:,} total ({rare_pct:.2f}%)'
+            f'{rare_str} / {total_str} total ({rare_pct:.2f}%)'
             f'</td></tr>')
         for idx in rare:
-            freq_pct = counts_arr[idx] / total * 100
+            freq_pct = float(counts_arr[idx]) / total * 100 if total > 0 else 0
             rows.append(_render_row(
-                idx, worker_states, int(counts_arr[idx]), sprites,
+                idx, worker_states, float(counts_arr[idx]), sprites,
                 float(win_pcts[idx]), freq_pct, win_min, win_range, is_rare=True))
 
     header = (
@@ -203,6 +215,13 @@ def _render_tab_content(
     return header + '\n'.join(rows) + '</tbody></table>'
 
 
+WEIGHTING_MODE_LABELS = {
+    'naive': 'Naive',
+    'time': 'Time-weighted',
+    'unique': 'Unique formations',
+}
+
+
 def generate_html(
     worker_states: list[WorkerState],
     counts: npt.NDArray[np.int64],
@@ -211,6 +230,7 @@ def generate_html(
     win_prob_per_map: dict[str, list[float]] | None = None,
     counts_per_map: dict[str, list[int]] | None = None,
     n_games: int | None = None,
+    weighting_modes: dict[str, dict] | None = None,
 ) -> None:
     """Generate HTML visualization of worker state values.
 
@@ -219,56 +239,85 @@ def generate_html(
     same directory as the output file.
     """
     sprites = _load_sprites()
-    overall_win_pcts = win_prob * 100.0
 
-    # Compute transitions for hover interactivity
+    # Compute transitions for hover interactivity (naive mode)
     worker_state_index = build_worker_state_index()
     transition_data = compute_transitions(worker_states, win_prob, worker_state_index)
 
-    # Build one tab pane per view (Overall + 4 maps if data available)
+    # --- Build data for all (map, weighting) combos ---
     map_names = ['day', 'night', 'dusk', 'twilight']
     has_map_data = (win_prob_per_map is not None and counts_per_map is not None)
+    has_weighting = weighting_modes is not None
+    w_modes = list(WEIGHTING_MODE_LABELS.keys()) if has_weighting else ['naive']
 
-    tab_specs: list[tuple[str, str]] = [('overall', 'Overall')]
+    map_specs: list[tuple[str, str]] = [('overall', 'Overall')]
     if has_map_data:
-        tab_specs += [(m, m.capitalize()) for m in map_names]
+        map_specs += [(m, m.capitalize()) for m in map_names]
 
-    # Compute global win range from common states only (>= 0.1% threshold),
-    # across all tabs, so the bar scale is consistent when switching tabs
-    # and rare outliers don't blow out the scale.
-    common_win_pcts: list[float] = []
-    for tid, _ in tab_specs:
-        if tid == 'overall':
-            c_arr_scale = counts
-            w_pcts_scale = overall_win_pcts
-        else:
-            c_arr_scale = np.array(counts_per_map[tid], dtype=np.int64)  # type: ignore[index]
-            w_pcts_scale = np.array(win_prob_per_map[tid]) * 100.0       # type: ignore[index]
-        rare_thresh = _RARE_FRACTION * int(np.sum(c_arr_scale))
-        common_win_pcts.extend(w_pcts_scale[c_arr_scale >= rare_thresh].tolist())
-    global_win_min = float(min(common_win_pcts))
-    global_win_max = float(max(common_win_pcts))
-    global_win_range = global_win_max - global_win_min or 1.0
+    # Helper to get (counts_arr, win_pcts) for a given (map_id, weighting_mode)
+    def _get_pane_data(
+        map_id: str, mode: str,
+    ) -> tuple[npt.NDArray, npt.NDArray[np.float64]]:
+        if has_weighting and mode in weighting_modes:  # type: ignore[operator]
+            md = weighting_modes[mode]  # type: ignore[index]
+            if map_id == 'overall':
+                wn = np.array(md['win_ns'], dtype=np.float64)
+                wp = np.array(md['win_prob'], dtype=np.float64) * 100.0
+            else:
+                wn = np.array(md['win_ns_per_map'][map_id], dtype=np.float64)
+                wp = np.array(md['win_prob_per_map'][map_id]) * 100.0
+            return wn, wp
+        # Fallback: use top-level naive data
+        if map_id == 'overall':
+            return counts.astype(np.float64), win_prob * 100.0
+        return (np.array(counts_per_map[map_id], dtype=np.float64),  # type: ignore[index]
+                np.array(win_prob_per_map[map_id]) * 100.0)  # type: ignore[index]
 
-    tab_buttons = '\n  '.join(
-        f'<button class="tab-btn{" active" if i == 0 else ""}" data-tab="{tid}">'
+    # Compute win range per weighting mode (across all maps but not across modes),
+    # so the bar scale is consistent across maps within a mode but each mode
+    # gets its own scale.
+    mode_win_range: dict[str, tuple[float, float]] = {}
+    for mode in w_modes:
+        common_win_pcts: list[float] = []
+        for mid, _ in map_specs:
+            c_arr, w_pcts = _get_pane_data(mid, mode)
+            rare_thresh = _RARE_FRACTION * float(np.sum(c_arr))
+            common_win_pcts.extend(w_pcts[c_arr >= rare_thresh].tolist())
+        wmin = float(min(common_win_pcts))
+        wmax = float(max(common_win_pcts))
+        mode_win_range[mode] = (wmin, wmax - wmin or 1.0)
+
+    # --- Map tab bar ---
+    map_buttons = '\n  '.join(
+        f'<button class="tab-btn map-tab{" active" if i == 0 else ""}" data-map="{mid}">'
         f'{label}</button>'
-        for i, (tid, label) in enumerate(tab_specs)
+        for i, (mid, label) in enumerate(map_specs)
     )
 
+    # --- Weighting tab bar (only if we have multi-mode data) ---
+    if has_weighting:
+        weight_buttons = '\n  '.join(
+            f'<button class="tab-btn weight-tab{" active" if i == 0 else ""}" '
+            f'data-weight="{mode}">{WEIGHTING_MODE_LABELS[mode]}</button>'
+            for i, mode in enumerate(w_modes)
+        )
+        weight_bar_html = f'<div class="tab-bar weight-bar">\n  {weight_buttons}\n</div>'
+    else:
+        weight_bar_html = ''
+
+    # --- Render all panes ---
     tab_panes: list[str] = []
-    for i, (tid, _label) in enumerate(tab_specs):
-        active = ' active' if i == 0 else ''
-        if tid == 'overall':
-            c_arr = counts
-            w_pcts = overall_win_pcts
-        else:
-            c_arr = np.array(counts_per_map[tid], dtype=np.int64)  # type: ignore[index]
-            w_pcts = np.array(win_prob_per_map[tid]) * 100.0        # type: ignore[index]
-        table_html = _render_tab_content(
-            worker_states, c_arr, w_pcts, sprites, global_win_min, global_win_range)
-        tab_panes.append(
-            f'<div class="tab-pane{active}" id="tab-{tid}">\n{table_html}\n</div>')
+    for mi, (mid, _) in enumerate(map_specs):
+        for wi, mode in enumerate(w_modes):
+            active = ' active' if (mi == 0 and wi == 0) else ''
+            c_arr, w_pcts = _get_pane_data(mid, mode)
+            win_min, win_range = mode_win_range[mode]
+            table_html = _render_tab_content(
+                worker_states, c_arr, w_pcts, sprites,
+                win_min, win_range)
+            pane_id = f'tab-{mid}-{mode}' if has_weighting else f'tab-{mid}'
+            tab_panes.append(
+                f'<div class="tab-pane{active}" id="{pane_id}">\n{table_html}\n</div>')
 
     tab_panes_html = '\n'.join(tab_panes)
 
@@ -290,11 +339,34 @@ def generate_html(
     }
     sprites_json = json.dumps(sprites_for_js, separators=(',', ':'))
     char_priority_json = json.dumps(CHARACTER_PRIORITY)
-    win_probs_json = json.dumps([round(float(p), 6) for p in win_prob], separators=(',', ':'))
-    map_win_probs_json = json.dumps(
-        {m: [round(float(v), 6) for v in win_prob_per_map[m]] for m in map_names}
-        if win_prob_per_map else {},
-        separators=(',', ':'))
+
+    # Per-mode win probs for JS tooltip computation
+    if has_weighting:
+        win_probs_by_mode: dict = {}
+        map_win_probs_by_mode: dict = {}
+        for mode in w_modes:
+            md = weighting_modes[mode]  # type: ignore[index]
+            win_probs_by_mode[mode] = [round(float(v), 6) for v in md['win_prob']]
+            map_win_probs_by_mode[mode] = {
+                m: [round(float(v), 6) for v in md['win_prob_per_map'][m]]
+                for m in map_names
+            } if 'win_prob_per_map' in md else {}
+        win_probs_json = json.dumps(win_probs_by_mode['naive'], separators=(',', ':'))
+        map_win_probs_json = json.dumps(
+            map_win_probs_by_mode.get('naive', {}), separators=(',', ':'))
+        win_probs_by_mode_json = json.dumps(win_probs_by_mode, separators=(',', ':'))
+        map_win_probs_by_mode_json = json.dumps(map_win_probs_by_mode, separators=(',', ':'))
+    else:
+        win_probs_json = json.dumps(
+            [round(float(p), 6) for p in win_prob], separators=(',', ':'))
+        map_win_probs_json = json.dumps(
+            {m: [round(float(v), 6) for v in win_prob_per_map[m]] for m in map_names}
+            if win_prob_per_map else {},
+            separators=(',', ':'))
+        win_probs_by_mode_json = 'null'
+        map_win_probs_by_mode_json = 'null'
+
+    has_weighting_js = 'true' if has_weighting else 'false'
 
     total_obs = int(np.sum(counts))
     games_blurb = (f'{n_games:,} quality-filtered Killer Queen games'
@@ -320,13 +392,23 @@ def generate_html(
   marginalizing over all other factors (berries, snail, maidens, queen lives, opponents).
   </p>
   <p>
+  <strong>Weighting modes:</strong>
+  <ul class="mode-list">
+    <li><strong>Naive</strong> &mdash; treats every event equally.</li>
+    <li><strong>Time-weighted</strong> &mdash; weights each formation by how long it lasted before the next event.</li>
+    <li><strong>Unique formations</strong> &mdash; counts each formation only once per continuous stretch
+    (ignoring repeated events that don&rsquo;t change a team&rsquo;s worker composition).</li>
+  </ul>
+  </p>
+  <p>
   Hover over a worker icon to see how the win rate changes when that worker
   dies or gets upgraded, and how the formation performs on each map.
   </p>
 </div>
-<div class="tab-bar">
-  {tab_buttons}
+<div class="tab-bar map-bar">
+  {map_buttons}
 </div>
+{weight_bar_html}
 {tab_panes_html}
 <div class="legend" style="margin-top:20px;">
   <div class="legend-section">
@@ -352,16 +434,43 @@ const CHAR_PRIORITY = {char_priority_json};
 const LIGHTNING_SVG = '{_LIGHTNING_PATH}';
 const STATE_WIN_PROBS = {win_probs_json};
 const STATE_MAP_WIN_PROBS = {map_win_probs_json};
+const HAS_WEIGHTING = {has_weighting_js};
+const WIN_PROBS_BY_MODE = {win_probs_by_mode_json};
+const MAP_WIN_PROBS_BY_MODE = {map_win_probs_by_mode_json};
 </script>
 <script>
-document.querySelectorAll('.tab-btn').forEach(btn => {{
-  btn.addEventListener('click', () => {{
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+// 2D tab switching: map × weighting mode
+(function() {{
+  let activeMap = '{map_specs[0][0]}';
+  let activeWeight = '{w_modes[0]}';
+
+  function showActivePane() {{
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    const id = HAS_WEIGHTING
+      ? 'tab-' + activeMap + '-' + activeWeight
+      : 'tab-' + activeMap;
+    const pane = document.getElementById(id);
+    if (pane) pane.classList.add('active');
+  }}
+
+  document.querySelectorAll('.map-tab').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      document.querySelectorAll('.map-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeMap = btn.dataset.map;
+      showActivePane();
+    }});
   }});
-}});
+
+  document.querySelectorAll('.weight-tab').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      document.querySelectorAll('.weight-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeWeight = btn.dataset.weight;
+      showActivePane();
+    }});
+  }});
+}})();
 </script>
 <script src="worker_state_values.js"></script>
 </body>
