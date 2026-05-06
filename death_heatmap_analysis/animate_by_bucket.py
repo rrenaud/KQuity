@@ -57,22 +57,54 @@ def attach_quality(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def attach_queen_skill(df: pd.DataFrame) -> pd.DataFrame:
-    """Average pre-game queen mu (positions 1 and 2) per game.
-    Pickle layout: {game_id: ndarray of 10 floats indexed by position-1}."""
+    """Per-event queen-participant skill, bucketed by rank.
+
+    For each kill event we attach the pre-game OpenSkill μ of the
+    queen participating in the event:
+      - if the victim is a queen (killed_pid in {1, 2}): the dying
+        queen's μ.
+      - else if the killer is a queen: the killing queen's μ.
+      - else: row is dropped (worker-on-worker kills aren't relevant
+        to any queen-attribution heatmap here).
+
+    Same-game events with two distinct queen skills can therefore land
+    in different buckets — bucketing is per-event, not per-game.
+
+    Pickle layout: {game_id: ndarray of 10 floats indexed by position-1}.
+    Position 1 → index 0 (Gold queen), position 2 → index 1 (Blue queen).
+    """
     print(f"  loading ratings from {RATINGS}", file=sys.stderr)
     with open(RATINGS, "rb") as f:
         ratings_by_game: dict = pickle.load(f)
-    # Position 1 -> index 0 (Gold queen), position 2 -> index 1 (Blue queen)
-    skill = {gid: 0.5 * (arr[0] + arr[1])
-             for gid, arr in ratings_by_game.items()}
-    print(f"  computed queen skill for {len(skill):,} games",
-          file=sys.stderr)
+
+    # Choose the queen-participant per row: dying queen if there is
+    # one, else killing queen (if a queen, else NaN).
+    killed = df["killed_pid"].to_numpy()
+    killer = df["killer_pid"].to_numpy()
+    queen_pos = np.where(np.isin(killed, [1, 2]), killed,
+                  np.where(np.isin(killer, [1, 2]), killer, 0))
+
+    gids = df["game_id"].to_numpy()
+    mu = np.full(len(df), np.nan, dtype=np.float64)
+    for i in range(len(df)):
+        pos = queen_pos[i]
+        if pos == 0:
+            continue
+        arr = ratings_by_game.get(int(gids[i]))
+        if arr is None:
+            continue
+        mu[i] = arr[pos - 1]
+
     df = df.copy()
-    df["queen_mu"] = df["game_id"].map(skill)
-    df = df.dropna(subset=["queen_mu"])
-    games = df.groupby("game_id")["queen_mu"].first()
-    qpct = games.rank(method="first") / len(games)
-    df["skill_pct"] = df["game_id"].map(qpct)
+    df["event_queen_mu"] = mu
+    n_drop = df["event_queen_mu"].isna().sum()
+    df = df.dropna(subset=["event_queen_mu"])
+    print(f"  attached per-event queen-participant μ; "
+          f"{len(df):,} rows kept, {n_drop:,} dropped",
+          file=sys.stderr)
+
+    # Rank-based percentile so quantile buckets are equal-mass.
+    df["skill_pct"] = df["event_queen_mu"].rank(method="first") / len(df)
     return df
 
 

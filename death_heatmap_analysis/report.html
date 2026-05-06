@@ -250,14 +250,20 @@ the highest-quality games. Each bucket holds ~4,245 night games.</p>
   bucket.</figcaption>
 </figure>
 
-<h3>5.2 · By queen skill</h3>
-<p>Bucket attribute: the average pre-game OpenSkill PlackettLuce
-<em>&mu;</em> of the two queens in the game. Ratings come from
-<code>compute_ratings.py</code>, which walks
+<h3>5.2 · By queen-participant skill (per-event)</h3>
+<p>Bucketing here is <strong>per kill event</strong>, not per game.
+For each event we attach the pre-game OpenSkill PlackettLuce
+<em>&mu;</em> of the queen participating in it: the dying queen if
+the victim is a queen, otherwise the killing queen if the killer is
+a queen. Worker-on-worker events are dropped (no queen participant).
+Two events from the same game can land in different buckets if the
+two queens have different skills.</p>
+<p>Ratings come from <code>compute_ratings.py</code>, which walks
 <code>unfiltered_partitioned/usergame.csv</code> chronologically and
 records the pre-game per-position <em>&mu;</em> snapshot before each
-game updates the model. Games with no rating record are dropped,
-leaving 30,222 night games. Each bucket holds ~2,518 games.</p>
+game updates the model. Of the 1,770,612 night kill events, 469,531
+are queen-attributed and form the basis for these buckets; each
+bucket holds ~3,846&ndash;4,602 events.</p>
 <figure>
   <video controls preload="metadata" src="anim_skill_sharp.mp4"></video>
   <figcaption>Queen-death density per queen-skill bucket.</figcaption>
