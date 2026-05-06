@@ -59,9 +59,10 @@ plus the game&rsquo;s map index, quality rank, and
 <code>gold_on_left</code> flag. Positions are mirrored to a
 canonical gold-on-left frame; <em>y</em> is flipped from Cartesian
 (game) to pixel coordinates so it matches the screenshot.</p>
-<p>The figures below use 10,000 sampled games per map (~350,000 kill
-events per map; ~33,000 of those queen deaths). Where applicable, both
-sides of a map are mirror-folded onto the gold half via
+<p>Every quality-filtered game is included &mdash; 182,447 games in
+total (49,147 day, 50,943 night, 47,427 dusk, 34,891 twilight),
+6,096,016 kill events, 650,988 of them queen deaths. Where applicable,
+both sides of a map are mirror-folded onto the gold half via
 <code>x' = min(x, 1920 - x)</code>, doubling effective sample density
 in the visible area.</p>
 
@@ -138,10 +139,10 @@ sprite show through and high-density cells render opaque.</p>
 <h3>3.2 · Local D/K deviation</h3>
 <p>For each cell, two diffusion-smoothed densities:
 <em>D</em> = density of queen-deaths (rows where
-<code>killed_cat == &quot;Queen&quot;</code>);
+<code>killed_cat == &quot;Queen&quot;</code>; 180,136 events);
 <em>K</em> = density of kills <em>by</em> queens
-(rows where <code>killer_pid &isin; {1, 2}</code>). Plot
-<code>log&#x2081;&#x2080;(D/K)</code> minus the global value
+(rows where <code>killer_pid &isin; {1, 2}</code>; 701,574 events).
+Plot <code>log&#x2081;&#x2080;(D/K)</code> minus the global value
 <code>log&#x2081;&#x2080;(&Sigma;D / &Sigma;K)</code>. Cells with low
 combined signal (<em>D</em>+<em>K</em> below the 20th percentile of the
 playable region) are masked out.</p>
@@ -157,8 +158,9 @@ playable region) are masked out.</p>
 <p>Queen-death rows partitioned by killer:
 <code>killer_pid &isin; {1, 2}</code> &rarr; killer is the enemy queen;
 <code>killer_pid &ge; 3</code> &rarr; killer is a worker, which must be
-a winged soldier to have killed the queen. In the night sample,
-53.5% are by enemy queen and 46.5% by enemy soldier.</p>
+a winged soldier to have killed the queen. In the full night dataset,
+53.7% are by enemy queen (96,739 events) and 46.3% by enemy soldier
+(83,397 events).</p>
 <figure>
   <img src="queen_death_by_killer_left.png" alt="Queen-death heatmaps split by killer type">
   <figcaption>Two diffusion-smoothed densities on a shared LogNorm color
@@ -185,17 +187,18 @@ comparable across maps.</p>
   <thead>
     <tr>
       <th>map</th>
-      <th>sample games</th>
+      <th>games</th>
       <th>queen deaths</th>
+      <th>deaths / game</th>
       <th>peak density<br><span style="font-weight:400">(kills/px²/game)</span></th>
       <th>concentration<br><span style="font-weight:400">(peak ÷ playable mean)</span></th>
     </tr>
   </thead>
   <tbody>
-    <tr><td>day</td>      <td>9,994</td><td>35,582</td><td>9.85e&minus;5</td><td>×23.0</td></tr>
-    <tr><td>night</td>    <td>10,000</td><td>33,833</td><td>8.01e&minus;5</td><td>×19.8</td></tr>
-    <tr><td>twilight</td> <td>10,000</td><td>31,790</td><td>4.48e&minus;5</td><td>×11.9</td></tr>
-    <tr><td>dusk</td>     <td>10,000</td><td>33,963</td><td>3.13e&minus;5</td><td>×7.8</td></tr>
+    <tr><td>day</td>      <td>49,147</td><td>182,010</td><td>3.70</td><td>1.02e&minus;4</td><td>×23.4</td></tr>
+    <tr><td>night</td>    <td>50,943</td><td>180,136</td><td>3.54</td><td>9.16e&minus;5</td><td>×22.1</td></tr>
+    <tr><td>twilight</td> <td>34,891</td><td>116,224</td><td>3.33</td><td>4.37e&minus;5</td><td>×11.4</td></tr>
+    <tr><td>dusk</td>     <td>47,427</td><td>172,618</td><td>3.64</td><td>4.21e&minus;5</td><td>×9.9</td></tr>
   </tbody>
 </table>
 <p class="meta">Peak density: maximum cell value of the per-game

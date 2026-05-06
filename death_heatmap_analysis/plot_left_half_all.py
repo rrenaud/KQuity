@@ -29,18 +29,12 @@ X_HALF = X_MAX // 2  # 960
 GRID_X = 480     # 2 px / cell on the half-frame
 GRID_Y = 540
 TARGET_SIGMA_PX = 24
-SAMPLE_GAMES = 10_000
 
 
 # ----- data prep ------------------------------------------------------
 
 def load_folded():
-    df = pd.read_parquet(DATA)
-    rng = np.random.default_rng(0)
-    games = df["game_id"].unique()
-    keep = rng.choice(games, size=min(SAMPLE_GAMES, len(games)),
-                      replace=False)
-    df = df[df["game_id"].isin(keep)].copy()
+    df = pd.read_parquet(DATA).copy()
     # Fold blue side onto gold side
     xc = df["x_canon"].to_numpy(np.float64)
     df["x_fold"] = np.where(xc <= X_HALF, xc, X_MAX - xc)
