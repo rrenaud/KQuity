@@ -20,7 +20,6 @@ OUT_PATH = os.path.join(os.path.dirname(__file__), "all_kills.parquet")
 
 MAP_NAMES = ["map_day", "map_night", "map_dusk", "map_twilight"]
 SCREEN_WIDTH = 1920
-SAMPLE_GAMES = 10_000
 
 
 def load_targets() -> dict[int, tuple[int, int, bool]]:
@@ -42,20 +41,13 @@ def main() -> None:
     target = load_targets()
     print(f"Total games in bin: {len(target)}", file=sys.stderr)
 
-    # Sample SAMPLE_GAMES per map (the bin is sorted by quality desc, so
-    # we take the highest-quality SAMPLE_GAMES per map for fairness).
-    import random
-    rng = random.Random(0)
-    by_map: dict[int, list[int]] = {0: [], 1: [], 2: [], 3: []}
-    # Walk in rank order — but `target` is a dict; rebuild ordered list
-    ordered = sorted(target.items(), key=lambda kv: kv[1][0])
-    for gid, (_, midx, _) in ordered:
-        if len(by_map[midx]) < SAMPLE_GAMES:
-            by_map[midx].append(gid)
-    keep: set[int] = set()
-    for midx, gids in by_map.items():
-        keep.update(gids)
-        print(f"  map {MAP_NAMES[midx]}: {len(gids)} games kept",
+    # Use every game in the quality-filtered set.
+    by_map: dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0}
+    for _, midx, _ in target.values():
+        by_map[midx] += 1
+    keep: set[int] = set(target.keys())
+    for midx, n in by_map.items():
+        print(f"  map {MAP_NAMES[midx]}: {n} games kept",
               file=sys.stderr)
 
     rows: list[tuple] = []

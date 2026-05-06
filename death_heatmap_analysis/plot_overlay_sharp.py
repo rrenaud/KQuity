@@ -42,7 +42,6 @@ Y_MAX = 1080
 GRID_X = 960   # 2 px / cell
 GRID_Y = 540
 TARGET_SIGMA_PX = 24
-SAMPLE_GAMES = 10_000
 
 
 def hist2d(x, y):
@@ -99,17 +98,11 @@ def diffusion_kde(H, mask, target_sigma_cells):
     return f
 
 
-def sample_df(df, n_games):
-    rng = np.random.default_rng(0)
-    games = df["game_id"].unique()
-    keep = rng.choice(games, size=min(n_games, len(games)), replace=False)
-    return df[df["game_id"].isin(keep)]
-
-
 def main():
-    df = sample_df(pd.read_parquet(DATA), SAMPLE_GAMES)
+    df = pd.read_parquet(DATA)
     deaths = df[df["killed_cat"] == "Queen"]
-    print(f"Sampled: {len(df):,} kills, {len(deaths):,} queen deaths")
+    print(f"Loaded: {len(df):,} kills, {len(deaths):,} queen deaths "
+          f"from {df['game_id'].nunique():,} games")
 
     x_all = df["x_canon"].to_numpy(np.float64)
     y_all = (Y_MAX - df["y"]).to_numpy(np.float64)
@@ -181,7 +174,7 @@ def main():
     fig.colorbar(last_im, ax=axes, shrink=0.5, label="density (kills / px²)")
     fig.suptitle(
         f"Geometry-aware queen-death heatmap (night, {len(deaths):,} kills "
-        f"from {SAMPLE_GAMES:,} games)\n"
+        f"from {df['game_id'].nunique():,} games)\n"
         "playable region inferred from where ANY kill ever happened",
         fontsize=12,
     )
