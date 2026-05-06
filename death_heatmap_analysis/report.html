@@ -46,9 +46,9 @@ caption states only what was computed.</p>
 <h2 id="toc">Contents</h2>
 <ul class="toc">
   <li><a href="#data">1. Data</a></li>
-  <li><a href="#diffusion">2. Wall-respecting diffusion</a></li>
+  <li><a href="#cross">2. Cross-map figures</a></li>
   <li><a href="#night">3. Night-map figures</a></li>
-  <li><a href="#cross">4. Cross-map figures</a></li>
+  <li><a href="#diffusion">4. Wall-respecting diffusion</a></li>
 </ul>
 
 <h2 id="data">1 · Data</h2>
@@ -66,37 +66,44 @@ both sides of a map are mirror-folded onto the gold half via
 <code>x' = min(x, 1920 - x)</code>, doubling effective sample density
 in the visible area.</p>
 
-<h2 id="diffusion">2 · Wall-respecting diffusion</h2>
-<p>Kill positions are smoothed on a 2&nbsp;px-per-cell grid using
-discrete Jacobi diffusion, with the playable region acting as a
-no-flux domain so density never crosses solid map geometry.</p>
-<ol>
-  <li><strong>Histogram.</strong> Build the per-cell kill count
-  <em>H</em> by 2D-binning the event positions on the grid.</li>
-  <li><strong>Playable mask.</strong> Smooth the histogram of
-  <em>all</em> kills (not just queen deaths) with a small Gaussian
-  (&sigma;=2&nbsp;cells) and threshold to obtain a binary mask
-  <em>M</em>. Cells where some kill ever landed count as playable;
-  the rest are walls. No manual segmentation.</li>
-  <li><strong>Initialise.</strong>
-  <code>f &larr; H &middot; M</code>; mass on wall cells is zeroed.</li>
-  <li><strong>Iterate.</strong> For each cell <em>c</em> &isin; <em>M</em>,
-  <code>f(c) &larr; (1 - &alpha;) f(c) + &alpha; &middot; mean<sub>n &isin; N(c) &cap; M</sub> f(n)</code>
-  with &alpha;=0.2 over the four orthogonal neighbours. Wall cells stay
-  at zero; their absence from the neighbour set is the no-flux
-  boundary condition.</li>
-  <li><strong>Stop.</strong> After <em>T</em> iterations the variance
-  per axis is approximately <code>&alpha;&middot;T</code> cells&sup2;,
-  so we run <em>T</em> = round(&sigma;<sup>2</sup>/&alpha;) iterations
-  to hit a target bandwidth. With cell&nbsp;size&nbsp;=&nbsp;2&nbsp;px
-  and target &sigma;&nbsp;=&nbsp;24&nbsp;px, that&rsquo;s
-  <em>T</em>&nbsp;=&nbsp;round(12<sup>2</sup>/0.2) = 720 iterations.</li>
-</ol>
-<p>The result is rendered as an alpha-modulated overlay on the map
-screenshot: <code>alpha = 0.92 &middot; progress^0.55</code> where
-<code>progress = norm(density)</code> clipped to [0,1] and forced to
-zero on cells with no density, so low-density cells let the map sprite
-show through and high-density cells render opaque.</p>
+<h2 id="cross">2 · Cross-map figures</h2>
+<p>Wall-respecting diffusion (&sigma;=24&nbsp;px; algorithm in §4) run
+on each map independently with a per-map empirical mask. Densities are
+divided by the number of games sampled in that map so peaks are
+comparable across maps.</p>
+<table>
+  <thead>
+    <tr>
+      <th>map</th>
+      <th>games</th>
+      <th>queen deaths</th>
+      <th>deaths / game</th>
+      <th>peak density<br><span style="font-weight:400">(kills/px²/game)</span></th>
+      <th>concentration<br><span style="font-weight:400">(peak ÷ playable mean)</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>day</td>      <td>49,147</td><td>182,010</td><td>3.70</td><td>1.02e&minus;4</td><td>×23.4</td></tr>
+    <tr><td>night</td>    <td>50,943</td><td>180,136</td><td>3.54</td><td>9.16e&minus;5</td><td>×22.1</td></tr>
+    <tr><td>twilight</td> <td>34,891</td><td>116,224</td><td>3.33</td><td>4.37e&minus;5</td><td>×11.4</td></tr>
+    <tr><td>dusk</td>     <td>47,427</td><td>172,618</td><td>3.64</td><td>4.21e&minus;5</td><td>×9.9</td></tr>
+  </tbody>
+</table>
+<p class="meta">Peak density: maximum cell value of the per-game
+density. Concentration ratio: peak divided by the mean over playable
+cells in that map.</p>
+<figure>
+  <img src="cross_map_heatmaps.png" alt="Per-game queen-death density per map">
+  <figcaption>Per-game density for all four maps on a shared LogNorm
+  color scale. <em>vmin</em> and <em>vmax</em> are the 40th and 99.9th
+  percentiles of the pooled non-zero density values across all four
+  maps.</figcaption>
+</figure>
+<figure>
+  <img src="cross_map_peaks.png" alt="Peak density and concentration ratio bars">
+  <figcaption>Per-map peak density (left) and concentration ratio
+  (right), values from the table above.</figcaption>
+</figure>
 
 <h2 id="night">3 · Night-map figures</h2>
 
@@ -151,44 +158,37 @@ minus its global value
   proportional to <code>|deviation| / vlim</code>.</figcaption>
 </figure>
 
-<h2 id="cross">4 · Cross-map figures</h2>
-<p>Same diffusion estimator (&sigma;=24&nbsp;px), same fold, run on
-each map independently with a per-map empirical mask. Densities are
-divided by the number of games sampled in that map so peaks are
-comparable across maps.</p>
-<table>
-  <thead>
-    <tr>
-      <th>map</th>
-      <th>games</th>
-      <th>queen deaths</th>
-      <th>deaths / game</th>
-      <th>peak density<br><span style="font-weight:400">(kills/px²/game)</span></th>
-      <th>concentration<br><span style="font-weight:400">(peak ÷ playable mean)</span></th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td>day</td>      <td>49,147</td><td>182,010</td><td>3.70</td><td>1.02e&minus;4</td><td>×23.4</td></tr>
-    <tr><td>night</td>    <td>50,943</td><td>180,136</td><td>3.54</td><td>9.16e&minus;5</td><td>×22.1</td></tr>
-    <tr><td>twilight</td> <td>34,891</td><td>116,224</td><td>3.33</td><td>4.37e&minus;5</td><td>×11.4</td></tr>
-    <tr><td>dusk</td>     <td>47,427</td><td>172,618</td><td>3.64</td><td>4.21e&minus;5</td><td>×9.9</td></tr>
-  </tbody>
-</table>
-<p class="meta">Peak density: maximum cell value of the per-game
-density. Concentration ratio: peak divided by the mean over playable
-cells in that map.</p>
-<figure>
-  <img src="cross_map_heatmaps.png" alt="Per-game queen-death density per map">
-  <figcaption>Per-game density for all four maps on a shared LogNorm
-  color scale. <em>vmin</em> and <em>vmax</em> are the 40th and 99.9th
-  percentiles of the pooled non-zero density values across all four
-  maps.</figcaption>
-</figure>
-<figure>
-  <img src="cross_map_peaks.png" alt="Peak density and concentration ratio bars">
-  <figcaption>Per-map peak density (left) and concentration ratio
-  (right), values from the table above.</figcaption>
-</figure>
+<h2 id="diffusion">4 · Wall-respecting diffusion</h2>
+<p>Kill positions are smoothed on a 2&nbsp;px-per-cell grid using
+discrete Jacobi diffusion, with the playable region acting as a
+no-flux domain so density never crosses solid map geometry.</p>
+<ol>
+  <li><strong>Histogram.</strong> Build the per-cell kill count
+  <em>H</em> by 2D-binning the event positions on the grid.</li>
+  <li><strong>Playable mask.</strong> Smooth the histogram of
+  <em>all</em> kills (not just queen deaths) with a small Gaussian
+  (&sigma;=2&nbsp;cells) and threshold to obtain a binary mask
+  <em>M</em>. Cells where some kill ever landed count as playable;
+  the rest are walls. No manual segmentation.</li>
+  <li><strong>Initialise.</strong>
+  <code>f &larr; H &middot; M</code>; mass on wall cells is zeroed.</li>
+  <li><strong>Iterate.</strong> For each cell <em>c</em> &isin; <em>M</em>,
+  <code>f(c) &larr; (1 - &alpha;) f(c) + &alpha; &middot; mean<sub>n &isin; N(c) &cap; M</sub> f(n)</code>
+  with &alpha;=0.2 over the four orthogonal neighbours. Wall cells stay
+  at zero; their absence from the neighbour set is the no-flux
+  boundary condition.</li>
+  <li><strong>Stop.</strong> After <em>T</em> iterations the variance
+  per axis is approximately <code>&alpha;&middot;T</code> cells&sup2;,
+  so we run <em>T</em> = round(&sigma;<sup>2</sup>/&alpha;) iterations
+  to hit a target bandwidth. With cell&nbsp;size&nbsp;=&nbsp;2&nbsp;px
+  and target &sigma;&nbsp;=&nbsp;24&nbsp;px, that&rsquo;s
+  <em>T</em>&nbsp;=&nbsp;round(12<sup>2</sup>/0.2) = 720 iterations.</li>
+</ol>
+<p>The result is rendered as an alpha-modulated overlay on the map
+screenshot: <code>alpha = 0.92 &middot; progress^0.55</code> where
+<code>progress = norm(density)</code> clipped to [0,1] and forced to
+zero on cells with no density, so low-density cells let the map sprite
+show through and high-density cells render opaque.</p>
 
 </body>
 </html>
