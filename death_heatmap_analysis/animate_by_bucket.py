@@ -271,20 +271,20 @@ def animate_dk(densities, bucket_label_fn, bucket_attr, out_path, mask):
     fig, ax = plt.subplots(figsize=(8, 9), constrained_layout=True)
     ax.imshow(img, extent=[0, X_HALF, Y_MAX, 0], aspect="equal")
     overlay = ax.imshow(
-        colorize_div(centered_list[0], "RdBu_r", vlim, sig_masks[0]),
+        colorize_div(centered_list[0], "PuOr", vlim, sig_masks[0]),
         extent=[0, X_HALF, Y_MAX, 0], aspect="equal",
         interpolation="nearest",
     )
     setup_axes(ax)
     ttl = ax.set_title("")
     sm = plt.cm.ScalarMappable(
-        cmap="RdBu_r", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
+        cmap="PuOr", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
     fig.colorbar(sm, ax=ax, shrink=0.8,
                  label="log10(D/K) − global mean")
 
     def update(i):
         overlay.set_data(colorize_div(
-            centered_list[i], "RdBu_r", vlim, sig_masks[i]))
+            centered_list[i], "PuOr", vlim, sig_masks[i]))
         d = densities[i]
         ttl.set_text(
             f"D/K deviation — {bucket_attr} bucket {bucket_label_fn(i)}\n"
@@ -366,20 +366,20 @@ def animate_killer_diff(densities, bucket_label_fn, bucket_attr, out_path,
     fig, ax = plt.subplots(figsize=(8, 9), constrained_layout=True)
     ax.imshow(img, extent=[0, X_HALF, Y_MAX, 0], aspect="equal")
     overlay = ax.imshow(
-        colorize_div(centered_list[0], "RdBu_r", vlim, sig_masks[0]),
+        colorize_div(centered_list[0], "PuOr", vlim, sig_masks[0]),
         extent=[0, X_HALF, Y_MAX, 0], aspect="equal",
         interpolation="nearest",
     )
     setup_axes(ax)
     ttl = ax.set_title("")
     sm = plt.cm.ScalarMappable(
-        cmap="RdBu_r", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
+        cmap="PuOr", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
     fig.colorbar(sm, ax=ax, shrink=0.8,
                  label="log10(soldier/queen) − global")
 
     def update(i):
         overlay.set_data(colorize_div(
-            centered_list[i], "RdBu_r", vlim, sig_masks[i]))
+            centered_list[i], "PuOr", vlim, sig_masks[i]))
         d = densities[i]
         ttl.set_text(
             f"Killer-type imbalance — {bucket_attr} bucket {bucket_label_fn(i)}\n"

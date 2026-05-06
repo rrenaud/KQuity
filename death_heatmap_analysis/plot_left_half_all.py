@@ -180,7 +180,7 @@ def plot_dk_ratio(df, mask, cell_px, sigma_cells):
     flat = centered[sig_mask]
     vlim = max(np.quantile(np.abs(flat), 0.99), 0.2)
 
-    rgba = colorize_diverging(centered, "RdBu_r", vlim,
+    rgba = colorize_diverging(centered, "PuOr", vlim,
                               alpha_max=0.85,
                               mask=sig_mask.astype(np.float64))
 
@@ -190,7 +190,7 @@ def plot_dk_ratio(df, mask, cell_px, sigma_cells):
     ax.imshow(rgba, extent=[0, X_HALF, Y_MAX, 0], aspect="equal",
               interpolation="nearest")
     sm = plt.cm.ScalarMappable(
-        cmap="RdBu_r", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
+        cmap="PuOr", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
     cb = fig.colorbar(sm, ax=ax, shrink=0.8,
                       label="log10(D/K) − global mean")
     ax.set_xlim(0, X_HALF); ax.set_ylim(Y_MAX, 0)
@@ -199,7 +199,7 @@ def plot_dk_ratio(df, mask, cell_px, sigma_cells):
     ax.set_title(
         f"Queen kill-zone vs. death-zone — gold half\n"
         f"global log10(D/K)={global_log:+.2f}    "
-        "red = die more than expected, blue = deadlier than expected"
+        "orange = die more than expected, purple = deadlier than expected"
     )
     out = os.path.join(OUT_DIR, "queen_dk_ratio_left.png")
     plt.savefig(out, dpi=140, bbox_inches="tight")
@@ -235,7 +235,7 @@ def plot_queen_minus_soldier(df, mask, cell_px, sigma_cells):
     flat = centered[sig_mask]
     vlim = max(np.quantile(np.abs(flat), 0.99), 0.2)
 
-    rgba = colorize_diverging(centered, "RdBu_r", vlim,
+    rgba = colorize_diverging(centered, "PuOr", vlim,
                               alpha_max=0.85,
                               mask=sig_mask.astype(np.float64))
 
@@ -245,7 +245,7 @@ def plot_queen_minus_soldier(df, mask, cell_px, sigma_cells):
     ax.imshow(rgba, extent=[0, X_HALF, Y_MAX, 0], aspect="equal",
               interpolation="nearest")
     sm = plt.cm.ScalarMappable(
-        cmap="RdBu_r", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
+        cmap="PuOr", norm=TwoSlopeNorm(vmin=-vlim, vcenter=0, vmax=vlim))
     fig.colorbar(sm, ax=ax, shrink=0.8,
                  label="log10(D_soldier / D_queen) − global mean")
     ax.set_xlim(0, X_HALF); ax.set_ylim(Y_MAX, 0)
@@ -254,7 +254,7 @@ def plot_queen_minus_soldier(df, mask, cell_px, sigma_cells):
     ax.set_title(
         f"Killer-type imbalance (queen-deaths) — gold half\n"
         f"global log10(soldier/queen)={global_log:+.2f}    "
-        "red = soldier-killer dominates locally, blue = queen-killer dominates"
+        "orange = soldier-killer dominates locally, purple = queen-killer dominates"
     )
     out = os.path.join(OUT_DIR, "queen_death_killer_diff_left.png")
     plt.savefig(out, dpi=140, bbox_inches="tight")
