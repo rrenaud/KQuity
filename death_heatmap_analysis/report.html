@@ -28,7 +28,6 @@
   figure { margin: 1.1rem 0 1.4rem; padding: .55rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
   figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
   figcaption { margin-top: .55rem; font-size: .92rem; color: var(--muted); text-align: center; }
-  video { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #000; }
   table { width: 100%; border-collapse: collapse; margin: .8rem 0 1rem; font-size: .95rem; }
   th, td { padding: .45rem .65rem; border-bottom: 1px solid var(--rule); text-align: right; }
   th:first-child, td:first-child { text-align: left; }
@@ -47,10 +46,9 @@ caption states only what was computed.</p>
 <h2 id="toc">Contents</h2>
 <ul class="toc">
   <li><a href="#data">1. Data</a></li>
-  <li><a href="#diffusion">2. Density estimation: why diffusion</a></li>
+  <li><a href="#diffusion">2. Wall-respecting diffusion</a></li>
   <li><a href="#night">3. Night-map figures</a></li>
   <li><a href="#cross">4. Cross-map figures</a></li>
-  <li><a href="#animations">5. Bucketed animations (quality, queen skill)</a></li>
 </ul>
 
 <h2 id="data">1 · Data</h2>
@@ -68,64 +66,37 @@ both sides of a map are mirror-folded onto the gold half via
 <code>x' = min(x, 1920 - x)</code>, doubling effective sample density
 in the visible area.</p>
 
-<h2 id="diffusion">2 · Density estimation: why diffusion</h2>
-<p>For a 2D point set on a 1920&times;1080 canvas the standard estimator
-is a Gaussian kernel density. With the bandwidths that surface
-map-feature structure (~24&nbsp;px) a Gaussian KDE has a problem
-specific to this domain: it spreads density isotropically, including
-across solid map geometry. A queen kill near a platform edge
-contributes weight to cells inside the stone below it, and a kill in
-one chamber spills across thin walls into adjacent chambers.</p>
-<p>Three estimators were compared:</p>
+<h2 id="diffusion">2 · Wall-respecting diffusion</h2>
+<p>Kill positions are smoothed on a 2&nbsp;px-per-cell grid using
+discrete Jacobi diffusion, with the playable region acting as a
+no-flux domain so density never crosses solid map geometry.</p>
 <ol>
-  <li><strong>Naive Gaussian KDE.</strong>
-  <code>density = gaussian(H, &sigma;)</code>. Closed-form, fast, ignores geometry.</li>
-  <li><strong>Mask-renormalized Gaussian.</strong> Build a binary mask
-  <em>M</em> of cells where any kill ever landed (an empirical playable
-  region; no manual segmentation). Compute
-  <code>num = gaussian(H&middot;M, &sigma;)</code> and
-  <code>den = gaussian(M, &sigma;)</code>, then
-  <code>density = num / den</code> on <em>M</em>. Corrects the boundary
-  dilution that pulls naive density down near edges, but the kernel still
-  reaches across thin walls.</li>
-  <li><strong>Wall-respecting diffusion.</strong> Iterate
-  <code>f &larr; (1 - &alpha;)&middot;f + &alpha;&middot;mean(playable neighbours of f)</code>
-  with &alpha;=0.2. Cells outside <em>M</em> are treated as no-flux
-  boundaries, so density never crosses solid geometry. Variance after
-  <em>T</em> iterations is approximately
-  <code>&sigma;&sup2; &asymp; &alpha;&middot;T</code> cells&sup2; per
-  axis, so the iteration count is set to match a 24-px target
-  bandwidth.</li>
+  <li><strong>Histogram.</strong> Build the per-cell kill count
+  <em>H</em> by 2D-binning the event positions on the grid.</li>
+  <li><strong>Playable mask.</strong> Smooth the histogram of
+  <em>all</em> kills (not just queen deaths) with a small Gaussian
+  (&sigma;=2&nbsp;cells) and threshold to obtain a binary mask
+  <em>M</em>. Cells where some kill ever landed count as playable;
+  the rest are walls. No manual segmentation.</li>
+  <li><strong>Initialise.</strong>
+  <code>f &larr; H &middot; M</code>; mass on wall cells is zeroed.</li>
+  <li><strong>Iterate.</strong> For each cell <em>c</em> &isin; <em>M</em>,
+  <code>f(c) &larr; (1 - &alpha;) f(c) + &alpha; &middot; mean<sub>n &isin; N(c) &cap; M</sub> f(n)</code>
+  with &alpha;=0.2 over the four orthogonal neighbours. Wall cells stay
+  at zero; their absence from the neighbour set is the no-flux
+  boundary condition.</li>
+  <li><strong>Stop.</strong> After <em>T</em> iterations the variance
+  per axis is approximately <code>&alpha;&middot;T</code> cells&sup2;,
+  so we run <em>T</em> = round(&sigma;<sup>2</sup>/&alpha;) iterations
+  to hit a target bandwidth. With cell&nbsp;size&nbsp;=&nbsp;2&nbsp;px
+  and target &sigma;&nbsp;=&nbsp;24&nbsp;px, that&rsquo;s
+  <em>T</em>&nbsp;=&nbsp;round(12<sup>2</sup>/0.2) = 720 iterations.</li>
 </ol>
-<figure>
-  <img src="queen_death_overlay_sharp.png" alt="Three density estimators side by side">
-  <figcaption>Same queen-death input passed through (top to bottom)
-  naive Gaussian, mask-renormalized Gaussian, and wall-respecting
-  diffusion. All at &sigma;=24&nbsp;px, on a 2&nbsp;px-per-cell
-  grid.</figcaption>
-</figure>
-<p>The trade-off:</p>
-<ul>
-  <li><strong>Cost.</strong> Naive: one
-  <code>gaussian_filter</code> call. Mask-renormalized: two. Diffusion:
-  <em>O(&sigma;²/&alpha;)</em> ≈ 180 sparse stencil applications.</li>
-  <li><strong>Mask quality.</strong> Mask-renormalized and diffusion
-  both require a binary mask. Using empirical kill positions to define
-  it avoids a manual map-geometry segmentation but introduces a small
-  data dependency: regions that are playable but rarely visited get
-  underrepresented in the mask. The mask is built from the smoothed
-  histogram of <em>all</em> kills (not just queen deaths), which keeps
-  the mask stable.</li>
-  <li><strong>Sharpness vs. bias.</strong> Diffusion has the lowest
-  cross-wall bleed and is the choice used everywhere else in this
-  report. Mask-renormalized sits between naive and diffusion in both
-  cost and sharpness; useful as a quick-look estimator.</li>
-</ul>
-<p>All overlays use a power-curve alpha,
-<code>alpha = 0.92 &middot; progress^0.55</code> with
-<code>progress = norm(density)</code> clipped to [0,1] and zero where
-the cell density is zero, so low-density cells let the underlying map
-sprite show through and high-density cells render opaque.</p>
+<p>The result is rendered as an alpha-modulated overlay on the map
+screenshot: <code>alpha = 0.92 &middot; progress^0.55</code> where
+<code>progress = norm(density)</code> clipped to [0,1] and forced to
+zero on cells with no density, so low-density cells let the map sprite
+show through and high-density cells render opaque.</p>
 
 <h2 id="night">3 · Night-map figures</h2>
 
@@ -217,68 +188,6 @@ cells in that map.</p>
   <img src="cross_map_peaks.png" alt="Peak density and concentration ratio bars">
   <figcaption>Per-map peak density (left) and concentration ratio
   (right), values from the table above.</figcaption>
-</figure>
-
-<h2 id="animations">5 · Bucketed animations</h2>
-<p>Each game is assigned a per-game scalar attribute and the night-map
-sample is partitioned into 12 equal-mass buckets by quantile. The
-densities from §3 are recomputed for each bucket and rendered as one
-frame, producing a 12-frame mp4 per plot type. Frame interval 0.5 s.</p>
-
-<h3>5.1 · By game quality</h3>
-<p>Bucket attribute: the game&rsquo;s quality-classifier rank in
-<code>quality_filtered/encoded/all_games.bin</code> (the bin is sorted
-by <code>quality_score</code> descending, so each game has a unique
-rank). Bucket label gives the percentile range; bucket 0&ndash;8% is
-the highest-quality games. Each bucket holds ~4,245 night games.</p>
-<figure>
-  <video controls preload="metadata" src="anim_quality_sharp.mp4"></video>
-  <figcaption>Queen-death density (§3.1) per quality bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_quality_dk.mp4"></video>
-  <figcaption>Local D/K deviation (§3.2) per quality bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_quality_killer_split.mp4"></video>
-  <figcaption>Death-by-killer split (§3.3, two-panel) per quality
-  bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_quality_killer_diff.mp4"></video>
-  <figcaption>Killer-type imbalance (§3.3, balance map) per quality
-  bucket.</figcaption>
-</figure>
-
-<h3>5.2 · By queen-participant skill (per-event)</h3>
-<p>Bucketing here is <strong>per kill event</strong>, not per game.
-For each event we attach the pre-game OpenSkill PlackettLuce
-<em>&mu;</em> of the queen participating in it: the dying queen if
-the victim is a queen, otherwise the killing queen if the killer is
-a queen. Worker-on-worker events are dropped (no queen participant).
-Two events from the same game can land in different buckets if the
-two queens have different skills.</p>
-<p>Ratings come from <code>compute_ratings.py</code>, which walks
-<code>unfiltered_partitioned/usergame.csv</code> chronologically and
-records the pre-game per-position <em>&mu;</em> snapshot before each
-game updates the model. Of the 1,770,612 night kill events, 469,531
-are queen-attributed and form the basis for these buckets; each
-bucket holds ~3,846&ndash;4,602 events.</p>
-<figure>
-  <video controls preload="metadata" src="anim_skill_sharp.mp4"></video>
-  <figcaption>Queen-death density per queen-skill bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_skill_dk.mp4"></video>
-  <figcaption>Local D/K deviation per queen-skill bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_skill_killer_split.mp4"></video>
-  <figcaption>Death-by-killer split per queen-skill bucket.</figcaption>
-</figure>
-<figure>
-  <video controls preload="metadata" src="anim_skill_killer_diff.mp4"></video>
-  <figcaption>Killer-type imbalance per queen-skill bucket.</figcaption>
 </figure>
 
 </body>
