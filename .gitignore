@@ -14,3 +14,4 @@ ratings*.pkl
 quality_cache/
 data/game_db/
 site/
+death_heatmap_analysis/*.parquet

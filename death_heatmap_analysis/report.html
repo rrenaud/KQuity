@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Queen-death heatmap — method and figures</title>
+<style>
+  :root {
+    --fg: #1f2024;
+    --muted: #5f6671;
+    --accent: #b54a14;
+    --bg: #fbfaf6;
+    --panel: #ffffff;
+    --rule: #e7e3d8;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    max-width: 880px;
+    margin: 2.5rem auto;
+    padding: 0 1.4rem 4rem;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  h1, h2, h3 { font-weight: 600; line-height: 1.25; }
+  h1 { font-size: 1.9rem; margin: 0 0 .35rem; }
+  h2 { font-size: 1.25rem; margin: 2.4rem 0 .55rem; padding-bottom: .25rem; border-bottom: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 .35rem; color: var(--accent); }
+  .tagline { color: var(--muted); margin: 0 0 1rem; }
+  .meta { color: var(--muted); font-size: .9rem; }
+  figure { margin: 1.1rem 0 1.4rem; padding: .55rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
+  figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+  figcaption { margin-top: .55rem; font-size: .92rem; color: var(--muted); text-align: center; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0 1rem; font-size: .95rem; }
+  th, td { padding: .45rem .65rem; border-bottom: 1px solid var(--rule); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { background: #f4f0e6; font-weight: 600; }
+  ul.toc { padding-left: 1.2rem; }
+  ul.toc li { margin: .12rem 0; }
+  code { background: #f1ede2; padding: .08em .35em; border-radius: 3px; font-size: .92em; }
+</style>
+</head>
+<body>
+
+<h1>Queen-death heatmap — method and figures</h1>
+<p class="tagline">Inputs, transformations, and outputs. Each figure&rsquo;s
+caption states only what was computed.</p>
+
+<h2 id="toc">Contents</h2>
+<ul class="toc">
+  <li><a href="#data">1. Data</a></li>
+  <li><a href="#diffusion">2. Density estimation: why diffusion</a></li>
+  <li><a href="#night">3. Night-map figures</a></li>
+  <li><a href="#cross">4. Cross-map figures</a></li>
+</ul>
+
+<h2 id="data">1 · Data</h2>
+<p>For each game in the quality-filtered set we walk the
+<code>playerKill</code> events and keep
+<code>(killer_x, killer_y, killer_pid, killed_pid, killed_category)</code>
+plus the game&rsquo;s map index, quality rank, and
+<code>gold_on_left</code> flag. Positions are mirrored to a
+canonical gold-on-left frame; <em>y</em> is flipped from Cartesian
+(game) to pixel coordinates so it matches the screenshot.</p>
+<p>The figures below use 10,000 sampled games per map (~350,000 kill
+events per map; ~33,000 of those queen deaths). Where applicable, both
+sides of a map are mirror-folded onto the gold half via
+<code>x' = min(x, 1920 - x)</code>, doubling effective sample density
+in the visible area.</p>
+
+<h2 id="diffusion">2 · Density estimation: why diffusion</h2>
+<p>For a 2D point set on a 1920&times;1080 canvas the standard estimator
+is a Gaussian kernel density. With the bandwidths that surface
+map-feature structure (~24&nbsp;px) a Gaussian KDE has a problem
+specific to this domain: it spreads density isotropically, including
+across solid map geometry. A queen kill near a platform edge
+contributes weight to cells inside the stone below it, and a kill in
+one chamber spills across thin walls into adjacent chambers.</p>
+<p>Three estimators were compared:</p>
+<ol>
+  <li><strong>Naive Gaussian KDE.</strong>
+  <code>density = gaussian(H, &sigma;)</code>. Closed-form, fast, ignores geometry.</li>
+  <li><strong>Mask-renormalized Gaussian.</strong> Build a binary mask
+  <em>M</em> of cells where any kill ever landed (an empirical playable
+  region; no manual segmentation). Compute
+  <code>num = gaussian(H&middot;M, &sigma;)</code> and
+  <code>den = gaussian(M, &sigma;)</code>, then
+  <code>density = num / den</code> on <em>M</em>. Corrects the boundary
+  dilution that pulls naive density down near edges, but the kernel still
+  reaches across thin walls.</li>
+  <li><strong>Wall-respecting diffusion.</strong> Iterate
+  <code>f &larr; (1 - &alpha;)&middot;f + &alpha;&middot;mean(playable neighbours of f)</code>
+  with &alpha;=0.2. Cells outside <em>M</em> are treated as no-flux
+  boundaries, so density never crosses solid geometry. Variance after
+  <em>T</em> iterations is approximately
+  <code>&sigma;&sup2; &asymp; &alpha;&middot;T</code> cells&sup2; per
+  axis, so the iteration count is set to match a 24-px target
+  bandwidth.</li>
+</ol>
+<figure>
+  <img src="queen_death_overlay_sharp.png" alt="Three density estimators side by side">
+  <figcaption>Same queen-death input passed through (top to bottom)
+  naive Gaussian, mask-renormalized Gaussian, and wall-respecting
+  diffusion. All at &sigma;=24&nbsp;px, on a 2&nbsp;px-per-cell
+  grid.</figcaption>
+</figure>
+<p>The trade-off:</p>
+<ul>
+  <li><strong>Cost.</strong> Naive: one
+  <code>gaussian_filter</code> call. Mask-renormalized: two. Diffusion:
+  <em>O(&sigma;²/&alpha;)</em> ≈ 180 sparse stencil applications.</li>
+  <li><strong>Mask quality.</strong> Mask-renormalized and diffusion
+  both require a binary mask. Using empirical kill positions to define
+  it avoids a manual map-geometry segmentation but introduces a small
+  data dependency: regions that are playable but rarely visited get
+  underrepresented in the mask. The mask is built from the smoothed
+  histogram of <em>all</em> kills (not just queen deaths), which keeps
+  the mask stable.</li>
+  <li><strong>Sharpness vs. bias.</strong> Diffusion has the lowest
+  cross-wall bleed and is the choice used everywhere else in this
+  report. Mask-renormalized sits between naive and diffusion in both
+  cost and sharpness; useful as a quick-look estimator.</li>
+</ul>
+<p>All overlays use a power-curve alpha,
+<code>alpha = 0.92 &middot; progress^0.55</code> with
+<code>progress = norm(density)</code> clipped to [0,1] and zero where
+the cell density is zero, so low-density cells let the underlying map
+sprite show through and high-density cells render opaque.</p>
+
+<h2 id="night">3 · Night-map figures</h2>
+
+<h3>3.1 · Density</h3>
+<figure>
+  <img src="queen_death_left_sharp.png" alt="Folded queen-death density on night">
+  <figcaption>Wall-respecting diffusion of queen-death counts on the
+  night map, folded onto the gold half. &sigma;=24&nbsp;px; mask built
+  from all kill positions in the night sample. Color: density
+  (kills&nbsp;/&nbsp;px²) on log scale.</figcaption>
+</figure>
+
+<h3>3.2 · Local D/K deviation</h3>
+<p>For each cell, two diffusion-smoothed densities:
+<em>D</em> = density of queen-deaths (rows where
+<code>killed_cat == &quot;Queen&quot;</code>);
+<em>K</em> = density of kills <em>by</em> queens
+(rows where <code>killer_pid &isin; {1, 2}</code>). Plot
+<code>log&#x2081;&#x2080;(D/K)</code> minus the global value
+<code>log&#x2081;&#x2080;(&Sigma;D / &Sigma;K)</code>. Cells with low
+combined signal (<em>D</em>+<em>K</em> below the 20th percentile of the
+playable region) are masked out.</p>
+<figure>
+  <img src="queen_dk_ratio_left.png" alt="D/K ratio centered on global mean">
+  <figcaption>Diverging color scale on
+  <code>log&#x2081;&#x2080;(D/K) &minus; global</code>; alpha
+  proportional to <code>|deviation| / vlim</code> so cells matching the
+  map average are transparent.</figcaption>
+</figure>
+
+<h3>3.3 · Death by killer type</h3>
+<p>Queen-death rows partitioned by killer:
+<code>killer_pid &isin; {1, 2}</code> &rarr; killer is the enemy queen;
+<code>killer_pid &ge; 3</code> &rarr; killer is a worker, which must be
+a winged soldier to have killed the queen. In the night sample,
+53.5% are by enemy queen and 46.5% by enemy soldier.</p>
+<figure>
+  <img src="queen_death_by_killer_left.png" alt="Queen-death heatmaps split by killer type">
+  <figcaption>Two diffusion-smoothed densities on a shared LogNorm color
+  scale: queen-deaths killed by enemy queen (left) and by enemy soldier
+  (right).</figcaption>
+</figure>
+
+<p>The two densities recombined as a balance map:
+<code>log&#x2081;&#x2080;(D&#x209B;&#x2092;&#x2097;&#x2099;&#x1D62;&#x2091;&#x2090; / D&#x2091;&#x1D34;&#x1D34;&#x1D31;&#x2091;&#x2099;)</code>
+minus its global value
+<code>log&#x2081;&#x2080;(&Sigma;D&#x209B;&#x2092;&#x2097; / &Sigma;D&#x2091;&#x1D34;&#x1D34;&#x1D31;&#x2091;&#x2099;) = &minus;0.06</code>:</p>
+<figure>
+  <img src="queen_death_killer_diff_left.png" alt="Local soldier-vs-queen killer balance">
+  <figcaption>Diverging RdBu_r centered at zero deviation; alpha
+  proportional to <code>|deviation| / vlim</code>.</figcaption>
+</figure>
+
+<h2 id="cross">4 · Cross-map figures</h2>
+<p>Same diffusion estimator (&sigma;=24&nbsp;px), same fold, run on
+each map independently with a per-map empirical mask. Densities are
+divided by the number of games sampled in that map so peaks are
+comparable across maps.</p>
+<table>
+  <thead>
+    <tr>
+      <th>map</th>
+      <th>sample games</th>
+      <th>queen deaths</th>
+      <th>peak density<br><span style="font-weight:400">(kills/px²/game)</span></th>
+      <th>concentration<br><span style="font-weight:400">(peak ÷ playable mean)</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>day</td>      <td>9,994</td><td>35,582</td><td>9.85e&minus;5</td><td>×23.0</td></tr>
+    <tr><td>night</td>    <td>10,000</td><td>33,833</td><td>8.01e&minus;5</td><td>×19.8</td></tr>
+    <tr><td>twilight</td> <td>10,000</td><td>31,790</td><td>4.48e&minus;5</td><td>×11.9</td></tr>
+    <tr><td>dusk</td>     <td>10,000</td><td>33,963</td><td>3.13e&minus;5</td><td>×7.8</td></tr>
+  </tbody>
+</table>
+<p class="meta">Peak density: maximum cell value of the per-game
+density. Concentration ratio: peak divided by the mean over playable
+cells in that map.</p>
+<figure>
+  <img src="cross_map_heatmaps.png" alt="Per-game queen-death density per map">
+  <figcaption>Per-game density for all four maps on a shared LogNorm
+  color scale. <em>vmin</em> and <em>vmax</em> are the 40th and 99.9th
+  percentiles of the pooled non-zero density values across all four
+  maps.</figcaption>
+</figure>
+<figure>
+  <img src="cross_map_peaks.png" alt="Peak density and concentration ratio bars">
+  <figcaption>Per-map peak density (left) and concentration ratio
+  (right), values from the table above.</figcaption>
+</figure>
+
+</body>
+</html>
