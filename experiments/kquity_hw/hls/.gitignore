@@ -1,0 +1,8 @@
+# Vitis HLS project outputs (large, regeneratable from run_kquity_hls.tcl)
+kquity_logit_only/
+kquity_with_lut/
+vitis_hls.log
+_kquity_with_lut_top.cpp
+
+# Native testbench build product
+test_kquity_pressure_native
