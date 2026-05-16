@@ -22,6 +22,7 @@ control signal extracted from the oracle.
 - [6. Schematic](#6-schematic)
 - [7. How to reproduce](#7-how-to-reproduce)
 - [8. Caveats](#8-caveats)
+- [9. Direct model-to-fabric baseline](#9-direct-model-to-fabric-baseline)
 
 ## 1. Starting oracle
 
@@ -330,6 +331,68 @@ including resource detail tables is in
 * No GPU was used in any phase. CPU + Vitis HLS only.
 ```
 
+## 9. Direct model-to-fabric baseline
+
+To frame the extracted primitive's hardware cost, we also ran a
+direct `model -> fabric` compilation using
+[Conifer](https://github.com/thesps/conifer). Conifer was
+attempted on a LightGBM 50-tree / 32-leaf small model via the
+LightGBM → ONNX → Conifer path; that failed with a Conifer-side
+ONNX-parser bug (`KeyError('base_values')`). The directive's
+fallback path — train an XGBoost 50-tree / depth-5 classifier
+(comparable budget) and use Conifer's native XGBoost converter —
+worked end-to-end. Same xck26-sfvc784-2LV-c target, same 5 ns
+clock, `ap_fixed<16,6>` precision.
+
+```
+                                Extracted   Conifer
+                                Phase 5     50t × d5
+Path                            extract     model-to-fabric
+Input features                  6           52
+Parameters                      7           ~25 nodes/tree × 50
+LUT                             269         39,986       (~148×)
+FF                              180         2,800
+DSP                             2           0
+BRAM_18K                        0           0
+Latency cycles                  4           4
+Fmax (MHz)                      288.9       274.4
+KV260 LUT utilization           0.23%       34%
+AUC                             0.7496      0.7751
+Brier                           0.2017      0.1928
+pRMSE vs LightGBM oracle        0.113       0.094
+```
+
+The Conifer-compiled BDT keeps ~2.5 pp more AUC than the
+extracted linear, at the cost of **~148× more LUT** and 34% of
+the KV260 LUT budget. Latency is the same 4 cycles; Fmax is
+slightly lower for the larger fan-out comparator network.
+
+This is the orthogonal axis Case F exists to illustrate:
+
+```
+Path A: oracle-to-action extraction
+  LightGBM oracle (or even XGBoost surrogate)
+    -> 6-feature objective-pressure vector
+    -> 7-parameter linear primitive
+    -> tiny hardware
+
+Path B: model-to-fabric compile
+  Small BDT
+    -> Conifer
+    -> tree-comparator fabric
+    -> compact hardware, but still ~150× the extracted primitive
+```
+
+Both are useful. Path A is what this writeup is about; Path B is
+the right baseline to put next to it. The cost gradient (LUT,
+roughly: extracted 269 → Conifer 50t/d5 ≈ 40k → full LightGBM
+100t/100l would be larger again) is the schematic for "what
+extraction buys".
+
+See `experiments/kquity_hw/conifer/README.md` for the full
+Conifer baseline notes and `results/conifer_baseline_xgb_50t_d5.json`
+for the parsed numbers.
+
 ## Per-phase artifacts
 
 For anyone wanting the full chain:
@@ -362,6 +425,12 @@ experiments/kquity_hw/
     test_kquity_pressure.cpp
     run_kquity_hls.tcl
     README.md
+  conifer/
+    conifer_baseline.py
+    README.md
+    results/
+      conifer_baseline_xgb_50t_d5.json
+      conifer_xgb_50t_d5_p16_6/       full Conifer project + csynth
 ```
 
 Branch: `case-f-hw-extraction` (local only; not pushed upstream).
