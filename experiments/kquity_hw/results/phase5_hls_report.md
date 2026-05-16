@@ -96,7 +96,7 @@ cd hls && /tools/Xilinx/2025.2/Vitis/bin/vitis_hls -f run_kquity_hls.tcl
 
 The C++ also compiles with plain `g++`; running the testbench
 natively confirms 0/152 logit and prob mismatches before invoking
-the toolchain. That is the inspection path Ryan can run with no
+the toolchain. That is the inspection path Rob can run with no
 Vitis license.
 
 ## 4. Resource tables
@@ -153,7 +153,7 @@ BRAM_18K tile. The wrapper costs ~18 extra LUT and ~100 extra FF
 on top of the logit core. Adding the probability output is
 essentially free.
 
-## 5. Schematic for Ryan
+## 5. Schematic for Rob
 
 ```
   blue.eggs, blue.food, blue.n_sol, blue.n_war  (host)
@@ -263,7 +263,7 @@ It is not:
 
 ```
 a probability-faithful replacement for the LightGBM oracle. If
-Ryan wants the full probability surface for analysis or display,
+Rob wants the full probability surface for analysis or display,
 the LightGBM stays; the hardware primitive is for the
 ranking/threshold/control path.
 ```

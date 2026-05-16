@@ -1,0 +1,7 @@
+# Build artifacts (regenerate via run_native_tests.sh / cmake)
+firmware/build/
+tests/build/
+
+# Regeneratable golden vectors (gen_golden_json.py rebuilds them)
+# but we DO commit them so tests can run without the eval CSVs
+# being present on a casual checkout.
