@@ -1,0 +1,243 @@
+{
+  "model": "/home/mcgrof/devel/KQuity/current_preferred_model.mdl",
+  "label_convention": "y=1 means BLUE wins; model output is P(blue wins)",
+  "n_events": 233538,
+  "pos_rate_blue_win": 0.5185580076903973,
+  "overall": {
+    "n": 233538,
+    "pos_rate": 0.5185580076903973,
+    "logloss": 0.5576826337625322,
+    "brier": 0.18997402723425452,
+    "acc@0.5": 0.7064417782116829,
+    "auc": 0.7836019916842086
+  },
+  "ece10": 0.030238945795292245,
+  "symmetry": {
+    "mean_abs_err": 0.018904106501769047,
+    "rms_err": 0.025982832810552775
+  },
+  "phase_metrics": {
+    "early": {
+      "n": 58383,
+      "pos_rate": 0.5178562252710549,
+      "logloss": 0.6412966192736662,
+      "brier": 0.22517996262337647,
+      "acc@0.5": 0.6370347532672181,
+      "auc": 0.6890709075132472
+    },
+    "mid": {
+      "n": 81738,
+      "pos_rate": 0.5191710098118378,
+      "logloss": 0.5495824010800493,
+      "brier": 0.18555623713366423,
+      "acc@0.5": 0.71813599549781,
+      "auc": 0.7977215165021749
+    },
+    "late": {
+      "n": 93417,
+      "pos_rate": 0.5184602374300181,
+      "logloss": 0.512513783370251,
+      "brier": 0.17183678456342313,
+      "acc@0.5": 0.7395870130704262,
+      "auc": 0.8225563020208959
+    }
+  },
+  "monotonic_probes": {
+    "gold.eggs +1": {
+      "delta": 1.0,
+      "mean_dp": -0.053906515239265,
+      "median_dp": 0.0,
+      "frac_positive_delta": 0.007322148858001695,
+      "frac_zero_delta": 0.5042177290205448
+    },
+    "blue.eggs +1": {
+      "delta": 1.0,
+      "mean_dp": 0.05614054910383054,
+      "median_dp": 0.0009414326987484407,
+      "frac_positive_delta": 0.5030701641702849,
+      "frac_zero_delta": 0.4866274439277548
+    },
+    "gold.food_count +1": {
+      "delta": 1.0,
+      "mean_dp": -0.040855661913368084,
+      "median_dp": -0.02723454782558027,
+      "frac_positive_delta": 0.10790963355000043,
+      "frac_zero_delta": 0.04459231474106998
+    },
+    "blue.food_count +1": {
+      "delta": 1.0,
+      "mean_dp": 0.04125389745694662,
+      "median_dp": 0.027024248485820607,
+      "frac_positive_delta": 0.84945062473773,
+      "frac_zero_delta": 0.03644802987094178
+    },
+    "snail_pos +0.1": {
+      "delta": 0.1,
+      "mean_dp": 0.048473264392398824,
+      "median_dp": 0.04120335525236474,
+      "frac_positive_delta": 0.9187584033433531,
+      "frac_zero_delta": 0.007835983865580763
+    },
+    "snail_pos -0.1": {
+      "delta": -0.1,
+      "mean_dp": -0.049658086002951116,
+      "median_dp": -0.042562532528671815,
+      "frac_positive_delta": 0.07290890561707303,
+      "frac_zero_delta": 0.0077888823232193476
+    }
+  },
+  "top15_gain": [
+    {
+      "feature": "gold.eggs",
+      "gain": 1601212.0766382217,
+      "gain_frac": 0.1984292695879799
+    },
+    {
+      "feature": "blue.eggs",
+      "gain": 1460931.7004919052,
+      "gain_frac": 0.1810451060643807
+    },
+    {
+      "feature": "blue.food_count",
+      "gain": 1079056.798201561,
+      "gain_frac": 0.13372148226649772
+    },
+    {
+      "feature": "gold.food_count",
+      "gain": 1062799.645327568,
+      "gain_frac": 0.131706824110072
+    },
+    {
+      "feature": "snail_pos",
+      "gain": 837194.807975769,
+      "gain_frac": 0.10374887666239793
+    },
+    {
+      "feature": "gold.n_soldiers",
+      "gain": 308522.3145580292,
+      "gain_frac": 0.03823344728817876
+    },
+    {
+      "feature": "blue.n_soldiers",
+      "gain": 292785.13338661194,
+      "gain_frac": 0.03628322632071376
+    },
+    {
+      "feature": "blue.w2_has_wings",
+      "gain": 244935.9328432083,
+      "gain_frac": 0.03035354214413009
+    },
+    {
+      "feature": "gold.w2_has_wings",
+      "gain": 235238.5141582489,
+      "gain_frac": 0.029151795208405416
+    },
+    {
+      "feature": "blue.w3_has_wings",
+      "gain": 119583.25298786163,
+      "gain_frac": 0.01481928464788696
+    },
+    {
+      "feature": "gold.w3_has_wings",
+      "gain": 111426.26807785034,
+      "gain_frac": 0.013808435066280027
+    },
+    {
+      "feature": "maiden_3",
+      "gain": 81977.67013549805,
+      "gain_frac": 0.010159034799227628
+    },
+    {
+      "feature": "map_night",
+      "gain": 59858.530796051025,
+      "gain_frac": 0.007417933400432161
+    },
+    {
+      "feature": "maiden_4",
+      "gain": 57682.919509887695,
+      "gain_frac": 0.007148322044935062
+    },
+    {
+      "feature": "gold.w2_has_speed",
+      "gain": 54330.05257034302,
+      "gain_frac": 0.006732819971508061
+    }
+  ],
+  "top15_split": [
+    {
+      "feature": "snail_pos",
+      "splits": 2011,
+      "split_frac": 0.20313131313131313
+    },
+    {
+      "feature": "blue.food_count",
+      "splits": 1666,
+      "split_frac": 0.16828282828282828
+    },
+    {
+      "feature": "gold.food_count",
+      "splits": 1633,
+      "split_frac": 0.16494949494949496
+    },
+    {
+      "feature": "blue.eggs",
+      "splits": 642,
+      "split_frac": 0.06484848484848485
+    },
+    {
+      "feature": "gold.eggs",
+      "splits": 633,
+      "split_frac": 0.06393939393939393
+    },
+    {
+      "feature": "map_night",
+      "splits": 366,
+      "split_frac": 0.03696969696969697
+    },
+    {
+      "feature": "berries_avail_norm",
+      "splits": 320,
+      "split_frac": 0.03232323232323232
+    },
+    {
+      "feature": "gold.n_soldiers",
+      "splits": 144,
+      "split_frac": 0.014545454545454545
+    },
+    {
+      "feature": "blue.n_soldiers",
+      "splits": 127,
+      "split_frac": 0.012828282828282828
+    },
+    {
+      "feature": "map_day",
+      "splits": 109,
+      "split_frac": 0.01101010101010101
+    },
+    {
+      "feature": "maiden_4",
+      "splits": 99,
+      "split_frac": 0.01
+    },
+    {
+      "feature": "maiden_1",
+      "splits": 98,
+      "split_frac": 0.009898989898989899
+    },
+    {
+      "feature": "maiden_3",
+      "splits": 98,
+      "split_frac": 0.009898989898989899
+    },
+    {
+      "feature": "maiden_2",
+      "splits": 95,
+      "split_frac": 0.009595959595959595
+    },
+    {
+      "feature": "maiden_0",
+      "splits": 92,
+      "split_frac": 0.009292929292929294
+    }
+  ]
+}
