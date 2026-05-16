@@ -119,6 +119,47 @@ seen in Phase 1 baseline (early 0.689 -> mid 0.798 -> late
 different functional forms by phase. A single linear function
 covers the game.
 
+## Tiny-LGBM distillation diagnostic
+
+Cheap follow-up sweep targeting the oracle logit with small
+LightGBM regressors, to test whether the linear floor reflects
+the oracle being linear-shaped or just a single-model artifact:
+
+```
+surrogate              params   pRMSE   AUC   logloss
+oracle (reference)     10000    .000   .790    .549
+hand_diff_linear_6         7    .113   .750    .587
+5t_4l_diff6               35    .179   .699    .651
+10t_8l_diff6             150    .149   .723    .625
+20t_16l_diff6            620    .114   .741    .599
+50t_32l_diff6           3150    .094   .753    .583
+100t_64l_diff6         12700    .091   .756    .580
+5t_4l_x52                 35    .189   .689    .660
+10t_8l_x52               150    .149   .727    .629
+20t_16l_x52              620    .097   .763    .589
+50t_32l_x52             3150    .047   .786    .559
+```
+
+Reads:
+
+1. A 35-parameter small LightGBM in the 6 differentials is
+   *worse* than the 7-parameter linear surrogate (pRMSE 0.179
+   vs 0.113, AUC 0.699 vs 0.750). The action variable is
+   genuinely linear-in-differentials.
+2. Matching the 6-feat linear primitive with trees costs
+   ~600 parameters (20t_16l_diff6); the trees buy nothing
+   for the parameter budget.
+3. To meet the strict prob-RMSE Good gate (<=0.05), you need
+   50 trees of 32 leaves on the *full* 52 features
+   (3,150 params). That is a 3x parameter reduction from the
+   10,000-leaf oracle, not the 1,000x reduction that would
+   justify a hardware-primitive paper.
+
+Conclusion: **the cleanest extraction is the 7-parameter linear
+primitive**. Trees and LUTs are dominated. Tighter prob-RMSE
+requires either the full 52-feature surface or interaction
+terms over differentials (not yet tested).
+
 ## Recommended next step
 
 Two routes, conditional on what ChatGPT Pro wants:
