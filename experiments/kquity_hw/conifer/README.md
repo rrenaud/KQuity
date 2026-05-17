@@ -9,26 +9,50 @@ primitive from Phase 5. It answers the orthogonal question
 
 ## Headline
 
-| | extracted (Phase 5) | Conifer 50t × d5 |
-|---|---|---|
-| approach | oracle-to-action extraction | model-to-fabric compile |
-| input features | 6 (objective-pressure vector) | 52 (raw) |
-| parameters | 7 (1 bias + 6 weights) | 50 trees × ~32 leaves |
-| LUT | 269 | **39,986** |
-| FF | 180 | 2,800 |
-| DSP | 2 | 0 |
-| BRAM_18K | 0 | 0 |
-| latency cycles | 4 | 4 |
-| Fmax (MHz) | 288.9 | 274.4 |
-| KV260 LUT util | 0.23% | **34%** |
-| AUC | 0.7496 | 0.7751 |
-| Brier | 0.2017 | 0.1928 |
-| pRMSE vs oracle | 0.113 | 0.094 |
+| | extracted (Phase 5) | Conifer XGB 16-bit | Conifer XGB 12-bit |
+|---|---|---|---|
+| approach | oracle-to-action extraction | model-to-fabric | model-to-fabric |
+| source model | LightGBM 100t/100l (oracle) | XGBoost 50t/d5 surrogate | XGBoost 50t/d5 surrogate |
+| input features | 6 (objective-pressure vector) | 52 (raw) | 52 (raw) |
+| parameters | 7 (1 bias + 6 weights) | 50 trees × ~32 leaves | same |
+| precision | int8 / int8 | ap_fixed<16,6> | ap_fixed<12,6> |
+| LUT | **269** | 39,986 | 37,393 |
+| FF | 180 | 2,800 | 2,441 |
+| DSP | 2 | 0 | 0 |
+| BRAM_18K | 0 | 0 | 0 |
+| latency cycles | 4 | 4 | 4 |
+| Fmax (MHz) | 288.9 | 274.4 | 275.3 |
+| KV260 LUT util | 0.23% | 34% | 32% |
+| AUC | 0.7496 | 0.7751 | 0.7751 † |
+| Brier | 0.2017 | 0.1928 | 0.1928 † |
+| pRMSE vs LightGBM oracle | 0.113 | 0.094 | 0.094 † |
 
-The Conifer-compiled BDT retains 2.5 pp more AUC vs the extracted
-linear primitive but uses **~148× more LUT** (34% of KV260 vs
-0.23%). Same 4-cycle latency, but Fmax is slightly lower (274 vs
-289 MHz) due to comparator-fan-out delay in the larger design.
+† Fidelity at 12-bit is reported from the host-side XGBoost
+classifier, which is identical between the two precision runs.
+Precision only affects the synthesized comparator quantization,
+not the python model. Bit-exact 16-bit vs 12-bit fabric output
+divergence was **not** separately measured here.
+
+The Conifer-compiled BDT retains 2.55 pp more AUC and 0.9 pp
+better Brier than the extracted linear primitive at **~148×
+more LUT** (34% of KV260 vs 0.23%). Reducing precision from
+16-bit to 12-bit shaves only ~6.5% of LUT and ~13% of FF:
+**the comparator topology is the cost driver, not the bitwidth.**
+Latency and II are identical across all three configs; Fmax
+barely changes between the two Conifer precisions.
+
+**The Conifer baseline is a comparable XGBoost BDT, not a
+bit-exact compilation of `current_preferred_model.mdl`.** Conifer
+1.8's LightGBM→ONNX path failed with
+`KeyError('base_values')` inside its ONNX parser (recorded as a
+blocker in `results/conifer_baseline_blocked.json`), so we fell
+back to a same-budget XGBoost classifier
+(`n_estimators=50, max_depth=5`, comparable to the 50-tree /
+32-leaf small LightGBM diagnostic from Phase 2) and used
+Conifer's native XGBoost converter. The right reading of this
+table is: "what cost class does keeping a tree ensemble in fabric
+land in?" — not "what does the original KQuity LightGBM compile
+to?"
 
 ## Conversion path notes
 

@@ -335,37 +335,59 @@ including resource detail tables is in
 
 To frame the extracted primitive's hardware cost, we also ran a
 direct `model -> fabric` compilation using
-[Conifer](https://github.com/thesps/conifer). Conifer was
-attempted on a LightGBM 50-tree / 32-leaf small model via the
-LightGBM → ONNX → Conifer path; that failed with a Conifer-side
-ONNX-parser bug (`KeyError('base_values')`). The directive's
-fallback path — train an XGBoost 50-tree / depth-5 classifier
-(comparable budget) and use Conifer's native XGBoost converter —
-worked end-to-end. Same xck26-sfvc784-2LV-c target, same 5 ns
-clock, `ap_fixed<16,6>` precision.
+[Conifer](https://github.com/thesps/conifer). Same target
+(`xck26-sfvc784-2LV-c`, KV260), same 5 ns target clock.
+
+**The Conifer baseline is a comparable XGBoost BDT, not a
+bit-exact compilation of `current_preferred_model.mdl`.** Conifer
+1.8's `LightGBM → ONNX → Conifer` path failed with
+`KeyError('base_values')` in its ONNX parser, so we trained a
+same-budget XGBoost classifier (`n_estimators=50, max_depth=5`,
+comparable to the 50-tree / 32-leaf small LightGBM diagnostic
+from Phase 2) and used `convert_from_xgboost`. The reading is
+"what cost class does keeping a tree ensemble in fabric land in?"
+— not "what does the original LightGBM compile to?"
 
 ```
-                                Extracted   Conifer
-                                Phase 5     50t × d5
-Path                            extract     model-to-fabric
-Input features                  6           52
-Parameters                      7           ~25 nodes/tree × 50
-LUT                             269         39,986       (~148×)
-FF                              180         2,800
-DSP                             2           0
-BRAM_18K                        0           0
-Latency cycles                  4           4
-Fmax (MHz)                      288.9       274.4
-KV260 LUT utilization           0.23%       34%
-AUC                             0.7496      0.7751
-Brier                           0.2017      0.1928
-pRMSE vs LightGBM oracle        0.113       0.094
+                                Extracted    Conifer XGB     Conifer XGB
+                                Phase 5      50t/d5 16-bit   50t/d5 12-bit
+Path                            extract      model-to-fabric model-to-fabric
+Source model                    LightGBM     XGBoost         XGBoost
+                                (oracle)     surrogate       surrogate
+Input features                  6            52              52
+Parameters                      7            ~25 n/tree × 50  same
+Precision                       int8 / int8  ap_fixed<16,6>  ap_fixed<12,6>
+LUT                             269          39,986          37,393
+FF                              180          2,800           2,441
+DSP                             2            0               0
+BRAM_18K                        0            0               0
+Latency cycles                  4            4               4
+Fmax (MHz)                      288.9        274.4           275.3
+KV260 LUT utilization           0.23%        34%             32%
+AUC vs labels                   0.7496       0.7751          0.7751 †
+Brier                           0.2017       0.1928          0.1928 †
+pRMSE vs LightGBM oracle        0.113        0.094           0.094 †
 ```
 
-The Conifer-compiled BDT keeps ~2.5 pp more AUC than the
-extracted linear, at the cost of **~148× more LUT** and 34% of
-the KV260 LUT budget. Latency is the same 4 cycles; Fmax is
-slightly lower for the larger fan-out comparator network.
+† 12-bit fidelity is reported from the host-side XGBoost
+classifier (identical between the two precision runs). Precision
+only affects the synthesized comparator quantization, not the
+python model. Bit-exact 16-bit vs 12-bit fabric output
+divergence was not separately measured here.
+
+The Conifer-compiled XGBoost surrogate keeps ~2.55 pp more AUC
+and ~0.9 pp better Brier than the extracted linear primitive, at
+the cost of **~148× more LUT** and 34% of the KV260 LUT budget
+(16-bit). Reducing precision to 12-bit shaves only ~6.5% LUT
+and ~13% FF: **the comparator topology is the cost driver,
+not the bitwidth.** Latency and II are identical across all three
+configurations.
+
+The contrast is not "extraction is universally better" — it is a
+clean hardware/fidelity tradeoff:
+
+  the tree ensemble buys 2.5 pp of AUC at a 150× LUT premium;
+  the extracted score buys interpretability and a microscopic circuit.
 
 This is the orthogonal axis Case F exists to illustrate:
 
