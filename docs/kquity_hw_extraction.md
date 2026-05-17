@@ -456,3 +456,64 @@ experiments/kquity_hw/
 ```
 
 Branch: `case-f-hw-extraction` (local only; not pushed upstream).
+
+## Status and follow-up
+
+**Status: complete side demo.** Extracted primitive validated
+bit-exact float / pure-int python / HLS C++ across 152 vectors;
+HLS csynth done; Conifer model-to-fabric baseline run for
+contrast; RP2040 USB firmware bundle prepared for Rob (board
+arrives Monday per Phase 7 directive). No further phases queued.
+
+### Rob handoff
+
+Draft handoff message lives at
+`experiments/kquity_hw/rob_handoff_draft.md` and includes:
+
+- bit-exact int8 primitive description and weight constants
+- KV260 csynth numbers (269 LUT / 2 DSP / 4 cyc, 289 MHz)
+- Conifer XGBoost baseline contrast (~148× more LUT for
+  +2.55 pp AUC)
+- RP2040 USB firmware bundle for the demo board, with build
+  and flash instructions
+
+Awaiting user's go to send. Conifer 1.8 LightGBM→ONNX parser
+bug (`KeyError('base_values')`) was hit during the baseline;
+two minimal repros live at
+`experiments/kquity_hw/conifer/repros/` but have not been
+filed upstream at `thesps/conifer`. Filing is optional.
+
+### What would extend Case F (not promote)
+
+- Refit int8 coefficients on the full quality-filtered /
+  logged-in / late-tournament KQuity corpus (current eval pool
+  is the 16 benchmark shards, ~3k games / 233k events). Refit
+  is unlikely to change the cost-class contrast but may
+  improve the int8 coefficients for production deployment.
+- Re-run Conifer at the *original* LightGBM oracle once the
+  upstream ONNX parser is fixed (rather than the XGBoost
+  comparable surrogate). This would tighten the
+  ``model-to-fabric'' claim to bit-exact compilation rather
+  than ``comparable tree ensemble.''
+- Pack the LUT for sigmoid as URAM/distributed-RAM rather
+  than BRAM\_18K (cosmetic; 1 BRAM is not a budget concern).
+
+### What would NOT change the take-away
+
+- More trees, deeper trees, or different XGBoost
+  hyperparameters in the Conifer baseline. The contrast is
+  cost-class scale (~$10^2$ vs ~$10^4$ LUT); intra-class
+  tweaks do not move the schematic point.
+- Higher precision in the extracted linear (the int8 quant
+  loss is essentially zero against the float linear; the
+  4.06 pp AUC gap to the LightGBM oracle is structural,
+  not quantization).
+
+### Paper citation
+
+This work is cited as a mini-case in
+`paper-hw-net/roadmap.tex` (`\subsection{Case~F}`) and is
+mentioned in `paper-hw-net/limitations.tex` as the
+``model-to-fabric vs.\ oracle-to-action'' contrast point.
+Case F is not promoted to a main case study; the methodology
+spine is carried by Cases A, B, C.
