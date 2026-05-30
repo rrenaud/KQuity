@@ -1,0 +1,9 @@
+# Build artifacts (regenerate via cmake / run_native_tests.sh)
+firmware/build/
+tests/build/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Golden vectors are committed so the tests run on a fresh checkout.
