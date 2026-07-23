@@ -59,6 +59,7 @@ nav:
     - Combined Scaling: model_experiments/combined_li_qf/combined_scaling_report.md
   - Worker State Values: worker_state_values/worker_state_values.html
   - Queen-death Heatmap: death_heatmap_analysis/report.html
+  - Break-even Combat Value: combat_value/break_even_vdecomp.html
   - Lockout Analysis: lockout_analysis/writeup.md
   - Curated Game Subsets:
     - Logged-In Games: logged_in_games/README.md
