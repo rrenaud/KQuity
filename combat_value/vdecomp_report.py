@@ -36,6 +36,27 @@ LIVES = [2, 1, 0]
 LIVES_NAME = {2: '2 (full)', 1: '1', 0: '0 (last life)'}
 KILL_MATRIX = 'combat_value/_kill_matrix.json'
 
+# Piece sprites (pixel-art icons from the worker-state-values set) inlined into
+# the page. Each piece maps to a base sprite + whether it carries the speed
+# upgrade (shown with a small badge); the queen has its own icon.
+_ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons')
+PIECE_ICON = {
+    'queen':           ('queen',   False),
+    'speed_warrior':   ('warrior', True),
+    'vanilla_warrior': ('warrior', False),
+    'speed_drone':     ('drone',   True),
+    'drone':           ('drone',   False),
+}
+# The three striking ("military") pieces, used for the global aggregates grid.
+MILITARY_PIECES = ['queen', 'speed_warrior', 'vanilla_warrior']
+
+
+def _icon_uri(name: str) -> str:
+    import base64
+    with open(os.path.join(_ICON_DIR, f'{name}.svg'), 'rb') as f:
+        b64 = base64.b64encode(f.read()).decode('ascii')
+    return f'data:image/svg+xml;base64,{b64}'
+
 
 def point(cell) -> dict | None:
     if cell is None or cell['n'] < MIN_N:
@@ -98,49 +119,7 @@ def build_summary_rows(summaries, kill_counts):
     return rows
 
 
-def _fmt_kd(kd, kills_for, kills_ag) -> str:
-    if kills_ag == 0 and kills_for:
-        return '∞'
-    if kd is None:
-        return '—'
-    return f'{kd:,.0f}' if kd >= 100 else f'{kd:.2f}'
-
-
-def _margin_class(m) -> str:
-    if m is None:
-        return 'mzero'
-    return 'mpos' if m > 0.02 else ('mneg' if m < -0.02 else 'mzero')
-
-
-def render_summary_table(rows) -> str:
-    out = ['<table class="summary"><thead><tr>',
-           '<th class="l">matchup (attacker → defender)</th>',
-           '<th>model p*</th><th>empirical win%</th><th>margin</th>',
-           '<th>K/D</th><th>kills (A→B / B→A)</th></tr></thead><tbody>']
-    prev_atk = None
-    for r in rows:
-        sep = 'rowsep' if (prev_atk is not None and r['atk'] != prev_atk) else ''
-        prev_atk = r['atk']
-        label = (f'{PIECE_LABEL[r["atk"]]} <span class="arr">→</span> '
-                 f'{PIECE_LABEL[r["dfn"]]}')
-        ps = '—' if r['pstar'] is None else f'{r["pstar"]:.2f}'
-        wr = '—' if r['win_rate'] is None else f'{r["win_rate"]:.2f}'
-        m = r['margin']
-        ms = '—' if m is None else f'{m:+.2f}'
-        mcls = _margin_class(m)
-        kd = _fmt_kd(r['kd'], r['kills_for'], r['kills_ag'])
-        kills = ('—' if r['kills_for'] is None
-                 else f'{r["kills_for"]:,} / {r["kills_ag"]:,}')
-        out.append(
-            f'<tr class="{sep}"><td class="l">{label}</td>'
-            f'<td>{ps}</td><td>{wr}</td>'
-            f'<td class="margin {mcls}">{ms}</td>'
-            f'<td>{kd}</td><td class="k">{kills}</td></tr>')
-    out.append('</tbody></table>')
-    return ''.join(out)
-
-
-def build(grids):
+def build(grids, summary_rows):
     matchups = []
     for atk, dfn, cap in MATRIX_MATCHUPS:
         grid = grids[(atk, dfn)]
@@ -154,8 +133,14 @@ def build(grids):
         print(f"  {atk:16s} vs {dfn:16s}")
     used = {m['atk'] for m in matchups} | {m['dfn'] for m in matchups}
     pieces = [p for p in MATRIX_PIECES if p in used]
+    summary = {f"{r['atk']}|{r['dfn']}": r for r in summary_rows}
     return {'matchups': matchups, 'edges': EDGES, 'pieces': pieces,
             'piece_label': {p: PIECE_LABEL[p] for p in pieces},
+            'piece_icon': {p: {'icon': PIECE_ICON[p][0], 'speed': PIECE_ICON[p][1]}
+                           for p in pieces},
+            'icons': {k: _icon_uri(k) for k in ('queen', 'warrior', 'drone')},
+            'military': [p for p in MILITARY_PIECES if p in used],
+            'summary': summary,
             'lives_name': {str(k): v for k, v in LIVES_NAME.items()}}
 
 
@@ -214,21 +199,29 @@ h2.sec {{ font-size:19px; margin:44px 0 2px; letter-spacing:-.01em; }}
 .panel svg {{ width:100%; height:auto; display:block; overflow:visible; }}
 .ax {{ fill:var(--mut); font-size:10px; }}
 .axtitle {{ fill:var(--mut); font-size:10px; }}
-.summary {{ border-collapse:collapse; width:100%; max-width:780px;
-  font-size:13px; font-variant-numeric:tabular-nums; margin:6px 0 2px; }}
-.summary th {{ text-align:right; color:var(--mut); font-weight:500; font-size:11.5px;
-  padding:6px 12px; border-bottom:1px solid var(--ring); white-space:nowrap; }}
-.summary th.l {{ text-align:left; }}
-.summary td {{ text-align:right; padding:5px 12px; border-bottom:1px solid var(--line);
-  white-space:nowrap; }}
-.summary td.l {{ text-align:left; color:var(--ink); }}
-.summary td.k {{ color:var(--mut); font-size:12px; }}
-.summary td.margin {{ font-weight:600; }}
-.summary .arr {{ color:var(--mut); }}
-.summary tr.rowsep td {{ border-top:2px solid var(--ring); }}
-.summary td.mpos {{ color:var(--up); }}
-.summary td.mneg {{ color:var(--down); }}
-.summary td.mzero {{ color:var(--mut); }}
+/* piece icon headers (shared by every grid) */
+.phead {{ display:flex; align-items:center; gap:6px; }}
+.phead.col {{ flex-direction:column; gap:3px; }}
+.picon {{ position:relative; display:inline-flex; width:26px; height:26px;
+  flex:0 0 auto; }}
+.picon img {{ width:100%; height:100%; image-rendering:pixelated; }}
+.picon .spd {{ position:absolute; top:-5px; right:-7px; font-size:10px; line-height:1;
+  padding:1px 2px; border-radius:4px; background:var(--ink); color:#ffd23f;
+  box-shadow:0 0 0 1px var(--surface); }}
+.plabel {{ font-size:12.5px; font-weight:600; color:var(--ink); }}
+/* aggregate matrix */
+.aggmatrix {{ min-width:560px; }}
+.aggcell {{ display:flex; flex-direction:column; gap:3px; padding:11px 13px;
+  font-variant-numeric:tabular-nums; }}
+.aggcell .arow {{ display:flex; justify-content:space-between; align-items:baseline;
+  gap:12px; font-size:13px; }}
+.aggcell .arow .k {{ color:var(--mut); font-size:11.5px; }}
+.aggcell .arow .v {{ font-weight:600; }}
+.aggcell .marg {{ margin-top:2px; padding-top:4px; border-top:1px solid var(--line);
+  font-weight:700; }}
+.aggcell .marg.mpos {{ color:var(--up); }}
+.aggcell .marg.mneg {{ color:var(--down); }}
+.aggcell .marg.mzero {{ color:var(--mut); }}
 .foot {{ margin-top:40px; color:var(--ink2); font-size:13px; max-width:82ch; }}
 .foot b {{ color:var(--ink); font-weight:600; }}
 .foot h3 {{ color:var(--ink); font-size:14px; margin:20px 0 4px; }}
@@ -280,6 +273,19 @@ directly, but a hunted one can bait an opponent into a teammate's kill, so its
 row is a real value swing too.</p>
 <div class="meta">{meta}</div>
 
+<h2 class="sec">Global aggregates: model break-even vs empirical outcome</h2>
+<p class="sub">Before the per-state detail below, the bottom line for the three
+striking pieces. Each cell is one matchup (attacker <b>row</b> → defender
+<b>column</b>). <b>model p*</b> is the globally-averaged break-even &mdash; the
+odds a shot needs to be worth it. <b>emp win%</b> and <b>K/D</b> are model-free,
+from real kills: how often that attacker piece actually killed that defender
+versus the reverse (K/D = kills&nbsp;for ÷ against). The
+<b>margin = win% − p*</b> is the verdict: <b style="color:var(--up)">positive</b>
+(green) means players win these exchanges more often than the break-even demands
+&mdash; the shot is <b>+EV on average</b>; <b style="color:var(--down)">negative</b>
+(red) means a losing proposition even before opportunity cost.</p>
+<div class="matrix-wrap"><div class="matrix aggmatrix" id="aggrid"></div></div>
+
 <div class="controls">
   <span class="seg-label">Defender queen lives:</span>
   <div class="seg" id="seg">
@@ -316,18 +322,6 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
   <div class="it"><span class="bx" style="background:var(--pstar);opacity:.16"></span>IQR (p25–p75)</div>
 </div>
 <div class="matrix-wrap"><div class="matrix" id="pgrid"></div></div>
-
-<h2 class="sec">Global aggregates: model break-even vs empirical outcome</h2>
-<p class="sub">Two single numbers per matchup, pooled over the whole dataset. The
-<b>model p*</b> is the globally-averaged break-even (from each matchup's mean
-V<sub>kill</sub> / V(S) / V<sub>death</sub>) — the odds a shot needs to be worth
-it. The <b>empirical win%</b> and <b>K/D</b> come model-free from real kills: how
-often an attacker piece actually killed the defender piece versus the reverse
-(K/D = kills&nbsp;for ÷ against). The <b>margin</b> = win% − p*: <b style="color:var(--up)">positive</b>
-means players win these exchanges more often than the break-even demands, so the
-shot is <b>+EV on average</b>; <b style="color:var(--down)">negative</b> means it
-is a losing proposition even before opportunity cost.</p>
-<div class="matrix-wrap">{summary_table}</div>
 
 <div class="foot">
   <h3>What the shapes mean in-game</h3>
@@ -387,11 +381,11 @@ is a losing proposition even before opportunity cost.</p>
     <li>The <b>empirical</b> win% pools only fights that actually happened &mdash;
       a self-selected subset (players pick their spots), so margin&nbsp;= win%&minus;p*
       is suggestive, not a controlled test of the model.</li>
-    <li>A speed drone earns no kill credit &mdash; a <b>baited</b> kill is scored
-      to the teammate warrior who lands it &mdash; so the speed-drone attacker
-      rows show only direct/snail kills and understate the bump mechanic the
-      model's p* assumes. Likewise some drone-as-killer kills are snail crushes
-      (credited to the rider), not piece duels.</li>
+    <li>The aggregates cover only the three <b>striking</b> pieces (queen and the
+      two warriors). Speed drones can't take kill credit &mdash; a baited kill is
+      scored to the teammate who lands it &mdash; so they're left out of the
+      empirical grid, though they remain in the per-state panels below as an
+      attacker via that bump mechanic.</li>
     <li>Hover any point for the exact V's, p*, median, IQR and state count.</li>
   </ul>
 </div>
@@ -542,6 +536,35 @@ function pstarPanelSVG(pts) {{
 
 function pieceLabel(p) {{ return DATA.piece_label[p] || p; }}
 
+// Icon + optional speed badge + label, for a grid's row/column header.
+function pieceHeader(piece, col) {{
+  const info = DATA.piece_icon[piece] || {{}};
+  const wrap = document.createElement('div');
+  wrap.className = 'phead' + (col ? ' col' : '');
+  const ic = document.createElement('span'); ic.className = 'picon';
+  const src = DATA.icons[info.icon];
+  if (src) {{
+    const img = document.createElement('img'); img.src = src; img.alt = piece;
+    ic.appendChild(img);
+    if (info.speed) {{
+      const b = document.createElement('span'); b.className = 'spd';
+      b.textContent = '⚡'; b.title = 'speed';
+      ic.appendChild(b);
+    }}
+  }}
+  wrap.appendChild(ic);
+  const lab = document.createElement('span'); lab.className = 'plabel';
+  lab.textContent = pieceLabel(piece);
+  wrap.appendChild(lab);
+  return wrap;
+}}
+
+function fmtKD(s) {{
+  if (s.kills_ag === 0 && s.kills_for) return '∞';
+  if (s.kd == null) return '—';
+  return s.kd >= 100 ? Math.round(s.kd).toLocaleString() : s.kd.toFixed(2);
+}}
+
 function makeCard(mchp, panelFn) {{
   const pts = mchp.lives[curLv] || [];
   const card = document.createElement('div'); card.className = 'panel';
@@ -566,14 +589,14 @@ function renderMatrix(rootId, panelFn) {{
   root.appendChild(corner);
   P.forEach(d => {{
     const h = document.createElement('div'); h.className = 'mhead';
-    h.textContent = pieceLabel(d);
+    h.appendChild(pieceHeader(d, true));
     root.appendChild(h);
   }});
 
   // one row per attacker piece (full 4x4; empty where no matchup exists)
   P.forEach(a => {{
     const rh = document.createElement('div'); rh.className = 'mrow-head';
-    rh.textContent = pieceLabel(a);
+    rh.appendChild(pieceHeader(a, false));
     root.appendChild(rh);
     P.forEach(d => {{
       const m = idx[a + '|' + d];
@@ -583,6 +606,49 @@ function renderMatrix(rootId, panelFn) {{
         root.appendChild(e);
       }}
     }});
+  }});
+}}
+
+// Global aggregates grid: attacker x defender over the striking pieces, each
+// cell a compact model-p* / empirical-win% / K/D / margin block.
+function aggCell(atk, dfn) {{
+  const s = DATA.summary[atk + '|' + dfn];
+  const cell = document.createElement('div');
+  if (!s) {{ cell.className = 'mempty'; return cell; }}
+  cell.className = 'panel aggcell';
+  const stat = (k, v) =>
+    `<div class="arow"><span class="k">${{k}}</span><span class="v">${{v}}</span></div>`;
+  const ps = s.pstar == null ? '—' : s.pstar.toFixed(2);
+  const wr = s.win_rate == null ? '—' : s.win_rate.toFixed(2);
+  const m = s.margin;
+  const mcls = m == null ? 'mzero' : (m > 0.02 ? 'mpos' : (m < -0.02 ? 'mneg' : 'mzero'));
+  const ms = m == null ? '—' : (m >= 0 ? '+' : '') + m.toFixed(2);
+  cell.innerHTML =
+    stat('model p*', ps) + stat('emp win%', wr) + stat('K/D', fmtKD(s))
+    + `<div class="arow marg ${{mcls}}"><span class="k">margin</span>`
+    + `<span class="v">${{ms}}</span></div>`;
+  return cell;
+}}
+
+function renderAggregates() {{
+  const root = document.getElementById('aggrid');
+  if (!root || !DATA.military) return;
+  root.innerHTML = '';
+  const P = DATA.military;
+  root.style.gridTemplateColumns = `max-content repeat(${{P.length}}, minmax(150px, 1fr))`;
+  const corner = document.createElement('div'); corner.className = 'mcorner';
+  corner.innerHTML = 'attacker&nbsp;↓<br>defender&nbsp;→';
+  root.appendChild(corner);
+  P.forEach(d => {{
+    const h = document.createElement('div'); h.className = 'mhead';
+    h.appendChild(pieceHeader(d, true));
+    root.appendChild(h);
+  }});
+  P.forEach(a => {{
+    const rh = document.createElement('div'); rh.className = 'mrow-head';
+    rh.appendChild(pieceHeader(a, false));
+    root.appendChild(rh);
+    P.forEach(d => root.appendChild(aggCell(a, d)));
   }});
 }}
 
@@ -598,6 +664,7 @@ document.getElementById('seg').addEventListener('click', ev => {{
     x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
   render();
 }});
+renderAggregates();
 render();
 </script>
 </body></html>'''
@@ -650,15 +717,14 @@ def main() -> None:
         wr = '  n/a' if r['win_rate'] is None else f'{r["win_rate"]:5.3f}'
         print(f"  {r['atk']:15s} vs {r['dfn']:15s}  p*={ps}  win%={wr}")
 
-    data = build(grids)
+    data = build(grids, summary_rows)
     kmeta = (f" · Kills: {kill_meta['n_kills']:,} over {kill_meta['n_games']:,} games"
              if kill_meta else '')
     meta = (f"Model: {os.path.basename(os.path.realpath(args.model))} · "
             f"Data: {data_src} · {n_games:,} games, "
             f"{n_states:,} states (both attacking sides){kmeta}")
     page = PAGE.format(meta=meta, data=json.dumps(data),
-                       n_games=f"{n_games:,}", n_states=f"{n_states:,}",
-                       summary_table=render_summary_table(summary_rows))
+                       n_games=f"{n_games:,}", n_states=f"{n_states:,}")
 
     out = os.path.abspath(args.out)
     with open(out, 'w') as f:
