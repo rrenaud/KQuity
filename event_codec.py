@@ -305,10 +305,24 @@ def _encode_events(raw_events: list[tuple[datetime.datetime, str, str]],
 # ---------------------------------------------------------------------------
 
 def walk_game_states(encoded_bytes: bytes) -> collections.abc.Iterator[tuple[float, GameState]]:
-    """Decode binary events and yield game states.
+    """Decode binary events and yield (rel_ts, game_state) before each mutation.
 
-    Yields (rel_ts, game_state) BEFORE each event's mutation is applied,
-    matching the vectorize-before-mutate pattern in fast_materialize.
+    Thin wrapper over walk_game_events for callers that only need the state.
+    """
+    for rel_ts, _opcode, _payload, game_state in walk_game_events(encoded_bytes):
+        yield (rel_ts, game_state)
+
+
+def walk_game_events(
+    encoded_bytes: bytes,
+) -> collections.abc.Iterator[tuple[float, int, int, GameState]]:
+    """Decode binary events and yield (rel_ts, opcode, payload, game_state).
+
+    Yields BEFORE each event's mutation is applied, matching the
+    vectorize-before-mutate pattern in fast_materialize. Because the yield
+    precedes the mutation, at an OP_PLAYER_KILL the game_state still holds the
+    victim's pre-death upgrades and the killer's current form -- so a caller can
+    classify both pieces from (opcode, payload, game_state).
 
     The game_state is the SAME object mutated each iteration; callers must
     copy or vectorize before advancing the iterator.
@@ -359,8 +373,8 @@ def walk_game_states(encoded_bytes: bytes) -> collections.abc.Iterator[tuple[flo
             b2 = data[pos]; pos += 1
             payload = ((b0 & 0xF) << 16) | (b1 << 8) | b2
 
-        # Yield state BEFORE mutation
-        yield (rel_ts, game_state)
+        # Yield event + state BEFORE mutation
+        yield (rel_ts, opcode, payload, game_state)
 
         # Apply mutation
         if opcode == OP_SPAWN:

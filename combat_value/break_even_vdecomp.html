@@ -53,6 +53,21 @@ h2.sec { font-size:19px; margin:44px 0 2px; letter-spacing:-.01em; }
 .panel svg { width:100%; height:auto; display:block; overflow:visible; }
 .ax { fill:var(--mut); font-size:10px; }
 .axtitle { fill:var(--mut); font-size:10px; }
+.summary { border-collapse:collapse; width:100%; max-width:780px;
+  font-size:13px; font-variant-numeric:tabular-nums; margin:6px 0 2px; }
+.summary th { text-align:right; color:var(--mut); font-weight:500; font-size:11.5px;
+  padding:6px 12px; border-bottom:1px solid var(--ring); white-space:nowrap; }
+.summary th.l { text-align:left; }
+.summary td { text-align:right; padding:5px 12px; border-bottom:1px solid var(--line);
+  white-space:nowrap; }
+.summary td.l { text-align:left; color:var(--ink); }
+.summary td.k { color:var(--mut); font-size:12px; }
+.summary td.margin { font-weight:600; }
+.summary .arr { color:var(--mut); }
+.summary tr.rowsep td { border-top:2px solid var(--ring); }
+.summary td.mpos { color:var(--up); }
+.summary td.mneg { color:var(--down); }
+.summary td.mzero { color:var(--mut); }
 .foot { margin-top:40px; color:var(--ink2); font-size:13px; max-width:82ch; }
 .foot b { color:var(--ink); font-weight:600; }
 .foot h3 { color:var(--ink); font-size:14px; margin:20px 0 4px; }
@@ -102,7 +117,7 @@ attacking piece, columns the defending piece &mdash; so any matchup sits
 transposed from its reverse across the diagonal. A speed drone can't strike
 directly, but a hunted one can bait an opponent into a teammate's kill, so its
 row is a real value swing too.</p>
-<div class="meta">Model: qf_200k_symaug_100l_100t.mdl · Data: quality_filtered/encoded/all_games.bin · 182,447 games, 30,111,636 states (both attacking sides)</div>
+<div class="meta">Model: qf_200k_symaug_100l_100t.mdl · Data: quality_filtered/encoded/all_games.bin · 182,447 games, 30,111,636 states (both attacking sides) · Kills: 6,096,016 over 182,447 games</div>
 
 <div class="controls">
   <span class="seg-label">Defender queen lives:</span>
@@ -140,6 +155,18 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
   <div class="it"><span class="bx" style="background:var(--pstar);opacity:.16"></span>IQR (p25–p75)</div>
 </div>
 <div class="matrix-wrap"><div class="matrix" id="pgrid"></div></div>
+
+<h2 class="sec">Global aggregates: model break-even vs empirical outcome</h2>
+<p class="sub">Two single numbers per matchup, pooled over the whole dataset. The
+<b>model p*</b> is the globally-averaged break-even (from each matchup's mean
+V<sub>kill</sub> / V(S) / V<sub>death</sub>) — the odds a shot needs to be worth
+it. The <b>empirical win%</b> and <b>K/D</b> come model-free from real kills: how
+often an attacker piece actually killed the defender piece versus the reverse
+(K/D = kills&nbsp;for ÷ against). The <b>margin</b> = win% − p*: <b style="color:var(--up)">positive</b>
+means players win these exchanges more often than the break-even demands, so the
+shot is <b>+EV on average</b>; <b style="color:var(--down)">negative</b> means it
+is a losing proposition even before opportunity cost.</p>
+<div class="matrix-wrap"><table class="summary"><thead><tr><th class="l">matchup (attacker → defender)</th><th>model p*</th><th>empirical win%</th><th>margin</th><th>K/D</th><th>kills (A→B / B→A)</th></tr></thead><tbody><tr class=""><td class="l">queen <span class="arr">→</span> queen</td><td>0.50</td><td>0.50</td><td class="margin mzero">-0.00</td><td>1.00</td><td class="k">338,132 / 338,132</td></tr><tr class=""><td class="l">queen <span class="arr">→</span> speed warrior</td><td>0.66</td><td>0.64</td><td class="margin mzero">-0.01</td><td>1.79</td><td class="k">342,842 / 191,518</td></tr><tr class=""><td class="l">queen <span class="arr">→</span> vanilla warrior</td><td>0.79</td><td>0.79</td><td class="margin mzero">+0.00</td><td>3.75</td><td class="k">455,088 / 121,331</td></tr><tr class=""><td class="l">queen <span class="arr">→</span> speed drone</td><td>0.78</td><td>1.00</td><td class="margin mpos">+0.22</td><td>∞</td><td class="k">130,871 / 0</td></tr><tr class="rowsep"><td class="l">speed warrior <span class="arr">→</span> queen</td><td>0.34</td><td>0.36</td><td class="margin mzero">+0.01</td><td>0.56</td><td class="k">191,518 / 342,842</td></tr><tr class=""><td class="l">speed warrior <span class="arr">→</span> speed warrior</td><td>0.50</td><td>0.50</td><td class="margin mzero">-0.00</td><td>1.00</td><td class="k">203,304 / 203,304</td></tr><tr class=""><td class="l">speed warrior <span class="arr">→</span> vanilla warrior</td><td>0.65</td><td>0.66</td><td class="margin mzero">+0.01</td><td>1.94</td><td class="k">306,075 / 157,991</td></tr><tr class=""><td class="l">speed warrior <span class="arr">→</span> speed drone</td><td>0.66</td><td>1.00</td><td class="margin mpos">+0.34</td><td>∞</td><td class="k">126,542 / 0</td></tr><tr class="rowsep"><td class="l">vanilla warrior <span class="arr">→</span> queen</td><td>0.21</td><td>0.21</td><td class="margin mzero">-0.00</td><td>0.27</td><td class="k">121,331 / 455,088</td></tr><tr class=""><td class="l">vanilla warrior <span class="arr">→</span> speed warrior</td><td>0.35</td><td>0.34</td><td class="margin mzero">-0.01</td><td>0.52</td><td class="k">157,991 / 306,075</td></tr><tr class=""><td class="l">vanilla warrior <span class="arr">→</span> vanilla warrior</td><td>0.50</td><td>0.50</td><td class="margin mzero">+0.00</td><td>1.00</td><td class="k">257,612 / 257,612</td></tr><tr class=""><td class="l">vanilla warrior <span class="arr">→</span> speed drone</td><td>0.51</td><td>1.00</td><td class="margin mpos">+0.49</td><td>104,719</td><td class="k">104,719 / 1</td></tr><tr class="rowsep"><td class="l">speed drone <span class="arr">→</span> queen</td><td>0.22</td><td>0.00</td><td class="margin mneg">-0.22</td><td>0.00</td><td class="k">0 / 130,871</td></tr><tr class=""><td class="l">speed drone <span class="arr">→</span> speed warrior</td><td>0.34</td><td>0.00</td><td class="margin mneg">-0.34</td><td>0.00</td><td class="k">0 / 126,542</td></tr><tr class=""><td class="l">speed drone <span class="arr">→</span> vanilla warrior</td><td>0.49</td><td>0.00</td><td class="margin mneg">-0.49</td><td>0.00</td><td class="k">1 / 104,719</td></tr><tr class=""><td class="l">speed drone <span class="arr">→</span> speed drone</td><td>0.50</td><td>0.50</td><td class="margin mzero">-0.00</td><td>1.00</td><td class="k">2,677 / 2,677</td></tr></tbody></table></div>
 
 <div class="foot">
   <h3>What the shapes mean in-game</h3>
@@ -179,6 +206,11 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
   defender's remaining queen lives (the toggle) and the warrior edge (x). The
   line is p* from the bucket's mean V's (a stable point estimate); the band and
   dashed median describe the spread of the per-state p* within the bucket.</p>
+  <p>The <b>empirical</b> win% and K/D are entirely model-free. We replay every
+  game, and at each kill classify both killer and victim by piece type from the
+  live game state (wings + speed; the queen is its own type), tallying a
+  killer&times;victim count matrix. For a matchup A&nbsp;vs&nbsp;B the win% is
+  A's share of the A&harr;B kills; K/D is kills-for over kills-against.</p>
 
   <h3>Caveats</h3>
   <ul>
@@ -191,6 +223,14 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
     <li>The baseline is the pure status quo, which ignores opportunity cost (the
       berry or snail progress you forgo while fighting), so p* is, if anything,
       an <b>under</b>-estimate of the true bar.</li>
+    <li>The <b>empirical</b> win% pools only fights that actually happened &mdash;
+      a self-selected subset (players pick their spots), so margin&nbsp;= win%&minus;p*
+      is suggestive, not a controlled test of the model.</li>
+    <li>A speed drone earns no kill credit &mdash; a <b>baited</b> kill is scored
+      to the teammate warrior who lands it &mdash; so the speed-drone attacker
+      rows show only direct/snail kills and understate the bump mechanic the
+      model's p* assumes. Likewise some drone-as-killer kills are snail crushes
+      (credited to the rider), not piece duels.</li>
     <li>Hover any point for the exact V's, p*, median, IQR and state count.</li>
   </ul>
 </div>

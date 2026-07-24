@@ -27,13 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import lightgbm as lgb
 
-from combat_value import core, analysis
+from combat_value import core, analysis, kills
 from combat_value.html_report import (
     MATRIX_MATCHUPS, MATRIX_PIECES, PIECE_LABEL, MIN_N)
 
 EDGES = [-3, -2, -1, 0, 1, 2, 3, 4]
 LIVES = [2, 1, 0]
 LIVES_NAME = {2: '2 (full)', 1: '1', 0: '0 (last life)'}
+KILL_MATRIX = 'combat_value/_kill_matrix.json'
 
 
 def point(cell) -> dict | None:
@@ -56,12 +57,87 @@ def point(cell) -> dict | None:
 def compute_grids(model, X, gids, ts):
     results = core.evaluate_matchups_shared(X, model.predict, MATRIX_MATCHUPS,
                                             game_ids=gids, timestamps=ts)
-    grids = {}
+    grids, summaries = {}, {}
     for atk, dfn, _cap in MATRIX_MATCHUPS:
-        rows = analysis.bucket_table(results[(atk, dfn)], ['def_eggs', 'net_warriors'])
+        res = results[(atk, dfn)]
+        rows = analysis.bucket_table(res, ['def_eggs', 'net_warriors'])
         grids[(atk, dfn)] = {(r['def_eggs'], r['net_warriors']): r for r in rows}
+        summaries[(atk, dfn)] = analysis.summarize(res)
         print(f"  {atk:16s} vs {dfn:16s}")
-    return grids
+    return grids, summaries
+
+
+def _global_pstar(summ) -> float | None:
+    """Break-even p* from a matchup's globally-averaged V's."""
+    if not summ or summ.get('n', 0) < 1:
+        return None
+    swing = summ['mean_V_kill'] - summ['mean_V_death']
+    if abs(swing) < 1e-9:
+        return None
+    return (summ['mean_V_status_quo'] - summ['mean_V_death']) / swing
+
+
+def build_summary_rows(summaries, kill_counts):
+    """One row per matchup: global model p* vs empirical kill/death outcome."""
+    rows = []
+    for atk, dfn, _cap in MATRIX_MATCHUPS:
+        summ = summaries.get((atk, dfn), {})
+        pstar = _global_pstar(summ)
+        emp = kills.matchup_stats(kill_counts, atk, dfn) if kill_counts else None
+        wr = emp['win_rate'] if emp else None
+        rows.append({
+            'atk': atk, 'dfn': dfn,
+            'pstar': pstar,
+            'n_states': int(summ.get('n', 0)),
+            'win_rate': wr,
+            'kd': emp['kd'] if emp else None,
+            'kills_for': emp['kills_for'] if emp else None,
+            'kills_ag': emp['kills_ag'] if emp else None,
+            'margin': (wr - pstar) if (wr is not None and pstar is not None) else None,
+        })
+    return rows
+
+
+def _fmt_kd(kd, kills_for, kills_ag) -> str:
+    if kills_ag == 0 and kills_for:
+        return '∞'
+    if kd is None:
+        return '—'
+    return f'{kd:,.0f}' if kd >= 100 else f'{kd:.2f}'
+
+
+def _margin_class(m) -> str:
+    if m is None:
+        return 'mzero'
+    return 'mpos' if m > 0.02 else ('mneg' if m < -0.02 else 'mzero')
+
+
+def render_summary_table(rows) -> str:
+    out = ['<table class="summary"><thead><tr>',
+           '<th class="l">matchup (attacker → defender)</th>',
+           '<th>model p*</th><th>empirical win%</th><th>margin</th>',
+           '<th>K/D</th><th>kills (A→B / B→A)</th></tr></thead><tbody>']
+    prev_atk = None
+    for r in rows:
+        sep = 'rowsep' if (prev_atk is not None and r['atk'] != prev_atk) else ''
+        prev_atk = r['atk']
+        label = (f'{PIECE_LABEL[r["atk"]]} <span class="arr">→</span> '
+                 f'{PIECE_LABEL[r["dfn"]]}')
+        ps = '—' if r['pstar'] is None else f'{r["pstar"]:.2f}'
+        wr = '—' if r['win_rate'] is None else f'{r["win_rate"]:.2f}'
+        m = r['margin']
+        ms = '—' if m is None else f'{m:+.2f}'
+        mcls = _margin_class(m)
+        kd = _fmt_kd(r['kd'], r['kills_for'], r['kills_ag'])
+        kills = ('—' if r['kills_for'] is None
+                 else f'{r["kills_for"]:,} / {r["kills_ag"]:,}')
+        out.append(
+            f'<tr class="{sep}"><td class="l">{label}</td>'
+            f'<td>{ps}</td><td>{wr}</td>'
+            f'<td class="margin {mcls}">{ms}</td>'
+            f'<td>{kd}</td><td class="k">{kills}</td></tr>')
+    out.append('</tbody></table>')
+    return ''.join(out)
 
 
 def build(grids):
@@ -138,6 +214,21 @@ h2.sec {{ font-size:19px; margin:44px 0 2px; letter-spacing:-.01em; }}
 .panel svg {{ width:100%; height:auto; display:block; overflow:visible; }}
 .ax {{ fill:var(--mut); font-size:10px; }}
 .axtitle {{ fill:var(--mut); font-size:10px; }}
+.summary {{ border-collapse:collapse; width:100%; max-width:780px;
+  font-size:13px; font-variant-numeric:tabular-nums; margin:6px 0 2px; }}
+.summary th {{ text-align:right; color:var(--mut); font-weight:500; font-size:11.5px;
+  padding:6px 12px; border-bottom:1px solid var(--ring); white-space:nowrap; }}
+.summary th.l {{ text-align:left; }}
+.summary td {{ text-align:right; padding:5px 12px; border-bottom:1px solid var(--line);
+  white-space:nowrap; }}
+.summary td.l {{ text-align:left; color:var(--ink); }}
+.summary td.k {{ color:var(--mut); font-size:12px; }}
+.summary td.margin {{ font-weight:600; }}
+.summary .arr {{ color:var(--mut); }}
+.summary tr.rowsep td {{ border-top:2px solid var(--ring); }}
+.summary td.mpos {{ color:var(--up); }}
+.summary td.mneg {{ color:var(--down); }}
+.summary td.mzero {{ color:var(--mut); }}
 .foot {{ margin-top:40px; color:var(--ink2); font-size:13px; max-width:82ch; }}
 .foot b {{ color:var(--ink); font-weight:600; }}
 .foot h3 {{ color:var(--ink); font-size:14px; margin:20px 0 4px; }}
@@ -226,6 +317,18 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
 </div>
 <div class="matrix-wrap"><div class="matrix" id="pgrid"></div></div>
 
+<h2 class="sec">Global aggregates: model break-even vs empirical outcome</h2>
+<p class="sub">Two single numbers per matchup, pooled over the whole dataset. The
+<b>model p*</b> is the globally-averaged break-even (from each matchup's mean
+V<sub>kill</sub> / V(S) / V<sub>death</sub>) — the odds a shot needs to be worth
+it. The <b>empirical win%</b> and <b>K/D</b> come model-free from real kills: how
+often an attacker piece actually killed the defender piece versus the reverse
+(K/D = kills&nbsp;for ÷ against). The <b>margin</b> = win% − p*: <b style="color:var(--up)">positive</b>
+means players win these exchanges more often than the break-even demands, so the
+shot is <b>+EV on average</b>; <b style="color:var(--down)">negative</b> means it
+is a losing proposition even before opportunity cost.</p>
+<div class="matrix-wrap">{summary_table}</div>
+
 <div class="foot">
   <h3>What the shapes mean in-game</h3>
   <p>The width of the two bands is the whole story. When the
@@ -264,6 +367,11 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
   defender's remaining queen lives (the toggle) and the warrior edge (x). The
   line is p* from the bucket's mean V's (a stable point estimate); the band and
   dashed median describe the spread of the per-state p* within the bucket.</p>
+  <p>The <b>empirical</b> win% and K/D are entirely model-free. We replay every
+  game, and at each kill classify both killer and victim by piece type from the
+  live game state (wings + speed; the queen is its own type), tallying a
+  killer&times;victim count matrix. For a matchup A&nbsp;vs&nbsp;B the win% is
+  A's share of the A&harr;B kills; K/D is kills-for over kills-against.</p>
 
   <h3>Caveats</h3>
   <ul>
@@ -276,6 +384,14 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
     <li>The baseline is the pure status quo, which ignores opportunity cost (the
       berry or snail progress you forgo while fighting), so p* is, if anything,
       an <b>under</b>-estimate of the true bar.</li>
+    <li>The <b>empirical</b> win% pools only fights that actually happened &mdash;
+      a self-selected subset (players pick their spots), so margin&nbsp;= win%&minus;p*
+      is suggestive, not a controlled test of the model.</li>
+    <li>A speed drone earns no kill credit &mdash; a <b>baited</b> kill is scored
+      to the teammate warrior who lands it &mdash; so the speed-drone attacker
+      rows show only direct/snail kills and understate the bump mechanic the
+      model's p* assumes. Likewise some drone-as-killer kills are snail crushes
+      (credited to the rider), not piece duels.</li>
     <li>Hover any point for the exact V's, p*, median, IQR and state count.</li>
   </ul>
 </div>
@@ -503,6 +619,8 @@ def main() -> None:
         from combat_value import stream
         cache = stream.load_cache(args.from_cache)
         grids = {(a, d): stream.cache_grid(cache, a, d) for a, d, *_ in MATRIX_MATCHUPS}
+        summaries = {(a, d): stream.cache_summary(cache, a, d)
+                     for a, d, *_ in MATRIX_MATCHUPS}
         n_games, n_states, data_src = (cache['meta']['n_games'],
                                        cache['meta']['n_states'], cache['meta']['data'])
     else:
@@ -512,15 +630,35 @@ def main() -> None:
         from event_codec import fast_materialize_from_codec
         X, y, gids, ts = fast_materialize_from_codec(args.data, max_games=args.max_games)
         print(f"  {len(X):,} states")
-        grids = compute_grids(model, X, gids, ts)
+        grids, summaries = compute_grids(model, X, gids, ts)
         n_games, n_states, data_src = args.max_games, len(X), args.data
 
+    # Empirical kill/death matrix (model-free); optional.
+    kill_counts, kill_meta = None, None
+    if os.path.exists(KILL_MATRIX):
+        km = json.load(open(KILL_MATRIX))
+        kill_counts, kill_meta = km['counts'], km['meta']
+        print(f"Loaded kill matrix: {kill_meta['n_kills']:,} kills "
+              f"from {kill_meta['n_games']:,} games")
+    else:
+        print(f"No {KILL_MATRIX}; empirical columns omitted "
+              f"(run `python -m combat_value.kills`)")
+
+    summary_rows = build_summary_rows(summaries, kill_counts)
+    for r in summary_rows:
+        ps = '   n/a' if r['pstar'] is None else f'{r["pstar"]:6.3f}'
+        wr = '  n/a' if r['win_rate'] is None else f'{r["win_rate"]:5.3f}'
+        print(f"  {r['atk']:15s} vs {r['dfn']:15s}  p*={ps}  win%={wr}")
+
     data = build(grids)
+    kmeta = (f" · Kills: {kill_meta['n_kills']:,} over {kill_meta['n_games']:,} games"
+             if kill_meta else '')
     meta = (f"Model: {os.path.basename(os.path.realpath(args.model))} · "
             f"Data: {data_src} · {n_games:,} games, "
-            f"{n_states:,} states (both attacking sides)")
+            f"{n_states:,} states (both attacking sides){kmeta}")
     page = PAGE.format(meta=meta, data=json.dumps(data),
-                       n_games=f"{n_games:,}", n_states=f"{n_states:,}")
+                       n_games=f"{n_games:,}", n_states=f"{n_states:,}",
+                       summary_table=render_summary_table(summary_rows))
 
     out = os.path.abspath(args.out)
     with open(out, 'w') as f:
