@@ -56,12 +56,12 @@ h2.sec { font-size:19px; margin:44px 0 2px; letter-spacing:-.01em; }
 /* piece icon headers (shared by every grid) */
 .phead { display:flex; align-items:center; gap:6px; }
 .phead.col { flex-direction:column; gap:3px; }
-.picon { position:relative; display:inline-flex; width:26px; height:26px;
+.picon { position:relative; display:inline-flex; width:32px; height:32px;
   flex:0 0 auto; }
 .picon img { width:100%; height:100%; image-rendering:pixelated; }
-.picon .spd { position:absolute; top:-5px; right:-7px; font-size:10px; line-height:1;
-  padding:1px 2px; border-radius:4px; background:var(--ink); color:#ffd23f;
-  box-shadow:0 0 0 1px var(--surface); }
+.picon .spd { position:absolute; right:-3px; bottom:-3px; width:14px; height:14px;
+  line-height:0; filter:drop-shadow(0 0 1px rgba(0,0,0,.7)); }
+.picon .spd svg { width:100%; height:100%; display:block; }
 .plabel { font-size:12.5px; font-weight:600; color:var(--ink); }
 /* aggregate matrix */
 .aggmatrix { min-width:560px; }
@@ -401,8 +401,9 @@ function pieceHeader(piece, col) {
     const img = document.createElement('img'); img.src = src; img.alt = piece;
     ic.appendChild(img);
     if (info.speed) {
-      const b = document.createElement('span'); b.className = 'spd';
-      b.textContent = '⚡'; b.title = 'speed';
+      const b = document.createElement('span'); b.className = 'spd'; b.title = 'speed';
+      b.innerHTML = '<svg viewBox="0 0 24 24"><polygon points="14,2 9,13 12,13 8,22'
+        + ' 18,9 13,9 16,2" fill="#ffeb3b"/></svg>';
       ic.appendChild(b);
     }
   }
@@ -502,7 +503,14 @@ function renderAggregates() {
     const rh = document.createElement('div'); rh.className = 'mrow-head';
     rh.appendChild(pieceHeader(a, false));
     root.appendChild(rh);
-    P.forEach(d => root.appendChild(aggCell(a, d)));
+    P.forEach(d => {
+      if (a === d) {  // drop the diagonal: mirror matchups are trivial coin flips
+        const e = document.createElement('div'); e.className = 'mempty';
+        root.appendChild(e);
+      } else {
+        root.appendChild(aggCell(a, d));
+      }
+    });
   });
 }
 
