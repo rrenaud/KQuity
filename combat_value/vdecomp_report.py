@@ -308,21 +308,6 @@ versus the reverse (K/D = kills&nbsp;for ÷ against). The
 (red) means a losing proposition even before opportunity cost.</p>
 <div class="matrix-wrap"><div class="matrix aggmatrix" id="aggrid"></div></div>
 
-<h2 class="sec">The current-value vs strike-probability tradeoff</h2>
-<p class="sub">The same decision drawn as a wager. In each cell the
-<b style="color:var(--ink)">solid line</b> is the expected value of taking the
-shot as a function of your strike-success probability&nbsp;<b>p</b> &mdash; it
-starts at <b style="color:var(--down)">V<sub>death</sub></b> if you always miss
-(p&nbsp;=&nbsp;0) and rises to <b style="color:var(--up)">V<sub>kill</sub></b> if
-you always land it (p&nbsp;=&nbsp;1). The <b>dashed horizontal</b> is the game's
-<b>current value V(S)</b> &mdash; standing pat. They cross at the break-even
-<b>p*</b> (dot): to its <b style="color:var(--up)">right</b> the shot beats the
-status quo, to its <b style="color:var(--down)">left</b> it doesn't. The
-<b style="color:var(--pstarline)">vertical line</b> marks the <b>empirical win
-rate</b> &mdash; where real play actually lands, so a marker right of the dot
-means the shot pays off on average.</p>
-<div class="matrix-wrap"><div class="matrix aggmatrix" id="trgrid"></div></div>
-
 <div class="controls">
   <span class="seg-label">Defender queen lives:</span>
   <div class="seg" id="seg">
@@ -722,85 +707,6 @@ function renderAggregates() {{
   }});
 }}
 
-// One matchup's decision-as-a-wager: value (y) vs strike probability p (x).
-function tradeoffPanelSVG(s) {{
-  const svg = mk('svg', {{viewBox: `0 0 ${{W}} ${{H}}`}});
-  const sxp = p => M.l + p * PW;               // strike probability 0..1 -> x
-  [0, 0.25, 0.5, 0.75, 1.0].forEach(v => {{
-    const y = sy(v);
-    svg.appendChild(mk('line', {{x1: M.l, y1: y, x2: M.l + PW, y2: y,
-      stroke: 'var(--line)', 'stroke-width': 1}}));
-    svg.appendChild(mk('text', {{x: M.l - 5, y: y + 3, 'text-anchor': 'end', class: 'ax'}}, v.toFixed(2)));
-    svg.appendChild(mk('text', {{x: sxp(v), y: H - M.b + 13, 'text-anchor': 'middle', class: 'ax'}}, v.toFixed(2)));
-  }});
-  svg.appendChild(mk('text', {{x: M.l + PW / 2, y: H - 3, 'text-anchor': 'middle', class: 'axtitle'}}, 'strike probability p'));
-  svg.appendChild(mk('text', {{x: -(M.t + PH / 2), y: 10, 'text-anchor': 'middle', class: 'axtitle',
-    transform: 'rotate(-90)'}}, 'value = P(attacker wins)'));
-
-  const vS = s.vS, vK = s.vK, vD = s.vD, ps = s.pstar;
-  if (vS == null || vK == null || vD == null) return svg;
-  const inRange = ps != null && ps >= 0 && ps <= 1 && vK > vD;
-  if (inRange) {{
-    // downside (p<p*): shot below status quo -> red; upside (p>p*) -> green
-    svg.appendChild(mk('path', {{d: `M ${{sxp(0)}} ${{sy(vS)}} L ${{sxp(0)}} ${{sy(vD)}} L ${{sxp(ps)}} ${{sy(vS)}} Z`,
-      fill: 'var(--down)', 'fill-opacity': 0.15, stroke: 'none'}}));
-    svg.appendChild(mk('path', {{d: `M ${{sxp(ps)}} ${{sy(vS)}} L ${{sxp(1)}} ${{sy(vK)}} L ${{sxp(1)}} ${{sy(vS)}} Z`,
-      fill: 'var(--up)', 'fill-opacity': 0.15, stroke: 'none'}}));
-  }}
-  // current value V(S): dashed horizontal
-  svg.appendChild(mk('line', {{x1: M.l, y1: sy(vS), x2: M.l + PW, y2: sy(vS),
-    stroke: 'var(--sqline)', 'stroke-width': 1.5, 'stroke-dasharray': '5 3'}}));
-  // expected value of the shot: line from (0, vD) to (1, vK)
-  svg.appendChild(mk('line', {{x1: sxp(0), y1: sy(vD), x2: sxp(1), y2: sy(vK),
-    stroke: 'var(--sqline)', 'stroke-width': 2.5}}));
-  svg.appendChild(mk('circle', {{cx: sxp(0), cy: sy(vD), r: 2.4, fill: 'var(--down)'}}));
-  svg.appendChild(mk('circle', {{cx: sxp(1), cy: sy(vK), r: 2.4, fill: 'var(--upline)'}}));
-  // break-even p*: drop line + dot at the crossing
-  if (ps != null && ps >= 0 && ps <= 1) {{
-    svg.appendChild(mk('line', {{x1: sxp(ps), y1: sy(vS), x2: sxp(ps), y2: H - M.b,
-      stroke: 'var(--mut)', 'stroke-width': 1, 'stroke-dasharray': '2 2'}}));
-    svg.appendChild(mk('circle', {{cx: sxp(ps), cy: sy(vS), r: 3.4, fill: 'var(--ink)',
-      stroke: 'var(--surface)', 'stroke-width': 1.2}}));
-    svg.appendChild(mk('text', {{x: sxp(ps), y: H - M.b - 4, 'text-anchor': 'middle', class: 'ax'}},
-      'p*=' + ps.toFixed(2)));
-  }}
-  // empirical win rate: colored vertical marker
-  if (s.win_rate != null) {{
-    svg.appendChild(mk('line', {{x1: sxp(s.win_rate), y1: M.t, x2: sxp(s.win_rate), y2: H - M.b,
-      stroke: 'var(--pstarline)', 'stroke-width': 1.5}}));
-  }}
-  return svg;
-}}
-
-function renderTradeoff() {{
-  const root = document.getElementById('trgrid');
-  if (!root || !DATA.military) return;
-  root.innerHTML = '';
-  const P = DATA.military;
-  root.style.gridTemplateColumns = `max-content repeat(${{P.length}}, minmax(220px, 1fr))`;
-  const corner = document.createElement('div'); corner.className = 'mcorner';
-  corner.innerHTML = 'attacker&nbsp;↓<br>defender&nbsp;→';
-  root.appendChild(corner);
-  P.forEach(d => {{
-    const h = document.createElement('div'); h.className = 'mhead';
-    h.appendChild(pieceHeader(d, true));
-    root.appendChild(h);
-  }});
-  P.forEach(a => {{
-    const rh = document.createElement('div'); rh.className = 'mrow-head';
-    rh.appendChild(pieceHeader(a, false));
-    root.appendChild(rh);
-    P.forEach(d => {{
-      const s = (a === d) ? null : DATA.summary[a + '|' + d];
-      if (!s) {{ const e = document.createElement('div'); e.className = 'mempty'; root.appendChild(e); return; }}
-      const card = document.createElement('div'); card.className = 'panel zoomable';
-      card.dataset.label = pieceLabel(a) + ' → ' + pieceLabel(d) + '  ·  value vs strike probability';
-      card.appendChild(tradeoffPanelSVG(s));
-      root.appendChild(card);
-    }});
-  }});
-}}
-
 // Per matchup: empirical win rate (solid) and model p* (dashed) across the
 // 50 P(attacker-wins) buckets.
 function winprobPanelSVG(m, gs, nb) {{
@@ -881,7 +787,6 @@ document.getElementById('seg').addEventListener('click', ev => {{
   render();
 }});
 renderAggregates();
-renderTradeoff();
 renderWinprob();
 render();
 
