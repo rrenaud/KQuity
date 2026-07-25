@@ -35,6 +35,7 @@ EDGES = [-3, -2, -1, 0, 1, 2, 3, 4]
 LIVES = [2, 1, 0]
 LIVES_NAME = {2: '2 (full)', 1: '1', 0: '0 (last life)'}
 KILL_MATRIX = 'combat_value/_kill_matrix.json'
+KD_WINPROB = 'combat_value/_kd_winprob.json'
 
 # Piece sprites (pixel-art icons from the worker-state-values set) inlined into
 # the page. Each piece maps to a base sprite + whether it carries the speed
@@ -123,7 +124,7 @@ def build_summary_rows(summaries, kill_counts):
     return rows
 
 
-def build(grids, summary_rows):
+def build(grids, summary_rows, winprob=None):
     matchups = []
     for atk, dfn, cap in MATRIX_MATCHUPS:
         grid = grids[(atk, dfn)]
@@ -145,6 +146,8 @@ def build(grids, summary_rows):
             'icons': {k: _icon_uri(k) for k in ('queen', 'warrior', 'drone')},
             'military': [p for p in MILITARY_PIECES if p in used],
             'summary': summary,
+            'winprob': (winprob or {}).get('matchups', {}),
+            'winprob_bins': (winprob or {}).get('bins', 50),
             'lives_name': {str(k): v for k, v in LIVES_NAME.items()}}
 
 
@@ -341,6 +344,22 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
   <div class="it"><span class="bx" style="background:var(--pstar);opacity:.16"></span>IQR (p25–p75)</div>
 </div>
 <div class="matrix-wrap"><div class="matrix" id="pgrid"></div></div>
+
+<h2 class="sec">Empirical win rate vs break-even, across the game</h2>
+<p class="sub">Does real play clear the bar as the game swings? Every kill is scored
+by the model and dropped into one of 50 buckets along <b>P(attacker wins)</b> at
+the moment of the strike. Per matchup, the
+<b style="color:var(--pstarline)">solid line</b> is the <b>empirical win rate</b>
+in each bucket (the attacker's share of the A&harr;B kills, i.e. K/(K+D)); the
+<b style="color:var(--pstar)">dashed line</b> is the model's <b>break-even p*</b>
+over the same fights. Where the solid line sits <b>above</b> the dashed one, those
+shots pay off on average; where it dips below, they don't &mdash; read left-to-right
+to see how that verdict shifts from behind (left) to ahead (right).</p>
+<div class="legend">
+  <div class="it"><span class="sw" style="border-color:var(--sqline)"></span>empirical win rate (K/(K+D))</div>
+  <div class="it"><span class="sw" style="border-color:var(--pstar);border-top-style:dashed"></span>model break-even p*</div>
+</div>
+<div class="matrix-wrap"><div class="matrix" id="wpgrid"></div></div>
 
 <div class="foot">
   <h3>What the shapes mean in-game</h3>
@@ -757,6 +776,70 @@ function renderTradeoff() {{
   }});
 }}
 
+// Per matchup: empirical win rate (solid) and model p* (dashed) across the
+// 50 P(attacker-wins) buckets.
+function winprobPanelSVG(m, nb) {{
+  const svg = mk('svg', {{viewBox: `0 0 ${{W}} ${{H}}`}});
+  const sxp = p => M.l + p * PW;
+  [0, 0.25, 0.5, 0.75, 1.0].forEach(v => {{
+    const y = sy(v);
+    svg.appendChild(mk('line', {{x1: M.l, y1: y, x2: M.l + PW, y2: y,
+      stroke: v === 0.5 ? 'var(--axis)' : 'var(--line)',
+      'stroke-dasharray': v === 0.5 ? '4 3' : '0', 'stroke-width': 1}}));
+    svg.appendChild(mk('text', {{x: M.l - 5, y: y + 3, 'text-anchor': 'end', class: 'ax'}}, v.toFixed(2)));
+    svg.appendChild(mk('text', {{x: sxp(v), y: H - M.b + 13, 'text-anchor': 'middle', class: 'ax'}}, v.toFixed(2)));
+  }});
+  svg.appendChild(mk('text', {{x: M.l + PW / 2, y: H - 3, 'text-anchor': 'middle', class: 'axtitle'}}, 'P(attacker wins)'));
+  svg.appendChild(mk('text', {{x: -(M.t + PH / 2), y: 10, 'text-anchor': 'middle', class: 'axtitle',
+    transform: 'rotate(-90)'}}, 'win rate / p*'));
+
+  const MINN = 200;
+  const emp = [], ps = [];
+  for (let i = 0; i < nb; i++) {{
+    const n = m.wins[i] + m.losses[i];
+    const x = (i + 0.5) / nb;
+    if (n >= MINN) emp.push({{x: x, y: m.wins[i] / n}});
+    if (m.pstar_cnt[i] >= MINN) ps.push({{x: x, y: m.pstar_sum[i] / m.pstar_cnt[i]}});
+  }}
+  const poly = (pts, color, dash, wd) => {{
+    if (pts.length < 2) return;
+    svg.appendChild(mk('polyline', {{points: pts.map(p => `${{sxp(p.x)}},${{sy(p.y)}}`).join(' '),
+      fill: 'none', stroke: color, 'stroke-width': wd, 'stroke-dasharray': dash || '0',
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round'}}));
+  }};
+  poly(ps, 'var(--pstar)', '5 3', 2);        // model break-even p* (dashed violet)
+  poly(emp, 'var(--sqline)', '0', 2.4);      // empirical win rate (solid ink)
+  return svg;
+}}
+
+function renderWinprob() {{
+  const root = document.getElementById('wpgrid');
+  if (!root || !DATA.winprob || !DATA.military) return;
+  root.innerHTML = '';
+  const P = DATA.military, nb = DATA.winprob_bins;
+  root.style.gridTemplateColumns = `max-content repeat(${{P.length}}, minmax(220px, 1fr))`;
+  const corner = document.createElement('div'); corner.className = 'mcorner';
+  corner.innerHTML = 'attacker&nbsp;↓<br>defender&nbsp;→';
+  root.appendChild(corner);
+  P.forEach(d => {{
+    const h = document.createElement('div'); h.className = 'mhead';
+    h.appendChild(pieceHeader(d, true));
+    root.appendChild(h);
+  }});
+  P.forEach(a => {{
+    const rh = document.createElement('div'); rh.className = 'mrow-head';
+    rh.appendChild(pieceHeader(a, false));
+    root.appendChild(rh);
+    P.forEach(d => {{
+      const m = (a === d) ? null : DATA.winprob[a + '|' + d];
+      if (!m) {{ const e = document.createElement('div'); e.className = 'mempty'; root.appendChild(e); return; }}
+      const card = document.createElement('div'); card.className = 'panel';
+      card.appendChild(winprobPanelSVG(m, nb));
+      root.appendChild(card);
+    }});
+  }});
+}}
+
 function render() {{
   renderMatrix('grid', panelSVG);
   renderMatrix('pgrid', pstarPanelSVG);
@@ -771,6 +854,7 @@ document.getElementById('seg').addEventListener('click', ev => {{
 }});
 renderAggregates();
 renderTradeoff();
+renderWinprob();
 render();
 </script>
 </body></html>'''
@@ -817,13 +901,19 @@ def main() -> None:
         print(f"No {KILL_MATRIX}; empirical columns omitted "
               f"(run `python -m combat_value.kills`)")
 
+    winprob = None
+    if os.path.exists(KD_WINPROB):
+        winprob = json.load(open(KD_WINPROB))
+        print(f"Loaded win-prob buckets: {winprob['meta']['n_kills']:,} kills, "
+              f"{winprob['bins']} bins")
+
     summary_rows = build_summary_rows(summaries, kill_counts)
     for r in summary_rows:
         ps = '   n/a' if r['pstar'] is None else f'{r["pstar"]:6.3f}'
         wr = '  n/a' if r['win_rate'] is None else f'{r["win_rate"]:5.3f}'
         print(f"  {r['atk']:15s} vs {r['dfn']:15s}  p*={ps}  win%={wr}")
 
-    data = build(grids, summary_rows)
+    data = build(grids, summary_rows, winprob)
     kmeta = (f" · Kills: {kill_meta['n_kills']:,} over {kill_meta['n_games']:,} games"
              if kill_meta else '')
     meta = (f"Model: {os.path.basename(os.path.realpath(args.model))} · "
