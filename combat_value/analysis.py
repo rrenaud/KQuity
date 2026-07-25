@@ -24,6 +24,28 @@ def valid_mask(res: core.MatchupResult) -> np.ndarray:
     return res.applicable & np.isfinite(res.pstar)
 
 
+WINPROB_BINS = 50
+
+
+def pstar_by_winprob(res: core.MatchupResult, nb: int = WINPROB_BINS):
+    """Bin per-state p* by V(S) = P(attacker wins) over all game states.
+
+    Returns (sum, count) arrays of length ``nb``; mean p* per bin is sum/count.
+    This is the model's optimal break-even as a function of the current
+    win-probability, over the *game-state* population (not just the states where
+    a kill happened).
+    """
+    m = valid_mask(res)
+    vS = res.vS[m]
+    ps = res.pstar[m]
+    bins = np.clip((vS * nb).astype(np.int64), 0, nb - 1)
+    s = np.zeros(nb, np.float64)
+    c = np.zeros(nb, np.int64)
+    np.add.at(s, bins, ps)
+    np.add.at(c, bins, 1)
+    return s, c
+
+
 def summarize(res: core.MatchupResult) -> dict:
     """Distribution summary of p* over all valid states in a matchup."""
     m = valid_mask(res)

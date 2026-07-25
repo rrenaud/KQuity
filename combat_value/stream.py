@@ -54,6 +54,8 @@ def _new_accum():
         'hist': np.zeros((EGG_MAX + 1, NWN, HIST_BINS), np.float64),
         'under': np.zeros((EGG_MAX + 1, NWN), np.float64),
         'over':  np.zeros((EGG_MAX + 1, NWN), np.float64),
+        'wp_sum': np.zeros(analysis.WINPROB_BINS, np.float64),
+        'wp_cnt': np.zeros(analysis.WINPROB_BINS, np.float64),
         'n_applicable': 0,
         'n_terminal_kill': 0,
     }
@@ -63,6 +65,11 @@ def _accumulate(acc, res):
     app = res.applicable
     acc['n_applicable'] += int(app.sum())
     acc['n_terminal_kill'] += int((res.terminal_kill & app).sum())
+
+    # p* over game states, binned by V(S) = P(attacker wins)
+    wps, wpc = analysis.pstar_by_winprob(res)
+    acc['wp_sum'] += wps
+    acc['wp_cnt'] += wpc
 
     m = analysis.valid_mask(res)
     de = np.clip(res.feats['def_eggs'][m], 0, EGG_MAX)
@@ -197,6 +204,8 @@ def compute_cache(data_path, model, matchups, batch_games=4000, max_games=None,
             'attacker_piece': a, 'defender_piece': d,
             'rows': _finalize_rows(accums[k]),
             'summary': _finalize_summary(accums[k], label),
+            'winprob_pstar_sum': [round(x, 4) for x in accums[k]['wp_sum'].tolist()],
+            'winprob_cnt': accums[k]['wp_cnt'].astype(np.int64).tolist(),
         }
     out['meta'] = {'data': data_path, 'n_games': n_games, 'n_states': n_states}
     return out

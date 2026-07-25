@@ -79,14 +79,17 @@ def point(cell) -> dict | None:
 def compute_grids(model, X, gids, ts):
     results = core.evaluate_matchups_shared(X, model.predict, MATRIX_MATCHUPS,
                                             game_ids=gids, timestamps=ts)
-    grids, summaries = {}, {}
+    grids, summaries, wp_gs = {}, {}, {}
     for atk, dfn, _cap in MATRIX_MATCHUPS:
         res = results[(atk, dfn)]
         rows = analysis.bucket_table(res, ['def_eggs', 'net_warriors'])
         grids[(atk, dfn)] = {(r['def_eggs'], r['net_warriors']): r for r in rows}
         summaries[(atk, dfn)] = analysis.summarize(res)
+        s, c = analysis.pstar_by_winprob(res)
+        wp_gs[f'{atk}|{dfn}'] = {'ps_sum': [round(x, 4) for x in s.tolist()],
+                                 'cnt': c.astype(int).tolist()}
         print(f"  {atk:16s} vs {dfn:16s}")
-    return grids, summaries
+    return grids, summaries, wp_gs
 
 
 def _global_pstar(summ) -> float | None:
@@ -124,7 +127,7 @@ def build_summary_rows(summaries, kill_counts):
     return rows
 
 
-def build(grids, summary_rows, winprob=None):
+def build(grids, summary_rows, winprob=None, winprob_gs=None):
     matchups = []
     for atk, dfn, cap in MATRIX_MATCHUPS:
         grid = grids[(atk, dfn)]
@@ -148,6 +151,7 @@ def build(grids, summary_rows, winprob=None):
             'summary': summary,
             'winprob': (winprob or {}).get('matchups', {}),
             'winprob_bins': (winprob or {}).get('bins', 50),
+            'winprob_gs': winprob_gs or {},
             'lives_name': {str(k): v for k, v in LIVES_NAME.items()}}
 
 
@@ -357,18 +361,22 @@ the less a fight can add and the more it can cost, so the bar to take it rises.<
 <div class="matrix-wrap"><div class="matrix" id="pgrid"></div></div>
 
 <h2 class="sec">Empirical win rate vs break-even, across the game</h2>
-<p class="sub">Does real play clear the bar as the game swings? Every kill is scored
-by the model and dropped into one of 50 buckets along <b>P(attacker wins)</b> at
-the moment of the strike. Per matchup, the
-<b style="color:var(--pstarline)">solid line</b> is the <b>empirical win rate</b>
-in each bucket (the attacker's share of the A&harr;B kills, i.e. K/(K+D)); the
-<b style="color:var(--pstar)">dashed line</b> is the model's <b>break-even p*</b>
-over the same fights. Where the solid line sits <b>above</b> the dashed one, those
-shots pay off on average; where it dips below, they don't &mdash; read left-to-right
-to see how that verdict shifts from behind (left) to ahead (right).</p>
+<p class="sub">Does real play clear the bar as the game swings? Every state is
+scored by the model and dropped into one of 50 buckets along
+<b>P(attacker wins)</b>. Per matchup, the
+<b style="color:var(--sqline)">solid line</b> is the <b>empirical win rate</b> in
+each bucket (the attacker's share of the A&harr;B kills, K/(K+D)). The two dashed
+lines are the model's <b>break-even p*</b> &mdash; what it thinks is optimal: the
+<b style="color:var(--pstar)">violet</b> one is p* at the <b>fights that actually
+happened</b>, the <b style="color:var(--upline)">green</b> one is p* over
+<b>all game states</b> in the bucket (its general prescription, not conditioned
+on a kill). Where the solid line sits <b>above</b> a dashed one, those shots pay
+off on average; read left-to-right to see how the verdict shifts from behind
+(left) to ahead (right).</p>
 <div class="legend">
   <div class="it"><span class="sw" style="border-color:var(--sqline)"></span>empirical win rate (K/(K+D))</div>
-  <div class="it"><span class="sw" style="border-color:var(--pstar);border-top-style:dashed"></span>model break-even p*</div>
+  <div class="it"><span class="sw" style="border-color:var(--pstar);border-top-style:dashed"></span>model p* · at these fights</div>
+  <div class="it"><span class="sw" style="border-color:var(--upline);border-top-style:dotted"></span>model p* · all game states</div>
 </div>
 <div class="matrix-wrap"><div class="matrix" id="wpgrid"></div></div>
 
@@ -795,7 +803,7 @@ function renderTradeoff() {{
 
 // Per matchup: empirical win rate (solid) and model p* (dashed) across the
 // 50 P(attacker-wins) buckets.
-function winprobPanelSVG(m, nb) {{
+function winprobPanelSVG(m, gs, nb) {{
   const svg = mk('svg', {{viewBox: `0 0 ${{W}} ${{H}}`}});
   const sxp = p => M.l + p * PW;
   [0, 0.25, 0.5, 0.75, 1.0].forEach(v => {{
@@ -811,12 +819,13 @@ function winprobPanelSVG(m, nb) {{
     transform: 'rotate(-90)'}}, 'win rate / p*'));
 
   const MINN = 200;
-  const emp = [], ps = [];
+  const emp = [], ps = [], gsp = [];
   for (let i = 0; i < nb; i++) {{
     const n = m.wins[i] + m.losses[i];
     const x = (i + 0.5) / nb;
     if (n >= MINN) emp.push({{x: x, y: m.wins[i] / n}});
     if (m.pstar_cnt[i] >= MINN) ps.push({{x: x, y: m.pstar_sum[i] / m.pstar_cnt[i]}});
+    if (gs && gs.cnt[i] >= MINN) gsp.push({{x: x, y: gs.ps_sum[i] / gs.cnt[i]}});
   }}
   const poly = (pts, color, dash, wd) => {{
     if (pts.length < 2) return;
@@ -824,7 +833,8 @@ function winprobPanelSVG(m, nb) {{
       fill: 'none', stroke: color, 'stroke-width': wd, 'stroke-dasharray': dash || '0',
       'stroke-linejoin': 'round', 'stroke-linecap': 'round'}}));
   }};
-  poly(ps, 'var(--pstar)', '5 3', 2);        // model break-even p* (dashed violet)
+  poly(gsp, 'var(--upline)', '1 3', 2);      // model p* over all game states (dotted green)
+  poly(ps, 'var(--pstar)', '5 3', 2);        // model p* at these fights (dashed violet)
   poly(emp, 'var(--sqline)', '0', 2.4);      // empirical win rate (solid ink)
   return svg;
 }}
@@ -852,7 +862,7 @@ function renderWinprob() {{
       if (!m) {{ const e = document.createElement('div'); e.className = 'mempty'; root.appendChild(e); return; }}
       const card = document.createElement('div'); card.className = 'panel zoomable';
       card.dataset.label = pieceLabel(a) + ' → ' + pieceLabel(d) + '  ·  win rate vs p*';
-      card.appendChild(winprobPanelSVG(m, nb));
+      card.appendChild(winprobPanelSVG(m, (DATA.winprob_gs || {{}})[a + '|' + d], nb));
       root.appendChild(card);
     }});
   }});
@@ -914,6 +924,12 @@ def main() -> None:
         grids = {(a, d): stream.cache_grid(cache, a, d) for a, d, *_ in MATRIX_MATCHUPS}
         summaries = {(a, d): stream.cache_summary(cache, a, d)
                      for a, d, *_ in MATRIX_MATCHUPS}
+        winprob_gs = {}
+        for a, d, *_ in MATRIX_MATCHUPS:
+            e = cache['matchups'].get(stream.matchup_key(a, d), {})
+            if 'winprob_pstar_sum' in e:
+                winprob_gs[f'{a}|{d}'] = {'ps_sum': e['winprob_pstar_sum'],
+                                         'cnt': e['winprob_cnt']}
         n_games, n_states, data_src = (cache['meta']['n_games'],
                                        cache['meta']['n_states'], cache['meta']['data'])
     else:
@@ -923,7 +939,7 @@ def main() -> None:
         from event_codec import fast_materialize_from_codec
         X, y, gids, ts = fast_materialize_from_codec(args.data, max_games=args.max_games)
         print(f"  {len(X):,} states")
-        grids, summaries = compute_grids(model, X, gids, ts)
+        grids, summaries, winprob_gs = compute_grids(model, X, gids, ts)
         n_games, n_states, data_src = args.max_games, len(X), args.data
 
     # Empirical kill/death matrix (model-free); optional.
@@ -949,7 +965,7 @@ def main() -> None:
         wr = '  n/a' if r['win_rate'] is None else f'{r["win_rate"]:5.3f}'
         print(f"  {r['atk']:15s} vs {r['dfn']:15s}  p*={ps}  win%={wr}")
 
-    data = build(grids, summary_rows, winprob)
+    data = build(grids, summary_rows, winprob, winprob_gs)
     kmeta = (f" · Kills: {kill_meta['n_kills']:,} over {kill_meta['n_games']:,} games"
              if kill_meta else '')
     meta = (f"Model: {os.path.basename(os.path.realpath(args.model))} · "
