@@ -204,6 +204,17 @@ h2.sec {{ font-size:19px; margin:44px 0 2px; letter-spacing:-.01em; }}
 .panel {{ background:var(--surface); border:1px solid var(--ring); border-radius:12px;
   padding:12px 12px 8px; }}
 .panel svg {{ width:100%; height:auto; display:block; overflow:visible; }}
+.panel.zoomable {{ cursor:zoom-in; }}
+#zoom {{ position:fixed; inset:0; z-index:50; display:none; align-items:center;
+  justify-content:center; background:rgba(0,0,0,.72); padding:24px; cursor:zoom-out; }}
+#zoom.open {{ display:flex; }}
+#zoom .zbox {{ background:var(--surface); border:1px solid var(--ring); border-radius:14px;
+  padding:20px 24px 22px; width:min(94vw, 940px); max-height:94vh; overflow:auto;
+  box-shadow:0 24px 70px rgba(0,0,0,.55); }}
+#zoom .zttl {{ font-size:15px; font-weight:650; color:var(--ink); margin:0 0 10px;
+  display:flex; align-items:center; gap:8px; }}
+#zoom .zttl .esc {{ margin-left:auto; font-size:11px; font-weight:400; color:var(--mut); }}
+#zoom svg {{ width:100%; height:auto; display:block; overflow:visible; }}
 .ax {{ fill:var(--mut); font-size:10px; }}
 .axtitle {{ fill:var(--mut); font-size:10px; }}
 /* piece icon headers (shared by every grid) */
@@ -429,6 +440,10 @@ to see how that verdict shifts from behind (left) to ahead (right).</p>
 </div>
 </div>
 <div id="tip"></div>
+<div id="zoom"><div class="zbox">
+  <div class="zttl"><span id="ztitle"></span><span class="esc">click anywhere or Esc to close</span></div>
+  <div id="zsvg"></div>
+</div></div>
 <script>
 const DATA = {data};
 const tip = document.getElementById('tip');
@@ -606,8 +621,9 @@ function fmtKD(s) {{
 
 function makeCard(mchp, panelFn) {{
   const pts = mchp.lives[curLv] || [];
-  const card = document.createElement('div'); card.className = 'panel';
+  const card = document.createElement('div'); card.className = 'panel zoomable';
   card.title = mchp.subtitle;
+  card.dataset.label = mchp.title;
   card.appendChild(panelFn(pts));
   return card;
 }}
@@ -769,7 +785,8 @@ function renderTradeoff() {{
     P.forEach(d => {{
       const s = (a === d) ? null : DATA.summary[a + '|' + d];
       if (!s) {{ const e = document.createElement('div'); e.className = 'mempty'; root.appendChild(e); return; }}
-      const card = document.createElement('div'); card.className = 'panel';
+      const card = document.createElement('div'); card.className = 'panel zoomable';
+      card.dataset.label = pieceLabel(a) + ' → ' + pieceLabel(d) + '  ·  value vs strike probability';
       card.appendChild(tradeoffPanelSVG(s));
       root.appendChild(card);
     }});
@@ -833,7 +850,8 @@ function renderWinprob() {{
     P.forEach(d => {{
       const m = (a === d) ? null : DATA.winprob[a + '|' + d];
       if (!m) {{ const e = document.createElement('div'); e.className = 'mempty'; root.appendChild(e); return; }}
-      const card = document.createElement('div'); card.className = 'panel';
+      const card = document.createElement('div'); card.className = 'panel zoomable';
+      card.dataset.label = pieceLabel(a) + ' → ' + pieceLabel(d) + '  ·  win rate vs p*';
       card.appendChild(winprobPanelSVG(m, nb));
       root.appendChild(card);
     }});
@@ -856,6 +874,24 @@ renderAggregates();
 renderTradeoff();
 renderWinprob();
 render();
+
+// Click a plot to open an enlarged copy; click anywhere / Esc to close.
+const zoom = document.getElementById('zoom');
+document.addEventListener('click', e => {{
+  if (zoom.contains(e.target)) return;
+  const panel = e.target.closest && e.target.closest('.panel.zoomable');
+  const svg = panel && panel.querySelector(':scope > svg');
+  if (!svg) return;
+  document.getElementById('ztitle').textContent = panel.dataset.label || '';
+  const zsvg = document.getElementById('zsvg');
+  zsvg.innerHTML = '';
+  zsvg.appendChild(svg.cloneNode(true));
+  zoom.classList.add('open');
+}});
+zoom.addEventListener('click', () => zoom.classList.remove('open'));
+document.addEventListener('keydown', e => {{
+  if (e.key === 'Escape') zoom.classList.remove('open');
+}});
 </script>
 </body></html>'''
 
