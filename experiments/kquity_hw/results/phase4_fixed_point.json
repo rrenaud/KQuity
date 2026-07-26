@@ -1,0 +1,359 @@
+{
+  "seed": 0,
+  "n_train": 187447,
+  "n_test": 46091,
+  "float_weights": {
+    "egg_diff": 0.7172023903658765,
+    "food_diff": 0.22345489512672334,
+    "snail_pos": 0.8496775566530312,
+    "soldier_diff": 0.4884784155814849,
+    "warrior_diff": 0.2787257241455861,
+    "berries_norm": -0.08322983168206578
+  },
+  "float_intercept": 0.08716058794649512,
+  "feature_norm": {
+    "egg_diff": {
+      "center": 0.0,
+      "half_range": 4.0
+    },
+    "food_diff": {
+      "center": 0.0,
+      "half_range": 16.0
+    },
+    "snail_pos": {
+      "center": 0.0,
+      "half_range": 1.0
+    },
+    "soldier_diff": {
+      "center": 0.0,
+      "half_range": 4.0
+    },
+    "warrior_diff": {
+      "center": 0.0,
+      "half_range": 4.0
+    },
+    "berries_norm": {
+      "center": 0.7,
+      "half_range": 0.3
+    }
+  },
+  "diff_names": [
+    "egg_diff",
+    "food_diff",
+    "snail_pos",
+    "soldier_diff",
+    "warrior_diff",
+    "berries_norm"
+  ],
+  "float_metrics": {
+    "prob_rmse_vs_oracle": 0.11295401629292656,
+    "logit_rmse_vs_oracle": 0.7499473151377345,
+    "logloss": 0.5866831329804691,
+    "brier": 0.20174345212889916,
+    "auc": 0.7494976748069878,
+    "ece10": 0.05194081817624592,
+    "acc@0.5": 0.6838862250764791
+  },
+  "oracle_baseline_auc": 0.7900701513553325,
+  "oracle_baseline_brier": 0.18678345878336408,
+  "oracle_baseline_ece10": 0.0543182528761244,
+  "runs": [
+    {
+      "n_bits_features": 8,
+      "n_bits_weights": 8,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.0016012262061037067,
+        "prob_rmse_vs_oracle": 0.11297200952572986,
+        "logit_rmse_vs_oracle": 0.7499494586724799,
+        "logloss": 0.5866671525091298,
+        "brier": 0.20174501288046848,
+        "auc": 0.7496792057549388,
+        "ece10": 0.05266601735989449,
+        "acc@0.5": 0.6840597947538565
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0018612337890829508,
+        "prob_rmse_vs_oracle": 0.1129804023819662,
+        "logit_rmse_vs_oracle": 0.7499676444742914,
+        "logloss": 0.5866356921375475,
+        "brier": 0.20173142517540824,
+        "auc": 0.7497538812655803,
+        "ece10": 0.052617786359268,
+        "acc@0.5": 0.6840597947538565
+      },
+      "weights_int": [
+        91,
+        28,
+        108,
+        62,
+        35,
+        -11
+      ],
+      "intercept_int": 11
+    },
+    {
+      "n_bits_features": 8,
+      "n_bits_weights": 12,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.0012028629997810102,
+        "prob_rmse_vs_oracle": 0.11316311662047299,
+        "logit_rmse_vs_oracle": 0.7501040473630823,
+        "logloss": 0.5866234758556461,
+        "brier": 0.20173152493908045,
+        "auc": 0.749477705171682,
+        "ece10": 0.05193399772270228,
+        "acc@0.5": 0.6836258705604131
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0015402648295927861,
+        "prob_rmse_vs_oracle": 0.11316849386402181,
+        "logit_rmse_vs_oracle": 0.7501284239343451,
+        "logloss": 0.5866101063652551,
+        "brier": 0.2017230767067709,
+        "auc": 0.7494568084159545,
+        "ece10": 0.05189967605098224,
+        "acc@0.5": 0.6836258705604131
+      },
+      "weights_int": [
+        1468,
+        457,
+        1739,
+        1000,
+        571,
+        -170
+      ],
+      "intercept_int": 178
+    },
+    {
+      "n_bits_features": 8,
+      "n_bits_weights": 16,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.0012234961966500928,
+        "prob_rmse_vs_oracle": 0.11317962486167175,
+        "logit_rmse_vs_oracle": 0.7501408290510828,
+        "logloss": 0.5866323895237575,
+        "brier": 0.20173583808902598,
+        "auc": 0.7494525055769852,
+        "ece10": 0.05192238014799338,
+        "acc@0.5": 0.6832787312056584
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0015493922407406645,
+        "prob_rmse_vs_oracle": 0.11318539964133438,
+        "logit_rmse_vs_oracle": 0.7501749121133434,
+        "logloss": 0.5866266413986572,
+        "brier": 0.201731314587787,
+        "auc": 0.7493659179153661,
+        "ece10": 0.0518960088939176,
+        "acc@0.5": 0.6832787312056584
+      },
+      "weights_int": [
+        23501,
+        7322,
+        27841,
+        16006,
+        9133,
+        -2727
+      ],
+      "intercept_int": 2856
+    },
+    {
+      "n_bits_features": 12,
+      "n_bits_weights": 8,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.0015391811035828798,
+        "prob_rmse_vs_oracle": 0.11276657468756926,
+        "logit_rmse_vs_oracle": 0.7498081117216808,
+        "logloss": 0.5867194865669362,
+        "brier": 0.20175386802481957,
+        "auc": 0.7497478261305444,
+        "ece10": 0.052599152043114494,
+        "acc@0.5": 0.6841682758022174
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0018156897555272082,
+        "prob_rmse_vs_oracle": 0.11275487652596788,
+        "logit_rmse_vs_oracle": 0.749773043322517,
+        "logloss": 0.5867202026818167,
+        "brier": 0.201755612777429,
+        "auc": 0.7497264004160701,
+        "ece10": 0.05253089137364311,
+        "acc@0.5": 0.6841682758022174
+      },
+      "weights_int": [
+        91,
+        28,
+        108,
+        62,
+        35,
+        -11
+      ],
+      "intercept_int": 11
+    },
+    {
+      "n_bits_features": 12,
+      "n_bits_weights": 12,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.00012347161650838124,
+        "prob_rmse_vs_oracle": 0.11295199187358915,
+        "logit_rmse_vs_oracle": 0.7499229795563362,
+        "logloss": 0.5866713694571759,
+        "brier": 0.2017388010836563,
+        "auc": 0.7495187677583233,
+        "ece10": 0.05194889268477856,
+        "acc@0.5": 0.6838211364474627
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0009713915521805775,
+        "prob_rmse_vs_oracle": 0.11295098608420183,
+        "logit_rmse_vs_oracle": 0.7499378925409065,
+        "logloss": 0.5866830285472645,
+        "brier": 0.20174181418462844,
+        "auc": 0.7494376581858345,
+        "ece10": 0.0519039217855125,
+        "acc@0.5": 0.6838211364474627
+      },
+      "weights_int": [
+        1468,
+        457,
+        1739,
+        1000,
+        571,
+        -170
+      ],
+      "intercept_int": 178
+    },
+    {
+      "n_bits_features": 12,
+      "n_bits_weights": 16,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 7.761243073963263e-05,
+        "prob_rmse_vs_oracle": 0.11296819717150598,
+        "logit_rmse_vs_oracle": 0.7499575035149602,
+        "logloss": 0.5866800021798355,
+        "brier": 0.20174301834935687,
+        "auc": 0.7494852625495587,
+        "ece10": 0.05193725597344152,
+        "acc@0.5": 0.6838428326571347
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0009657985831764375,
+        "prob_rmse_vs_oracle": 0.1129804627207968,
+        "logit_rmse_vs_oracle": 0.7500081331125741,
+        "logloss": 0.5866864478267578,
+        "brier": 0.20174375772499098,
+        "auc": 0.7494414840001885,
+        "ece10": 0.051893317592674806,
+        "acc@0.5": 0.6838428326571347
+      },
+      "weights_int": [
+        23501,
+        7322,
+        27841,
+        16006,
+        9133,
+        -2727
+      ],
+      "intercept_int": 2856
+    },
+    {
+      "n_bits_features": 16,
+      "n_bits_weights": 8,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.0015629523179077768,
+        "prob_rmse_vs_oracle": 0.1127541629234951,
+        "logit_rmse_vs_oracle": 0.7498013338994988,
+        "logloss": 0.5867225046860288,
+        "brier": 0.20175431025817245,
+        "auc": 0.7497431828344908,
+        "ece10": 0.05260111317295464,
+        "acc@0.5": 0.6841031871732008
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0018356347930646138,
+        "prob_rmse_vs_oracle": 0.11274383744451766,
+        "logit_rmse_vs_oracle": 0.7497626610714183,
+        "logloss": 0.5867258509289566,
+        "brier": 0.20175743122577247,
+        "auc": 0.7497028473256906,
+        "ece10": 0.05256462857292164,
+        "acc@0.5": 0.6841031871732008
+      },
+      "weights_int": [
+        91,
+        28,
+        108,
+        62,
+        35,
+        -11
+      ],
+      "intercept_int": 11
+    },
+    {
+      "n_bits_features": 16,
+      "n_bits_weights": 12,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 0.00011354861327071064,
+        "prob_rmse_vs_oracle": 0.11293922735878989,
+        "logit_rmse_vs_oracle": 0.749913768605584,
+        "logloss": 0.5866741131688198,
+        "brier": 0.20173914526655012,
+        "auc": 0.7495648621852612,
+        "ece10": 0.05195518409484893,
+        "acc@0.5": 0.6839079212861513
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0009698143271075219,
+        "prob_rmse_vs_oracle": 0.11293795145427299,
+        "logit_rmse_vs_oracle": 0.7499272750991371,
+        "logloss": 0.5866800282735998,
+        "brier": 0.2017408825319604,
+        "auc": 0.7494741794211989,
+        "ece10": 0.051897421589457836,
+        "acc@0.5": 0.6839079212861513
+      },
+      "weights_int": [
+        1468,
+        457,
+        1739,
+        1000,
+        571,
+        -170
+      ],
+      "intercept_int": 178
+    },
+    {
+      "n_bits_features": 16,
+      "n_bits_weights": 16,
+      "metrics_vs_float_and_oracle": {
+        "prob_rmse_vs_float": 6.633463551916281e-06,
+        "prob_rmse_vs_oracle": 0.1129554140100114,
+        "logit_rmse_vs_oracle": 0.7499481546610117,
+        "logloss": 0.5866827286923256,
+        "brier": 0.20174335666974977,
+        "auc": 0.7494975574743203,
+        "ece10": 0.05193920843760346,
+        "acc@0.5": 0.6838862250764791
+      },
+      "lut_sigmoid": {
+        "prob_rmse_vs_float": 0.0009627285457292322,
+        "prob_rmse_vs_oracle": 0.11296545037128754,
+        "logit_rmse_vs_oracle": 0.7500012462996383,
+        "logloss": 0.5866867083601882,
+        "brier": 0.20174326003541782,
+        "auc": 0.7494565968324558,
+        "ece10": 0.051894155360935286,
+        "acc@0.5": 0.6838862250764791
+      },
+      "weights_int": [
+        23501,
+        7322,
+        27841,
+        16006,
+        9133,
+        -2727
+      ],
+      "intercept_int": 2856
+    }
+  ]
+}

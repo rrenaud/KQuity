@@ -1,0 +1,44 @@
+{
+  "config": {
+    "source": "xgboost",
+    "n_estimators": 50,
+    "max_depth": 5,
+    "n_features": 52,
+    "xilinx_part": "xck26-sfvc784-2LV-c",
+    "clock_period_ns": 5,
+    "precision": "ap_fixed<16,6>"
+  },
+  "small_model_metrics": {
+    "prob_rmse_vs_oracle": 0.09423910319200307,
+    "logloss": 0.5669904947280884,
+    "brier": 0.19283993542194366,
+    "auc": 0.7750590715161343
+  },
+  "csynth_top": {
+    "clock_target_ns": 5.0,
+    "clock_estimated_ns": 3.644,
+    "fmax_mhz": 274.423710208562,
+    "latency_min": 4,
+    "latency_max": 4,
+    "interval_min": 1,
+    "interval_max": 1,
+    "bram_18k": 0,
+    "dsp": 0,
+    "ff": 2800,
+    "lut": 39986,
+    "uram": 0
+  },
+  "comparison_to_extracted_phase5": {
+    "lut_ratio": 148.64684014869889,
+    "extracted_phase5": {
+      "lut": 269,
+      "ff": 180,
+      "dsp": 2,
+      "bram_18k": 0,
+      "latency_cycles": 4,
+      "fmax_mhz": 288.9,
+      "auc": 0.7496,
+      "brier": 0.2017
+    }
+  }
+}

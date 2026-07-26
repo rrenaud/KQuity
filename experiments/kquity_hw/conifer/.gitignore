@@ -1,0 +1,19 @@
+# Conifer-generated HLS project tree (large, regeneratable)
+results/conifer_xgb_*/firmware/
+results/conifer_xgb_*/tb_data/
+results/conifer_xgb_*/my_prj/
+results/conifer_xgb_*/build.log
+results/conifer_xgb_*/*.dat
+results/conifer_xgb_*/vitis_hls.log
+
+# Stale ONNX models from the failed LightGBM->ONNX path
+results/*.onnx
+
+# 12-bit Vitis HLS project tree (regeneratable)
+results_p12/conifer_xgb_*/firmware/
+results_p12/conifer_xgb_*/tb_data/
+results_p12/conifer_xgb_*/my_prj/
+results_p12/conifer_xgb_*/build.log
+results_p12/conifer_xgb_*/*.dat
+results_p12/conifer_xgb_*/vitis_hls.log
+results_p12/*.onnx
