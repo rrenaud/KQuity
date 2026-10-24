@@ -11,6 +11,8 @@ Killer Queen is a 5v5 arcade strategy game played on a shared cabinet. Two teams
 
 The map is horizontally contiguous — entities that exit one edge appear on the opposite side with preserved momentum.
 
+**Coordinate convention:** y=0 is the **bottom** of the map and y increases upward (Cartesian, not screen-space). So on Day the speed gates at y=860 sit near the top of the map, and the wings gates at y=260 sit low. Berry/gate coordinates in `map_structure_info.json` follow this convention.
+
 ## Win Conditions
 
 | Win condition | Mechanism | Model state |
